@@ -1,0 +1,218 @@
+# 06 — Data Model (MongoDB Atlas, field-api)
+
+Conventions
+- `_id`: ObjectId unless noted. Client-created entities also carry `clientId` (UUIDv7) with a unique index for idempotent sync.
+- All docs have `createdAt`, `updatedAt` (UTC Date), `version` (int, optimistic concurrency, incremented on each update), and `schemaVersion` (int, for migrations).
+- Money: `…Poisha` integer fields. Never floats.
+- Business dates: `businessDate: 'YYYY-MM-DD'` in Asia/Dhaka.
+- `branchId` on every branch-scoped document (scope filter + index prefix).
+- Soft delete only where noted (`deletedAt`); money and audit records are never deleted.
+- Geo: GeoJSON `{ type: 'Point', coordinates: [lng, lat] }` with `2dsphere` index.
+- Microfinance: reserved prefix `mf_`; no collections now.
+
+## 1. Identity and access
+
+### users
+```json
+{ "_id": "6734…", "name": { "bn": "রাকিব হাসান", "en": "Rakib Hasan" }, "phone": "+8801712345678",
+  "username": "rakib.h", "passwordHash": "$argon2id$…", "mustChangePassword": false,
+  "role": "field_staff", "branchIds": ["6731…"], "employeeCode": "FS014", "erpEmployeeId": "E-2231",
+  "photoMediaId": null, "shiftId": "6735…", "cashLimitPoisha": 5000000, "active": true,
+  "locale": "bn", "digits": "bn", "privacyNoticeAcceptedVersion": "2026-11-v1", "lastLoginAt": "…" }
+```
+Indexes: `{ phone: 1 } unique`, `{ username: 1 } unique sparse`, `{ employeeCode: 1 } unique`, `{ branchIds: 1, role: 1, active: 1 }`.
+
+### sessions
+`{ _id, userId, familyId, refreshTokenHash (sha256), deviceId, client: 'app'|'web', userAgent, ip, createdAt, lastUsedAt, expiresAt, revokedAt, revokedReason }`
+Indexes: `{ refreshTokenHash: 1 } unique`, `{ userId: 1, revokedAt: 1 }`, TTL `{ expiresAt: 1 } expireAfterSeconds: 0`.
+
+### login_attempts
+`{ key: 'acct:+8801…'|'ip:1.2.3.4', at, success }` · TTL 1 day on `at`.
+
+### permission_overrides
+`{ _id, level: 'branch'|'user', branchId?, role?, userId?, key, effect: 'allow'|'deny', reason, setBy, setAt }`
+Indexes: `{ level:1, userId:1, key:1 } unique partial(level='user')`, `{ level:1, branchId:1, role:1, key:1 } unique partial(level='branch')`.
+
+### devices
+`{ _id, deviceId (app install UUID), userId, model, manufacturer, androidVersion, appVersion, boundAt, unboundAt, lastSeenAt, rooted, emulator, fcmToken }`
+Indexes: `{ deviceId: 1 } unique`, `{ userId: 1, unboundAt: 1 }`.
+
+## 2. Reference data
+
+### branches
+`{ _id, erpBranchId, code: 'BRL01', name: {bn,en}, district, address, location: Point|null, active, dutyOverride?: {shiftId}, cashLimitDefaultPoisha, erpSyncedAt }` · `{ erpBranchId:1 } unique`, `{ code:1 } unique`.
+
+### settings
+`{ _id, key: 'cash.limitMode', scope: 'global'|'branch', branchId?, value, type, updatedBy, updatedAt }` · `{ key:1, scope:1, branchId:1 } unique`.
+
+### feature_flags
+`{ _id: 'module.collections', defaultEnabled: false, branchOverrides: [{branchId, enabled}], description, owner, reviewBy, updatedBy, updatedAt }`.
+
+### holidays · shifts
+`holidays { date: 'YYYY-MM-DD', name {bn,en}, branchIds: [] (empty = all), type: 'national'|'branch' }` · index `{ date:1 }`.
+`shifts { name, start: '09:00', end: '18:00', weeklyOff: [5] (0=Sun … 5=Fri), lateGraceMin, maxBreakMin }`.
+
+## 3. ERP read model (cache, never truth)
+
+### erp_customers
+```json
+{ "_id": "6740…", "erpCustomerId": "C-100245", "branchId": "6731…", "erpBranchId": "3",
+  "code": "BRL01-100245", "name": { "bn": "মোঃ করিম উদ্দিন", "en": "Md Karim Uddin" },
+  "phones": ["+8801811223344"], "address": "Vill: Charkawa, Barishal Sadar", "areaCode": "BSL-CHK",
+  "erpLocation": { "lat": 22.7105, "lng": 90.3702 },
+  "location": { "type": "Point", "coordinates": [90.3702, 22.7105] },
+  "locationStatus": "ok",          
+  "locationSource": "erp",          
+  "plans": [
+    { "erpPlanId": "P-55021", "product": "Walton Fridge WFC-3D8", "principalPoisha": 6500000,
+      "downPaymentPoisha": 1000000, "installmentCount": 6, "startDate": "2026-05-10", "finalDueDate": "2026-10-10",
+      "totalPayablePoisha": 6800000, "paidPoisha": 5950000, "outstandingPoisha": 850000, "status": "active",
+      "schedule": [ { "seq": 1, "dueDate": "2026-06-10", "amountPoisha": 966700, "paidPoisha": 966700, "estimated": false } ] }
+  ],
+  "recentPayments": [ { "erpPaymentId": "PAY-9921", "date": "2026-09-12", "amountPoisha": 966700, "method": "cash", "source": "office", "receiptNo": "R-77812", "fieldCollectionId": null } ],
+  "derived": { "totalOutstandingPoisha": 850000, "overdue": true, "daysOverdue": 36, "nextDueDate": null,
+               "dueToday": false, "badSuggested": true, "badReason": { "erpPlanId": "P-55021", "finalDueDate": "2026-10-10", "outstandingPoisha": 850000 } },
+  "erpStatus": "active", "erpUpdatedAt": "2026-11-14T10:22:00Z", "erpFetchedAt": "2026-11-15T00:55:00Z", "erpVersion": "…" }
+```
+`locationStatus`: `ok | missing | invalid | suspect_swapped | overridden`. `locationSource`: `erp | overlay`.
+Indexes: `{ erpCustomerId:1 } unique`, `{ branchId:1, 'derived.overdue':1, 'derived.daysOverdue':-1 }`, `{ branchId:1, 'derived.dueToday':1 }`, `{ branchId:1, 'derived.badSuggested':1 }`, `{ location: '2dsphere' }`, `{ phones:1 }`, text/Atlas Search on `name.bn, name.en, code, phones`.
+Derived fields are recomputed on each sync **and** nightly at 00:05 Dhaka (because dates move even when data does not).
+
+### customer_overlays (FOS-owned per customer extras)
+`{ _id: erpCustomerId-mapped ObjectId (= erp_customers._id), branchId, locationOverride?: {point, approvedBy, approvedAt, proposalId}, tag?: { state: 'none'|'pending'|'tagged', severity: 'watch'|'bad'|'legal', reasonCode, reason, setBy, setAt, eventId }, assigneeId (denormalized), areaId }` · `{ branchId:1, 'tag.state':1 }`, `{ assigneeId:1 }`.
+
+### location_proposals
+`{ customerId, branchId, proposedBy, point, accuracyM, photoMediaId, note, status: pending|approved|rejected, decidedBy, decidedAt, decisionReason }`.
+
+### erp_sync_state
+`{ _id: 'customers:branch:6731…', cursor, lastSuccessAt, lastErrorAt, lastError, consecutiveFailures, lagSec }`.
+
+## 4. Field operations
+
+### tag_events (append-only)
+`{ customerId, branchId, previous: {state,severity}, next: {state,severity}, reasonCode, reason, actorId, actorRole, source: 'web'|'app'|'system', deviceLocation?, at, approvalOf?: eventId }` · `{ customerId:1, at:-1 }`.
+
+### areas
+`{ branchId, name {bn,en}, code, kind: 'polygon'|'codes', polygon?: GeoJSON Polygon, erpAreaCodes?: [], color, active }` · `{ branchId:1, code:1 } unique`, `{ polygon: '2dsphere' }`.
+
+### assignments
+`{ _id, branchId, userId, type: 'area'|'customer', areaId?, customerId?, effectiveFrom, effectiveTo|null, source: 'manual'|'handover:<id>'|'bulk', createdBy }` · `{ userId:1, effectiveTo:1 }`, `{ customerId:1, effectiveTo:1 }`, `{ areaId:1, effectiveTo:1 }`.
+Materialized: `assignment_scopes { _id: userId, customerIds: [...], recomputedAt }` (rebuilt on `assignment.changed`; ≤ 5,000 ids/user; above that switch to join query).
+
+### handovers
+`{ branchId, fromUserId, toUserId, areaIds, customerIds, reason, effectiveDate, endDate?, status, createdBy, decidedAt, decisionNote, summary: {customers, outstandingPoisha, overdue, openPromises, openConflicts}, expiresAt }` · `{ toUserId:1, status:1 }`, `{ fromUserId:1, createdAt:-1 }`.
+
+### collections
+```json
+{ "_id": "6750…", "clientId": "0193a5e2-7c1f-7a3b-9e2d-4f6a8b1c2d3e", "idempotencyKey": "0193a5e2-7c1f-7a3b-9e2d-4f6a8b1c2d3e",
+  "payloadHash": "sha256:…", "branchId": "6731…", "customerId": "6740…", "erpCustomerId": "C-100245", "erpPlanId": "P-55021",
+  "collectorId": "6734…", "deviceId": "…", "amountPoisha": 500000, "method": "bkash", "transactionRef": "AB12CD34EF",
+  "payerName": null, "note": "রবিবারে বাকি দিবে", "receiptNo": "BRL01-FS014-261115-0007", "physicalReceiptNo": null,
+  "recordedAt": "2026-11-15T05:12:44Z", "deviceTime": "2026-11-15T05:12:40Z", "receivedAt": "2026-11-15T05:20:01Z",
+  "businessDate": "2026-11-15", "geo": { "point": {"type":"Point","coordinates":[90.3705,22.7101]}, "accuracyM": 12, "mock": false, "distanceToPinM": 48 },
+  "visitClientId": "0193a5e2-…", "photoMediaId": null,
+  "status": "posted", "statusHistory": [ { "status": "received", "at": "…" }, { "status": "posting", "at": "…" }, { "status": "posted", "at": "…" } ],
+  "erp": { "paymentId": "PAY-10233", "receiptNo": "R-78010", "postedAt": "…", "lastError": null, "attempts": 1, "reversed": false },
+  "conflict": null, "flags": ["late_sync"], "voided": null, "resolution": null }
+```
+`conflict`: `{ code, message, erpResponse, raisedAt }`. `resolution`: `{ action, by, at, reason, proofMediaId, targetPlanId }`.
+Indexes: `{ idempotencyKey:1 } unique`, `{ receiptNo:1 } unique`, `{ collectorId:1, businessDate:-1 }`, `{ branchId:1, businessDate:-1, status:1 }`, `{ customerId:1, recordedAt:-1 }`, `{ status:1, 'erp.attempts':1 }`, `{ method:1, transactionRef:1 } sparse`.
+Retention: permanent (≥ 8 years, OD-09).
+
+### receipt_blocks
+`{ deviceId, userId, prefix: 'BRL01-FS014', businessDate, from: 1, to: 200, lastUsed }` — device asks for a block at sync; numbers are unique per `(prefix, YYMMDD, seq)`.
+
+### idempotency_records
+`{ _id: key, scope: 'collection'|'sync', payloadHash, response, entityId, createdAt }` · TTL 400 days on `createdAt` (collections themselves keep the key permanently).
+
+### cash_deposits
+`{ clientId, branchId, userId, amountPoisha, destination: 'branch_cashier'|'bank'|'manager', reference, slipMediaId, depositedAt, geo, status: 'pending'|'verified'|'rejected', verifiedBy, verifiedAt, rejectReason }` · `{ clientId:1 } unique`, `{ userId:1, status:1 }`, `{ branchId:1, status:1, depositedAt:-1 }`.
+
+### cash_closings [ADDED]
+`{ userId, businessDate, cashCollectedPoisha, mobileCollectedPoisha, depositedPoisha, onHandPoisha, confirmedAt, note }` · `{ userId:1, businessDate:1 } unique`.
+
+### visits
+`{ clientId, branchId, customerId, userId, checkInAt, checkOutAt, outcome, geo {point, accuracyM, mock, distanceToPinM}, photoMediaIds[], deviceTime, receivedAt, source: 'manual'|'suggested', stopId?, flags[] }` · `{ clientId:1 } unique`, `{ customerId:1, checkInAt:-1 }`, `{ userId:1, checkInAt:-1 }`, `{ branchId:1, checkInAt:-1 }`.
+
+### notes
+`{ clientId, branchId, customerId, authorId, category: 'general'|'payment'|'complaint'|'address'|'family', text, voiceMediaId?, visitClientId?, editableUntil, createdAt }` · `{ clientId:1 } unique`, `{ customerId:1, createdAt:-1 }`.
+
+### promises
+`{ clientId, branchId, customerId, erpPlanId, ownerId, createdBy, promisedDate, promisedAmountPoisha, note, status: 'open'|'kept'|'partially_kept'|'broken'|'superseded'|'cancelled', evaluatedAt, paidTowardsPoisha, supersededBy }` · `{ clientId:1 } unique`, `{ ownerId:1, promisedDate:1, status:1 }`, `{ customerId:1, status:1 }`, `{ branchId:1, promisedDate:1 }`.
+
+### media
+`{ _id, ownerId, kind: 'visit_photo'|'deposit_slip'|'selfie'|'location_proof'|'refund_proof'|'voice_note'|'export', bucketKey: 'media/2026/11/15/<uuid>.jpg', contentType, sizeBytes, sha256, width, height, capturedAt, geo, status: 'pending'|'confirmed', thumbKey }` · `{ sha256:1 }`, TTL on pending: `{ createdAt:1 } partial(status=pending) 1 day` (implemented by job since TTL partial filters on status are allowed).
+
+### attendance_events
+`{ clientId, userId, branchId, type: 'work_in'|'break_start'|'break_end'|'work_out'|'auto_close'|'correction', at, deviceTime, receivedAt, geo, selfieMediaId?, flags[], correctionOf?, reason? }` · `{ clientId:1 } unique`, `{ userId:1, at:1 }`.
+
+### attendance_days
+`{ userId, branchId, businessDate, shiftId, firstIn, lastOut, lateMin, breakMin, breaks: [{start,end}], dutyMin, status: 'present'|'late'|'absent'|'leave'|'holiday'|'weekly_off', autoClosed, corrected }` · `{ userId:1, businessDate:1 } unique`, `{ branchId:1, businessDate:1 }`.
+
+### leave_requests [ADDED]
+`{ userId, branchId, type: 'casual'|'sick'|'other', from, to, reason, status, decidedBy, decidedAt }`.
+
+## 5. Location
+
+### location_points (time-series collection)
+```js
+db.createCollection('location_points', {
+  timeseries: { timeField: 'recordedAt', metaField: 'meta', granularity: 'seconds' },
+  expireAfterSeconds: 7776000   // 90 days, from setting location.retentionDays (migration updates via collMod)
+});
+```
+Document: `{ recordedAt, meta: { userId, branchId, deviceId }, lat, lng, accuracyM, speedMps, headingDeg, altitudeM, activity: 'still'|'walking'|'on_bicycle'|'in_vehicle'|'unknown', battery: 0.64, charging, mock: false, receivedAt }`
+Secondary index: `{ 'meta.userId': 1, recordedAt: 1 }`.
+
+### location_latest
+`{ _id: userId, branchId, point, accuracyM, recordedAt, battery, activity, mock, onBreak, appVersion }` · `{ branchId:1 }`, `{ point: '2dsphere' }`.
+
+### location_heartbeats
+`{ userId, at, battery, gpsEnabled, permission: 'always'|'while_in_use'|'denied', bgRestricted, appVersion }` · TTL 30 days.
+
+### location_stops
+`{ userId, branchId, businessDate, start, end, dwellMin, center: Point, radiusM, customerId?, distanceToPinM?, visitId?, pointsCount }` · `{ userId:1, businessDate:1 }`, TTL 365 days on `end`.
+
+### location_daily_summaries
+`{ userId, branchId, businessDate, distanceKm, movingMin, stoppedMin, stopsCount, customerStops, firstPointAt, lastPointAt, gapsMin, mockPoints }` · `{ userId:1, businessDate:1 } unique` · TTL 730 days.
+
+## 6. Notifications, inbox, sync, audit
+
+- `notifications { userId, type, title {bn,en}, body {bn,en}, data, readAt, createdAt }` · `{ userId:1, createdAt:-1 }` · TTL 90 days.
+- `push_tokens` → stored on `devices.fcmToken` (one per device).
+- `broadcasts [ADDED] { scope: {branchIds, roles}, title, body, requireAck, acks: [{userId, at}], createdBy }`.
+- `inbox_items [ADDED] { key (dedupe, e.g. 'collection.conflict:6750…'), type, severity: 'low'|'medium'|'high'|'critical', branchId, entity, entityId, summary {bn,en}, status: 'open'|'snoozed'|'resolved', snoozedUntil, resolvedBy, resolvedAt, createdAt }` · `{ key:1 } unique`, `{ branchId:1, status:1, severity:-1, createdAt:-1 }`.
+- `sync_changes { seq (int64 from counters), userIds: [] (audience), branchId, entity, entityId, op: 'upsert'|'delete', at }` · `{ userIds:1, seq:1 }` · TTL 30 days (devices older than 30 days get a full resync: `410 CURSOR_EXPIRED`).
+- `device_sync_state { deviceId, userId, lastPullSeq, lastPullAt, lastPushAt, pendingReported, lastError }`.
+- `counters { _id: 'sync_seq', value }`.
+- `outbox`, `jobs` — see 04-architecture §6.5.
+- `audit_logs { at, actorId, actorRole, action, entity, entityId, branchId, before, after, reason, ip, deviceId, requestId, prevHash, hash }` · `{ at:-1 }`, `{ entity:1, entityId:1, at:-1 }`, `{ actorId:1, at:-1 }`, `{ branchId:1, action:1, at:-1 }`. Mongo user for the API has **insert + find only** on this collection (custom role). Retention: money actions 8 years, others 3 years (job, OD-09).
+
+## 7. Reports
+
+- `daily_metrics { businessDate, branchId, userId, visits, uniqueCustomers, collectionsCount, collectedPoisha: {cash, bkash, nagad, rocket, bank_transfer, other_mobile}, promisesDue, promisesKept, present, lateMin, breakMin, dutyMin, fieldMin, distanceKm }` · `{ businessDate:1, branchId:1, userId:1 } unique` — computed nightly 01:00 Dhaka and incrementally during the day (every 15 min for "today").
+- `overdue_snapshots { businessDate, branchId, buckets: {d1_30:{count,amountPoisha}, d31_60, d61_90, d90p}, totalOverdue, badSuggested, tagged }` · unique `{ businessDate:1, branchId:1 }` · retained 5 years.
+- `exports { requestedBy, type, params, status, mediaId, expiresAt }` · TTL 7 days.
+
+## 8. Migrations
+- Tool: `migrate-mongo`-style runner in `core/db/migrations` with changelog collection `migrations_changelog { id, module, appliedAt, checksum }`.
+- File naming: `src/modules/<module>/migrations/20261115-0001-create-collections-indexes.ts` exporting `up(db)`; **no down** (forward-only), every migration idempotent (`createIndex` is safe; data migrations check `schemaVersion`).
+- Index builds on large collections run in a rolling fashion via Atlas; migration logs duration.
+- CI runs all migrations on an empty DB and on the latest staging snapshot (sanitized) before release.
+
+## 9. Capacity estimate (100 staff)
+
+| Collection | Growth | 1-year size (approx) |
+|---|---|---|
+| location_points | 120k/day, ~150 B compressed | ~5 GB raw over 90 days retained ≈ 1.6 GB on disk with TS compression |
+| collections | 3k/day | ~1.1M docs, ~1.5 GB |
+| visits | 4k/day | ~1.5M docs, ~1 GB |
+| audit_logs | ~20k/day | ~7M docs, ~5 GB |
+| erp_customers | 100k docs | ~1 GB |
+Photos in object storage: ~1 GB/day → ~365 GB/year (lifecycle: move to infrequent access after 90 days; retention 3 years, OD-09).
+Atlas M10 is enough for launch; plan M20 at > 60 staff or when working set > 2 GB.
+
+## 10. Backup and restore
+- Atlas cloud backup: snapshots every 6 h, retained 7 days; daily retained 30 days; weekly 12 weeks; monthly 12 months; continuous PITR 48 h (M10+).
+- Object storage: bucket versioning ON, replication to second region/provider (proposed).
+- **Monthly restore drill** (`scripts/restore-drill.sh` + runbook): restore latest snapshot to staging cluster, run `scripts/verify-restore.ts` (counts, latest collection timestamp, hash chain of audit log), record result in `docs/runbooks/restore-log.md`.
