@@ -1,0 +1,32 @@
+import mongoose from 'mongoose';
+import { ctx } from '../../core/context/index.js';
+import { defineRoutes } from '../../core/http/router.js';
+import { getMany } from '../settings/index.js';
+import { erpClient } from '../erp-gateway/index.js';
+import pkg from '../../../package.json' with { type: 'json' };
+
+export const systemRoutes = defineRoutes((r) => {
+  // Liveness/readiness for the load balancer. Never does ERP-heavy work.
+  r.get('/system/health', { access: 'public' }, async () => {
+    const mongoOk = mongoose.connection.readyState === 1;
+    let erp = 'unknown';
+    try {
+      erp = (await Promise.race([erpClient().health(), new Promise<{ ok: boolean }>((res) => setTimeout(() => res({ ok: false }), 1500))])).ok ? 'ok' : 'down';
+    } catch {
+      erp = 'down';
+    }
+    return { status: mongoOk ? 'ok' : 'degraded', version: pkg.version, mongo: mongoOk ? 'ok' : 'down', erp };
+  });
+  r.get('/meta/app-config', { access: 'public' }, async () => {
+    const s = await getMany(['app.minVersion', 'app.latestVersion', 'app.storeUrl', 'app.killSwitch', 'map.tileProvider', 'privacy.noticeVersion']);
+    return {
+      minAppVersion: s['app.minVersion'],
+      latestAppVersion: s['app.latestVersion'],
+      storeUrl: s['app.storeUrl'],
+      killSwitch: s['app.killSwitch'],
+      tileProvider: s['map.tileProvider'],
+      privacyNoticeVersion: s['privacy.noticeVersion'],
+      serverTime: ctx().clock.now().toISOString(),
+    };
+  });
+});

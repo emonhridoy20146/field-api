@@ -1,0 +1,4 @@
+{ "data": { "id": 10233, "receipt_no": "R-78010", "customer_id": 100245, "plan_id": 55021, "amount": "5000.00",
+            "posted_at": "2026-11-15T11:20:05+06:00", "plan_outstanding_after": "3500.00", "customer_outstanding_after": "3500.00",
+            "allocations": [ { "seq": 6, "amount": "5000.00" } ] },
+  "idempotent_replay": false }

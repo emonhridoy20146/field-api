@@ -11,7 +11,7 @@ import type { ModuleManifest } from '../module/types.js';
  */
 export interface Ports {
   /** Loads the current user for a verified access token; null if inactive/missing. */
-  loadAuthUser?: (userId: string, sessionId: string) => Promise<AuthUser | null>;
+  loadAuthUser?: (claims: { sub: string; sid: string }) => Promise<AuthUser | null>;
   permissions?: (user: AuthUser) => Promise<Set<string>>;
   flagEnabled?: (key: string, user: AuthUser | null) => Promise<boolean>;
   minAppVersion?: () => Promise<string>;

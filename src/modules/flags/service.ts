@@ -36,7 +36,7 @@ async function states(): Promise<Map<string, FlagState>> {
   if (cache && Date.now() - cache.at < TTL_MS) return cache.map;
   const rows = await FlagModel.find().lean();
   const map = new Map<string, FlagState>();
-  for (const r of rows) map.set(r._id, { defaultEnabled: r.defaultEnabled, branchOverrides: (r.branchOverrides ?? []).map((o) => ({ branchId: o.branchId!, enabled: !!o.enabled })) });
+  for (const r of rows) map.set(String(r._id), { defaultEnabled: r.defaultEnabled, branchOverrides: (r.branchOverrides ?? []).map((o) => ({ branchId: String(o.branchId), enabled: !!o.enabled })) });
   cache = { at: Date.now(), map };
   return map;
 }
