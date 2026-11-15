@@ -157,3 +157,24 @@ describe('admin-web contract additions (1.3.0)', () => {
     expect((await (await as(t, '01700000002')).get(`/feature-flags/effective?branchId=${s.branchA}`)).status).toBe(403);
   });
 });
+
+describe('admin list refs and range filters (contract 1.4.0)', () => {
+  it('visits and promises lists carry display refs and filter by range', async () => {
+    const bm = await as(t, '01700000002');
+    const v = await bm.get('/visits?from=2026-11-15&to=2026-11-15&outcome=not_home');
+    expect(v.status).toBe(200);
+    expectConforms('GET', '/visits', 200, v.body);
+    expect(v.body.items.length).toBeGreaterThan(0);
+    expect(v.body.items[0].customer.code).toBeTruthy();
+    expect(v.body.items[0].user.name).toBeTruthy();
+    expect(v.body.items.every((x: { outcome: string }) => x.outcome === 'not_home')).toBe(true);
+    expect((await bm.get('/visits?from=2026-11-16')).body.items).toEqual([]);
+    expect((await bm.get('/visits?outcome=nope')).status).toBe(400);
+    const p = await bm.get('/promises?from=2026-01-01&to=2030-01-01');
+    expectConforms('GET', '/promises', 200, p.body);
+    expect(p.body.items.length).toBeGreaterThan(0);
+    expect(p.body.items[0].customer.name).toBeTruthy();
+    expect(p.body.items[0].owner.name).toBeTruthy();
+    expect((await bm.get('/promises?to=2020-01-01')).body.items).toEqual([]);
+  });
+});

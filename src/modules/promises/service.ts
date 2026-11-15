@@ -8,7 +8,8 @@ import { formatBdt } from '../../core/money/index.js';
 import { businessDate, isIsoDate } from '../../core/time/index.js';
 import { branchQuery, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
 import { getSetting } from '../settings/index.js';
-import { erpPaidBetween, getCustomerRef, setOpenPromiseDates, type TimelineItem } from '../customers/index.js';
+import { getUsers } from '../users/index.js';
+import { erpPaidBetween, getCustomerRef, getCustomerRefs, setOpenPromiseDates, type TimelineItem } from '../customers/index.js';
 import { dateInRange, isDue, verdict } from './domain/evaluate.js';
 import { PromiseModel } from './models/promise.model.js';
 
@@ -111,16 +112,29 @@ export async function cancel(user: AuthUser, id: string, reason: string) {
   return view((await PromiseModel.findById(id).lean()) as Lean);
 }
 
-export async function list(user: AuthUser, q: { branchId?: string | undefined; ownerId?: string | undefined; customerId?: string | undefined; date?: string | undefined; status?: string | undefined; limit: number; cursor?: string | undefined }) {
+/** List rows carry display refs so admin tables need no extra calls (contract 1.4.0). */
+async function withRefs(rows: Lean[]) {
+  const refs = await getCustomerRefs(rows.map((r) => r.customerId));
+  const users = await getUsers(rows.map((r) => r.ownerId));
+  return rows.map((p) => {
+    const ref = refs.get(p.customerId);
+    const u = users.get(p.ownerId);
+    return { ...view(p), customer: { id: p.customerId, name: ref?.name ?? { bn: '', en: '' }, code: ref?.code ?? '' }, owner: { id: p.ownerId, name: u ? u.name.en || u.name.bn : '' } };
+  });
+}
+
+export async function list(user: AuthUser, q: { branchId?: string | undefined; ownerId?: string | undefined; customerId?: string | undefined; date?: string | undefined; from?: string | undefined; to?: string | undefined; status?: string | undefined; limit: number; cursor?: string | undefined }) {
   const f: Record<string, unknown> = { ...scopeFilter(user), ...(q.branchId ? branchQuery(user, q.branchId) : {}) };
   if (q.ownerId && user.role !== 'field_staff') f.ownerId = q.ownerId;
   if (q.customerId) f.customerId = q.customerId;
+  // `date` wins over the inclusive `from`/`to` range on the promised date.
   if (q.date) f.promisedDate = q.date;
+  else if (q.from || q.to) f.promisedDate = { ...(q.from ? { $gte: q.from } : {}), ...(q.to ? { $lte: q.to } : {}) };
   if (q.status) f.status = q.status;
   const cur = decodeCursor<{ id: string }>(q.cursor);
   const rows = (await PromiseModel.find({ ...f, ...(cur ? { _id: { $lt: cur.id } } : {}) }).sort({ _id: -1 }).limit(q.limit + 1).lean()) as Lean[];
   const items = rows.slice(0, q.limit);
-  return { items: items.map(view), nextCursor: rows.length > q.limit ? encodeCursor({ id: items[items.length - 1]!._id.toHexString() }) : null };
+  return { items: await withRefs(items), nextCursor: rows.length > q.limit ? encodeCursor({ id: items[items.length - 1]!._id.toHexString() }) : null };
 }
 
 export async function get(user: AuthUser, id: string) {

@@ -4,9 +4,11 @@ import { parse } from '../../core/http/index.js';
 import * as s from './service.js';
 
 const idOf = (req: { params: unknown }) => (req.params as { id: string }).id;
+const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
 export const visitRoutes = defineRoutes((r) => {
   r.get('/visits', { access: perm('visit.view') }, async (req) =>
-    s.list(requireUser(req), parse(z.object({ branchId: z.string().max(64).optional(), userId: z.string().max(64).optional(), customerId: z.string().max(64).optional(), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), limit: z.coerce.number().int().min(1).max(200).default(50), cursor: z.string().max(200).optional() }), req.query)),
+    s.list(requireUser(req), parse(z.object({ branchId: z.string().max(64).optional(), userId: z.string().max(64).optional(), customerId: z.string().max(64).optional(), date: day.optional(), from: day.optional(), to: day.optional(), outcome: z.enum(s.OUTCOMES).optional(), limit: z.coerce.number().int().min(1).max(200).default(50), cursor: z.string().max(200).optional() }), req.query)),
   );
   r.post('/visits', { access: perm('visit.record') }, async (req, reply) => {
     const res = await s.create(requireUser(req), parse(s.createSchema, req.body));

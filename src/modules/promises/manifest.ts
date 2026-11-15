@@ -12,7 +12,7 @@ export const manifest: ModuleManifest = {
   version: '1.0.0',
   description: 'Promise-to-pay with supersede, reminders and nightly evaluation (FR-PRM-001..003)',
   featureFlag: { key: 'module.promises', default: false, description: 'Promises to pay', owner: 'field-api' },
-  dependsOn: ['settings', 'customers', 'handovers'],
+  dependsOn: ['settings', 'users', 'customers', 'handovers'],
   permissions: [
     { key: 'promise.create', description: { en: 'Record/update promise-to-pay', bn: 'প্রতিশ্রুতি রেকর্ড' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
     { key: 'promise.view', description: { en: 'View promises in scope', bn: 'প্রতিশ্রুতি দেখা' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },

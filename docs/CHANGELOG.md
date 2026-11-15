@@ -2,7 +2,7 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
-## [Unreleased] — contract 1.3.0
+## [Unreleased] — contract 1.4.0
 ### Added
 - Phase 0 implementation: core (config, errors bn/en problem+json, Dhaka time, money, geo, Mongo + migrations, event bus, outbox, Mongo-leased jobs, idempotency, change feed), module loader with manifest validation, auth (EdDSA JWT, refresh rotation with reuse detection, lockout), users, rbac (catalog, overrides, explain), branches, settings (holidays, shifts), flags (locked microfinance flag), audit (hash chain), devices (binding/approval), system (health, app-config), erp-gateway (Laravel client, circuit breaker, mappers, MockErpClient, delta sync, reconcile, posting outbox handler).
 - Phase 1 modules: customers (read model + FOS overlay, status derivation, bad suggestion, list/detail/map/timeline, refresh, pin corrections), tags (tag/untag, history, approval mode, balance-cleared review), assignments (areas, primary assignee, bulk, history), handovers (receiver acceptance, 72 h expiry, temporary cover revert), collections (idempotent record, receipt blocks, anomaly flags, ERP posting with timeout-after-store recovery, conflicts, void, resolve, ERP reversal reflection).
@@ -13,6 +13,7 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 - media (presigned PUT/GET 5 min, sha256 dedupe, branch-scoped reads; S3 or in-memory storage in dev/test), visits (idempotent check-in, distance to pin, flags, checkout), notes (15-minute edit window) with contact attempts, promises (date range, supersede, 09:00 reminder event, keep on ERP payment, nightly verdict with grace days, follow the customer on handover).
 - Contract 1.3.0 (additive, answering admin-web gaps): `GET /rbac/overrides/branch/{branchId}` and `GET /rbac/overrides/user/{userId}`; `GET /feature-flags/effective?branchId=`; response schemas for `GET /collections/conflicts`, `GET /cash/deposits`, `GET /notifications`; `Deposit.userName`; `PATCH /notes/{id}`.
 - attendance: work-in/out and break events (idempotent by `clientId`, anomalies flagged not rejected), derived day with late/break/duty minutes, absent/holiday/weekly-off/leave days, manager day grid and monthly summary, audited corrections that keep the original event, auto work-out 3 h after shift end, nightly finalize, leave requests with approval; setting `attendance.selfieRequired`; `isOnDuty()` for the location module.
+- Contract 1.4.0 (additive, answering admin-web gaps): declared 200 schemas for `GET /visits`, `GET /promises`, `GET /location-proposals` (plain array), `GET /attendance/summary`, `GET /leave-requests`, `GET /broadcasts`; list rows of visits and promises carry `customer {id,name,code}` and `user`/`owner {id,name}`; location proposals carry `proposer {id,name}`; `GET /visits` gains `from`, `to`, `outcome`; `GET /promises` gains `from`, `to` and documents `customerId`.
 ### Notes
 - Person names in responses stay plain strings (changing them to I18nText would break v1); clients show the string as given.
 - The permission catalog in `02-requirements §3.1` is the source of truth; the "50 keys" figure in the original spec text was a miscount.

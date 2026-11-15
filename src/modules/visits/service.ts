@@ -8,7 +8,7 @@ import { haversineM } from '../../core/geo/index.js';
 import { branchQuery, canSeeBranch, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
 import { getSetting } from '../settings/index.js';
 import { getUsers } from '../users/index.js';
-import { getCustomerRef, type TimelineItem } from '../customers/index.js';
+import { getCustomerRef, getCustomerRefs, type TimelineItem } from '../customers/index.js';
 import { VisitModel } from './models/visit.model.js';
 
 type Lean = Record<string, any> & { _id: { toHexString(): string } };
@@ -105,15 +105,30 @@ export async function checkout(user: AuthUser, id: string, input: { checkOutAt: 
   return view((await VisitModel.findById(id).lean()) as Lean);
 }
 
-export async function list(user: AuthUser, q: { branchId?: string | undefined; userId?: string | undefined; customerId?: string | undefined; date?: string | undefined; limit: number; cursor?: string | undefined }) {
+/** List rows carry display refs so admin tables need no extra calls (contract 1.4.0). */
+async function withRefs(rows: Lean[]) {
+  const refs = await getCustomerRefs(rows.map((r) => r.customerId));
+  const users = await getUsers(rows.map((r) => r.userId));
+  return rows.map((v) => {
+    const ref = refs.get(v.customerId);
+    const u = users.get(v.userId);
+    return { ...view(v), customer: { id: v.customerId, name: ref?.name ?? { bn: '', en: '' }, code: ref?.code ?? '' }, user: { id: v.userId, name: u ? u.name.en || u.name.bn : '' } };
+  });
+}
+
+export async function list(user: AuthUser, q: { branchId?: string | undefined; userId?: string | undefined; customerId?: string | undefined; date?: string | undefined; from?: string | undefined; to?: string | undefined; outcome?: string | undefined; limit: number; cursor?: string | undefined }) {
   const f: Record<string, unknown> = { ...scopeFilter(user), ...(q.branchId ? branchQuery(user, q.branchId) : {}) };
   if (q.userId && user.role !== 'field_staff') f.userId = q.userId;
   if (q.customerId) f.customerId = q.customerId;
-  if (q.date) f.checkInAt = { $gte: new Date(`${q.date}T00:00:00+06:00`), $lte: new Date(`${q.date}T23:59:59.999+06:00`) };
+  // `date` is one Dhaka business day; `from`/`to` (inclusive Dhaka days) are ignored when `date` is given.
+  const from = q.date ?? q.from;
+  const to = q.date ?? q.to;
+  if (from || to) f.checkInAt = { ...(from ? { $gte: new Date(`${from}T00:00:00+06:00`) } : {}), ...(to ? { $lte: new Date(`${to}T23:59:59.999+06:00`) } : {}) };
+  if (q.outcome) f.outcome = q.outcome;
   const cur = decodeCursor<{ id: string }>(q.cursor);
   const rows = (await VisitModel.find({ ...f, ...(cur ? { _id: { $lt: cur.id } } : {}) }).sort({ _id: -1 }).limit(q.limit + 1).lean()) as Lean[];
   const items = rows.slice(0, q.limit);
-  return { items: items.map(view), nextCursor: rows.length > q.limit ? encodeCursor({ id: items[items.length - 1]!._id.toHexString() }) : null };
+  return { items: await withRefs(items), nextCursor: rows.length > q.limit ? encodeCursor({ id: items[items.length - 1]!._id.toHexString() }) : null };
 }
 
 export async function get(user: AuthUser, id: string) {

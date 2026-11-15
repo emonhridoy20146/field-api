@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.3.0
+  version: 1.4.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -514,7 +514,7 @@ paths:
       operationId: listLocationProposals
       parameters: [ { $ref: '#/components/parameters/BranchId' }, { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected] } } ]
       responses:
-        '200': { description: OK }
+        '200': { description: 'OK. Plain array, newest first, max 200 (declared in 1.4.0)', content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/LocationProposal' } } } } }
   /location-proposals/{id}/decision:
     post:
       tags: [customers]
@@ -816,9 +816,9 @@ paths:
     get:
       tags: [visits]
       operationId: listVisits
-      parameters: [ { $ref: '#/components/parameters/BranchId' }, { name: userId, in: query, schema: { type: string } }, { name: customerId, in: query, schema: { type: string } }, { name: date, in: query, schema: { type: string, format: date } }, { $ref: '#/components/parameters/Limit' }, { $ref: '#/components/parameters/Cursor' } ]
+      parameters: [ { $ref: '#/components/parameters/BranchId' }, { name: userId, in: query, schema: { type: string } }, { name: customerId, in: query, schema: { type: string } }, { name: date, in: query, schema: { type: string, format: date }, description: 'One Dhaka business day; wins over from/to' }, { name: from, in: query, schema: { type: string, format: date }, description: 'Inclusive Dhaka day (1.4.0)' }, { name: to, in: query, schema: { type: string, format: date }, description: 'Inclusive Dhaka day (1.4.0)' }, { name: outcome, in: query, schema: { type: string }, description: 'Visit outcome (1.4.0)' }, { $ref: '#/components/parameters/Limit' }, { $ref: '#/components/parameters/Cursor' } ]
       responses:
-        '200': { description: OK }
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/VisitListItem' } }, nextCursor: { type: [string, 'null'] } } } } } }
     post:
       tags: [visits]
       operationId: createVisit
@@ -926,9 +926,9 @@ paths:
     get:
       tags: [promises]
       operationId: listPromises
-      parameters: [ { $ref: '#/components/parameters/BranchId' }, { name: ownerId, in: query, schema: { type: string } }, { name: date, in: query, schema: { type: string, format: date } }, { name: status, in: query, schema: { $ref: '#/components/schemas/PromiseStatus' } }, { $ref: '#/components/parameters/Limit' }, { $ref: '#/components/parameters/Cursor' } ]
+      parameters: [ { $ref: '#/components/parameters/BranchId' }, { name: ownerId, in: query, schema: { type: string } }, { name: customerId, in: query, schema: { type: string }, description: 'Documented in 1.4.0' }, { name: date, in: query, schema: { type: string, format: date }, description: 'Promised date; wins over from/to' }, { name: from, in: query, schema: { type: string, format: date }, description: 'Promised date from, inclusive (1.4.0)' }, { name: to, in: query, schema: { type: string, format: date }, description: 'Promised date to, inclusive (1.4.0)' }, { name: status, in: query, schema: { $ref: '#/components/schemas/PromiseStatus' } }, { $ref: '#/components/parameters/Limit' }, { $ref: '#/components/parameters/Cursor' } ]
       responses:
-        '200': { description: OK }
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/PromiseListItem' } }, nextCursor: { type: [string, 'null'] } } } } } }
     post:
       tags: [promises]
       operationId: createPromise
@@ -986,7 +986,7 @@ paths:
       operationId: attendanceSummary
       parameters: [ { $ref: '#/components/parameters/BranchId' }, { name: month, in: query, required: true, schema: { type: string, example: 2026-11 } } ]
       responses:
-        '200': { description: OK }
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { month: { type: string }, items: { type: array, items: { $ref: '#/components/schemas/AttendanceSummaryRow' } } } } } } }
   /attendance/corrections:
     post:
       tags: [attendance]
@@ -1002,8 +1002,9 @@ paths:
     get:
       tags: [attendance]
       operationId: listLeave
+      parameters: [ { $ref: '#/components/parameters/BranchId' }, { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected] } } ]
       responses:
-        '200': { description: OK }
+        '200': { description: 'OK. Staff see their own; attendance.manage sees its branches. Newest first, max 300, no cursor (1.4.0)', content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/LeaveRequest' } } } } } } }
     post:
       tags: [attendance]
       operationId: requestLeave
@@ -1135,7 +1136,7 @@ paths:
       tags: [notifications]
       operationId: listBroadcasts
       responses:
-        '200': { description: OK }
+        '200': { description: 'OK (declared in 1.4.0; server implementation pending)', content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Broadcast' } }, nextCursor: { type: [string, 'null'] } } } } } }
     post:
       tags: [notifications]
       operationId: createBroadcast
@@ -1650,6 +1651,41 @@ components:
         - $ref: '#/components/schemas/PromiseCreate'
         - type: object
           properties: { id: { type: string }, ownerId: { type: string }, status: { $ref: '#/components/schemas/PromiseStatus' }, paidTowardsPoisha: { type: integer }, createdAt: { type: string } }
+    VisitListItem:
+      description: 'Visit plus display refs, returned by GET /visits (1.4.0)'
+      allOf:
+        - $ref: '#/components/schemas/Visit'
+        - type: object
+          properties: { customer: { type: object, properties: { id: { type: string }, name: { $ref: '#/components/schemas/I18nText' }, code: { type: string } } }, user: { type: object, properties: { id: { type: string }, name: { type: string } } } }
+    PromiseListItem:
+      description: 'Promise plus display refs, returned by GET /promises (1.4.0)'
+      allOf:
+        - $ref: '#/components/schemas/Promise'
+        - type: object
+          properties: { customer: { type: object, properties: { id: { type: string }, name: { $ref: '#/components/schemas/I18nText' }, code: { type: string } } }, owner: { type: object, properties: { id: { type: string }, name: { type: string } } } }
+    LocationProposal:
+      type: object
+      properties:
+        id: { type: string }
+        customer: { type: object, properties: { id: { type: string }, name: { $ref: '#/components/schemas/I18nText' }, code: { type: string }, current: { type: [object, 'null'], description: 'Current pin, if any' } } }
+        lat: { type: number }
+        lng: { type: number }
+        accuracyM: { type: number }
+        photoMediaId: { type: [string, 'null'] }
+        note: { type: [string, 'null'] }
+        proposedBy: { type: string }
+        proposer: { type: object, properties: { id: { type: string }, name: { type: string } } }
+        status: { type: string, enum: [pending, approved, rejected] }
+        createdAt: { type: string, format: date-time }
+    AttendanceSummaryRow:
+      type: object
+      properties: { userId: { type: string }, userName: { type: string }, present: { type: integer }, late: { type: integer }, absent: { type: integer }, leave: { type: integer }, holiday: { type: integer }, weeklyOff: { type: integer }, lateMin: { type: integer }, breakMin: { type: integer }, dutyMin: { type: integer }, overBreakDays: { type: integer } }
+    LeaveRequest:
+      type: object
+      properties: { id: { type: string }, userId: { type: string }, userName: { type: string }, type: { type: string, enum: [casual, sick, other] }, from: { type: string, format: date }, to: { type: string, format: date }, reason: { type: string }, status: { type: string, enum: [pending, approved, rejected] }, decidedBy: { type: string }, decidedAt: { type: string, format: date-time }, createdAt: { type: string, format: date-time } }
+    Broadcast:
+      type: object
+      properties: { id: { type: string }, title: { $ref: '#/components/schemas/I18nText' }, body: { $ref: '#/components/schemas/I18nText' }, branchIds: { type: array, items: { type: string } }, roles: { type: array, items: { $ref: '#/components/schemas/Role' } }, requireAck: { type: boolean }, createdBy: { type: object, properties: { id: { type: string }, name: { type: string } } }, createdAt: { type: string, format: date-time }, recipientCount: { type: integer }, ackCount: { type: integer } }
     AttendanceDay:
       type: object
       properties:
