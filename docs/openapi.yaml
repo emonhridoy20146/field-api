@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.0.0-spec
+  version: 1.1.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -413,6 +413,7 @@ paths:
         - { name: sort, in: query, schema: { type: string, enum: [distance, -daysOverdue, name, -totalOutstanding, nextDueDate] } }
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
+        - { name: includeTotal, in: query, schema: { type: boolean, default: false }, description: 'Return `total` (capped at 10,000). Added in 1.1.0' }
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/CustomerPage' } } } }
   /customers/map:
@@ -535,7 +536,7 @@ paths:
       operationId: tagReviewQueue
       parameters: [ { $ref: '#/components/parameters/BranchId' } ]
       responses:
-        '200': { description: Pending staff tags and balance-cleared reviews }
+        '200': { description: Pending staff tags and balance-cleared reviews, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/TagReviewItem' } } } } } } }
   /tags/review-queue/{eventId}/decision:
     post:
       tags: [tags]
@@ -1361,7 +1362,28 @@ components:
       properties: { state: { type: string, enum: [none, pending, tagged] }, severity: { type: string, enum: [watch, bad, legal] }, reasonCode: { type: string }, reason: { type: string }, setBy: { type: string }, setAt: { type: string, format: date-time } }
     TagEvent:
       type: object
-      properties: { id: { type: string }, previous: { $ref: '#/components/schemas/Tag' }, next: { $ref: '#/components/schemas/Tag' }, reasonCode: { type: string }, reason: { type: string }, actor: { type: object, properties: { id: { type: string }, name: { type: string }, role: { type: string } } }, source: { type: string, enum: [web, app, system] }, at: { type: string, format: date-time } }
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [change, request, review_requested, decision], description: 'Added in contract 1.1.0' }
+        previous: { $ref: '#/components/schemas/Tag' }
+        next: { $ref: '#/components/schemas/Tag' }
+        reasonCode: { type: string }
+        reason: { type: string }
+        actor: { type: object, properties: { id: { type: string }, name: { type: string }, role: { type: string } } }
+        source: { type: string, enum: [web, app, system] }
+        deviceLocation: { type: object, properties: { lat: { type: number }, lng: { type: number }, accuracyM: { type: number } }, description: 'Added in 1.1.0' }
+        approvalOf: { type: string, description: 'For kind=decision: the eventId of the reviewed item. Added in 1.1.0' }
+        at: { type: string, format: date-time }
+    TagReviewItem:
+      type: object
+      description: Added in contract 1.1.0
+      properties:
+        eventId: { type: string }
+        kind: { type: string, enum: [approval, balance_cleared] }
+        customer: { type: object, properties: { id: { type: string }, code: { type: string }, name: { $ref: '#/components/schemas/I18nText' }, totalOutstandingPoisha: { type: integer }, tag: { $ref: '#/components/schemas/Tag' } } }
+        requested: { $ref: '#/components/schemas/Tag' }
+        requestedBy: { type: object, properties: { id: { type: string }, name: { type: string } } }
+        createdAt: { type: string, format: date-time }
     CustomerListItem:
       type: object
       properties:

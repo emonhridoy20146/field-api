@@ -82,6 +82,8 @@ export interface CustomerRef {
   daysOverdue: number;
   badSuggested: boolean;
   tagged: boolean;
+  /** Current FOS tag overlay (owned by the tags module), or null. */
+  tag: Record<string, unknown> | null;
   plans: { erpPlanId: string; status: string; outstandingPoisha: number; product: string }[];
 }
 
@@ -102,6 +104,7 @@ function ref(c: Doc): CustomerRef {
     daysOverdue: c.derived?.daysOverdue ?? 0,
     badSuggested: !!c.derived?.badSuggested,
     tagged: c.fos?.tag?.state === 'tagged',
+    tag: c.fos?.tag ?? null,
     plans: (c.plans ?? []).map((p: Record<string, any>) => ({ erpPlanId: p.erpPlanId, status: p.status, outstandingPoisha: p.outstandingPoisha, product: p.product })),
   };
 }
@@ -269,10 +272,15 @@ function locationView(c: Doc) {
   return { lat: show ? coords[1] : null, lng: show ? coords[0] : null, status: c.locationStatus ?? 'missing', source: c.locationSource ?? 'erp' };
 }
 
+/** Contract Tag from the overlay the tags module writes (same rule as tags/domain view()). */
 function tagView(c: Doc) {
   const t = c.fos?.tag;
-  if (!t || t.state === 'none') return { state: 'none' };
-  return Object.fromEntries(Object.entries(t).filter(([, v]) => v !== null && v !== undefined));
+  if (!t || (t.state !== 'tagged' && !t.pendingEventId)) return { state: 'none' };
+  if (t.state !== 'tagged') return { state: 'pending' };
+  const out: Record<string, unknown> = { state: 'tagged' };
+  for (const k of ['severity', 'reasonCode', 'reason', 'setBy']) if (t[k]) out[k] = t[k];
+  if (t.setAt) out.setAt = new Date(t.setAt).toISOString();
+  return out;
 }
 
 function statusBadges(c: Doc, date: string): CustomerStatus[] {
