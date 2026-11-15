@@ -135,6 +135,12 @@ export async function idsInArea(branchId: string, q: { areaCodes?: string[]; pol
   return rows.map((r) => r._id.toHexString());
 }
 
+/** Current denormalized assignment of every customer in a branch (assignments recompute). */
+export async function assignmentStateOfBranch(branchId: string): Promise<{ id: string; assigneeId: string | null; areaId: string | null }[]> {
+  const rows = (await CustomerModel.find({ branchId }).select('_id fos.assigneeId fos.areaId').lean()) as Doc[];
+  return rows.map((r) => ({ id: r._id.toHexString(), assigneeId: r.fos?.assigneeId ?? null, areaId: r.fos?.areaId ?? null }));
+}
+
 export async function idsAssignedTo(userId: string): Promise<string[]> {
   return (await CustomerModel.find({ 'fos.assigneeId': userId }).select('_id').lean()).map((r) => r._id.toHexString());
 }

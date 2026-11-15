@@ -7,6 +7,7 @@ export {
   getByErpId,
   idsInArea,
   idsAssignedTo,
+  assignmentStateOfBranch,
   applyAssignments,
   setTag,
   setOpenPromiseDates,

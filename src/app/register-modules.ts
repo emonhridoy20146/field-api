@@ -15,6 +15,8 @@ import { manifest as devices } from '../modules/devices/manifest.js';
 import { manifest as system } from '../modules/system/manifest.js';
 import { manifest as customers } from '../modules/customers/manifest.js';
 import { manifest as tags } from '../modules/tags/manifest.js';
+import { manifest as assignments } from '../modules/assignments/manifest.js';
+import { manifest as handovers } from '../modules/handovers/manifest.js';
 import { manifest as microfinance } from '../modules/microfinance/manifest.js';
 
-export const manifests: ModuleManifest[] = [audit, settings, flags, erpGateway, branches, users, rbac, auth, devices, system, customers, tags, microfinance];
+export const manifests: ModuleManifest[] = [audit, settings, flags, erpGateway, branches, users, rbac, auth, devices, system, customers, tags, assignments, handovers, microfinance];
