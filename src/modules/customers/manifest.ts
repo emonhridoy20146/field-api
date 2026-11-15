@@ -1,4 +1,5 @@
 import type { ModuleManifest } from '../../core/module/types.js';
+import { syncMutations } from './sync.js';
 import { ctx } from '../../core/context/index.js';
 import { indexMigration } from '../../core/db/migrations.js';
 import type { ErpCustomer } from '../erp-gateway/index.js';
@@ -24,6 +25,7 @@ export const manifest: ModuleManifest = {
   },
   jobs: [{ name: 'customers.recompute-derived', schedule: '5 0 * * *', handler: async () => void (await recomputeAllDerived()) }],
   syncEntities: [{ entity: 'customer', load: syncLoad, snapshot: syncSnapshot }],
+  syncMutations,
   migrations: [
     indexMigration('20261115-0001-customers-indexes', [
       { collection: 'erp_customers', key: { erpCustomerId: 1 }, options: { unique: true } },

@@ -132,6 +132,13 @@ export async function listDeposits(user: AuthUser, q: { branchId?: string | unde
   };
 }
 
+export async function getDeposit(user: AuthUser, id: string) {
+  if (!isOid(id)) throw notFound('deposit');
+  const d = (await DepositModel.findOne({ _id: id, ...branchQuery(user, undefined), ...(user.role === 'field_staff' ? { userId: user.id } : {}) }).lean()) as Lean | null;
+  if (!d) throw notFound('deposit');
+  return view(d);
+}
+
 export async function decide(user: AuthUser, id: string, decision: 'verify' | 'reject', reason: string | null, meta: RequestMeta) {
   if (!isOid(id)) throw notFound('deposit');
   const d = (await DepositModel.findOne({ _id: id, ...branchQuery(user, undefined) }).lean()) as Lean | null;

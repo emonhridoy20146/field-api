@@ -1,4 +1,5 @@
 import type { ModuleManifest } from '../../core/module/types.js';
+import { syncMutations } from './sync.js';
 import { indexMigration } from '../../core/db/migrations.js';
 import type { AuthUser } from '../../core/security/types.js';
 import { registerDetailContributor, registerTimelineSource } from '../customers/index.js';
@@ -27,6 +28,7 @@ export const manifest: ModuleManifest = {
     { entity: 'note', load: loader(s.getNote) },
     { entity: 'contact_attempt', load: loader(s.getContact) },
   ],
+  syncMutations,
   migrations: [
     indexMigration('20261115-0001-notes-indexes', [
       { collection: 'notes', key: { clientId: 1 }, options: { unique: true } },

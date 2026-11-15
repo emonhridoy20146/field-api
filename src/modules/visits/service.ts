@@ -93,6 +93,13 @@ export async function create(user: AuthUser, input: z.infer<typeof createSchema>
   }
 }
 
+/** Resolve the server id of the caller's own visit from the id the app generated offline. */
+export async function idByClientId(user: AuthUser, clientId: string): Promise<string> {
+  const v = (await VisitModel.findOne({ clientId, userId: user.id }).select({ _id: 1 }).lean()) as Lean | null;
+  if (!v) throw notFound('visit');
+  return v._id.toHexString();
+}
+
 export async function checkout(user: AuthUser, id: string, input: { checkOutAt: string; outcome?: (typeof OUTCOMES)[number] | undefined }) {
   if (!isOid(id)) throw notFound('visit');
   const v = (await VisitModel.findOne({ _id: id, userId: user.id }).lean()) as Lean | null;

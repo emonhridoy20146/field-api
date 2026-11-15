@@ -1,4 +1,5 @@
 import type { ModuleManifest } from '../../core/module/types.js';
+import { syncMutations } from './sync.js';
 import { ctx } from '../../core/context/index.js';
 import { indexMigration } from '../../core/db/migrations.js';
 import { handoverRoutes } from './routes.js';
@@ -22,6 +23,7 @@ export const manifest: ModuleManifest = {
   jobs: [{ name: 'handovers.tick', schedule: '*/15 * * * *', handler: async () => void (await tick()) }],
   inboxTypes: [{ type: 'handover.unaccepted', severity: 'medium' }],
   notificationTypes: [{ type: 'handover.created' }, { type: 'handover.decided' }],
+  syncMutations,
   migrations: [
     indexMigration('20261115-0001-handovers-indexes', [
       { collection: 'handovers', key: { toUserId: 1, status: 1 } },

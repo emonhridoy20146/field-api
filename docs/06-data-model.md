@@ -183,7 +183,7 @@ Secondary index: `{ 'meta.userId': 1, recordedAt: 1 }`.
 - `broadcasts [ADDED] { scope: {branchIds, roles}, title, body, requireAck, acks: [{userId, at}], createdBy }`.
 - `inbox_items [ADDED] { key (dedupe, e.g. 'collection.conflict:6750…'), type, severity: 'low'|'medium'|'high'|'critical', branchId, entity, entityId, summary {bn,en}, status: 'open'|'snoozed'|'resolved', snoozedUntil, resolvedBy, resolvedAt, createdAt }` · `{ key:1 } unique`, `{ branchId:1, status:1, severity:-1, createdAt:-1 }`.
 - `sync_changes { seq (int64 from counters), userIds: [] (audience), branchId, entity, entityId, op: 'upsert'|'delete', at }` · `{ userIds:1, seq:1 }` · TTL 30 days (devices older than 30 days get a full resync: `410 CURSOR_EXPIRED`).
-- `device_sync_state { deviceId, userId, lastPullSeq, lastPullAt, lastPushAt, pendingReported, lastError }`.
+- `device_sync_state { deviceId, userId, branchId, lastPullSeq, lastPullAt, lastPushAt, pendingReported, lastError, appVersion }` · `{ deviceId:1, userId:1 } unique`, `{ branchId:1, lastPullAt:-1 }`.
 - `counters { _id: 'sync_seq', value }`.
 - `outbox`, `jobs` — see 04-architecture §6.5.
 - `audit_logs { at, actorId, actorRole, action, entity, entityId, branchId, before, after, reason, ip, deviceId, requestId, prevHash, hash }` · `{ at:-1 }`, `{ entity:1, entityId:1, at:-1 }`, `{ actorId:1, at:-1 }`, `{ branchId:1, action:1, at:-1 }`. Mongo user for the API has **insert + find only** on this collection (custom role). Retention: money actions 8 years, others 3 years (job, OD-09).

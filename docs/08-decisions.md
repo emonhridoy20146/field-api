@@ -120,6 +120,9 @@ The FOS overlay (`fos.assigneeId/areaId/tag/openPromiseDates/locationOverride`) 
 ### ADR-026 Background-location provider is a setting · accepted (2026-11-15, owner)
 Free plugin by default; `location.trackingProvider = paid` switches the app to the paid plugin when its build includes it. The licence key ships in the app build (bound to the app id), never in settings.
 
+### ADR-027 Sync mutations are declared by the owning module · accepted (2026-11-15)
+`POST /sync/push` does not import business modules. Each module lists its offline mutation kinds in `syncMutations` in its manifest (entity, permission, `apply`), validating with the same zod schema as its REST route. The sync module checks the module flag and the permission, wraps every item in the idempotency store keyed by `(userId, mutationId)`, and reports per-item results. Reason: keeps module boundaries (CLAUDE.md §2.5) and makes a new offline entity a one-file change. Bootstrap snapshots only entities that declare `snapshot` (customers, whose detail already carries open promise and pending collections); everything else arrives through pull.
+
 ## 2. Rejected or deferred scope ideas
 | Idea | Decision | Reason |
 |---|---|---|

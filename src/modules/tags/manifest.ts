@@ -1,4 +1,5 @@
 import type { ModuleManifest } from '../../core/module/types.js';
+import { syncMutations } from './sync.js';
 import { ctx } from '../../core/context/index.js';
 import { indexMigration } from '../../core/db/migrations.js';
 import { tagRoutes } from './routes.js';
@@ -20,6 +21,7 @@ export const manifest: ModuleManifest = {
   settings: [{ key: 'tags.requireApproval', type: 'bool', default: false, branchOverridable: true, exposeToApp: true, description: 'FR-TAG-007 staff tags need approval' }],
   inboxTypes: [{ type: 'tag.review', severity: 'medium' }],
   notificationTypes: [{ type: 'tag.balance_cleared' }, { type: 'tag.review_requested' }, { type: 'tag.review_decided' }],
+  syncMutations,
   migrations: [
     indexMigration('20261115-0001-tags-indexes', [
       { collection: 'tag_events', key: { customerId: 1, at: -1 } },

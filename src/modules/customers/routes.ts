@@ -36,7 +36,7 @@ const mapQuery = z.object({
 
 const pageQuery = z.object({ limit: z.coerce.number().int().min(1).max(100).default(30), cursor: z.string().max(200).optional() });
 
-const proposalBody = z.object({
+export const proposalBody = z.object({
   clientId: z.string().uuid(),
   geo: z.object({ lat: z.number(), lng: z.number(), accuracyM: z.number().min(0), mock: z.boolean().optional(), capturedAt: z.string().optional(), provider: z.string().optional() }),
   photoMediaId: z.string().max(64).optional(),

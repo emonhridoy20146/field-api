@@ -4,7 +4,7 @@ import { parse, parseIfMatch } from '../../core/http/index.js';
 import { TAG_REASONS } from './domain/tag-rules.js';
 import * as s from './service.js';
 
-const tagBody = z.object({
+export const tagBody = z.object({
   state: z.enum(['tagged', 'none']),
   severity: z.enum(['watch', 'bad', 'legal']).optional(),
   reasonCode: z.enum(TAG_REASONS),

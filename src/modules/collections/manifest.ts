@@ -1,4 +1,5 @@
 import type { ModuleManifest } from '../../core/module/types.js';
+import { syncMutations } from './sync.js';
 import { ctx } from '../../core/context/index.js';
 import { indexMigration } from '../../core/db/migrations.js';
 import type { AuthUser } from '../../core/security/types.js';
@@ -52,6 +53,7 @@ export const manifest: ModuleManifest = {
       },
     },
   ],
+  syncMutations,
   migrations: [
     indexMigration('20261115-0001-collections-indexes', [
       { collection: 'collections', key: { idempotencyKey: 1 }, options: { unique: true } },

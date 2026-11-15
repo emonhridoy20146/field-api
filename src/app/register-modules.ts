@@ -24,6 +24,7 @@ import { manifest as visits } from '../modules/visits/manifest.js';
 import { manifest as notes } from '../modules/notes/manifest.js';
 import { manifest as promises } from '../modules/promises/manifest.js';
 import { manifest as attendance } from '../modules/attendance/manifest.js';
+import { manifest as sync } from '../modules/sync/manifest.js';
 import { manifest as microfinance } from '../modules/microfinance/manifest.js';
 
-export const manifests: ModuleManifest[] = [audit, settings, flags, erpGateway, branches, users, rbac, auth, devices, system, customers, tags, assignments, handovers, collections, cash, media, visits, notes, promises, attendance, microfinance];
+export const manifests: ModuleManifest[] = [audit, settings, flags, erpGateway, branches, users, rbac, auth, devices, system, customers, tags, assignments, handovers, collections, cash, media, visits, notes, promises, attendance, sync, microfinance];

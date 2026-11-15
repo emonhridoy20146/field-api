@@ -1,10 +1,11 @@
 import type { ModuleManifest } from '../../core/module/types.js';
+import { syncMutations } from './sync.js';
 import { ctx } from '../../core/context/index.js';
 import { indexMigration } from '../../core/db/migrations.js';
 import { registerCashPositionProvider } from '../collections/index.js';
 import { registerSummaryContributor } from '../handovers/index.js';
 import { cashRoutes } from './routes.js';
-import { onCollectionReceived, positionOf } from './service.js';
+import { getDeposit, onCollectionReceived, positionOf } from './service.js';
 
 export const manifest: ModuleManifest = {
   name: 'cash',
@@ -26,6 +27,17 @@ export const manifest: ModuleManifest = {
   ],
   inboxTypes: [{ type: 'cash.over_limit', severity: 'high' }, { type: 'cash.deposit.pending', severity: 'medium' }],
   notificationTypes: [{ type: 'cash.limit_reached' }, { type: 'cash.deposit.decided' }],
+  syncEntities: [
+    {
+      entity: 'deposit',
+      load: async (ids, user) => {
+        const out = new Map<string, Record<string, unknown>>();
+        for (const id of ids) await getDeposit(user, id).then((v) => out.set(id, v), () => undefined);
+        return out;
+      },
+    },
+  ],
+  syncMutations,
   migrations: [
     indexMigration('20261115-0001-cash-indexes', [
       { collection: 'cash_deposits', key: { clientId: 1 }, options: { unique: true } },
