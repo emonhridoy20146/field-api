@@ -165,16 +165,16 @@ Document: `{ recordedAt, meta: { userId, branchId, deviceId }, lat, lng, accurac
 Secondary index: `{ 'meta.userId': 1, recordedAt: 1 }`.
 
 ### location_latest
-`{ _id: userId, branchId, point, accuracyM, recordedAt, battery, activity, mock, onBreak, appVersion }` · `{ branchId:1 }`, `{ point: '2dsphere' }`.
+`{ _id: userId, branchId, point, accuracyM, recordedAt, battery, activity, mock, heartbeatAt, gpsEnabled, permission, bgRestricted, appVersion, trackingProvider, trackingProviderFallback }` · `{ branchId:1 }`. The marker only moves forward in time; "on break" is read from attendance when the map is requested, not stored.
 
 ### location_heartbeats
-`{ userId, at, battery, gpsEnabled, permission: 'always'|'while_in_use'|'denied', bgRestricted, appVersion }` · TTL 30 days.
+`{ userId, at, battery, charging, gpsEnabled, permission: 'always'|'while_in_use'|'denied', bgRestricted, appVersion, pendingPoints, pendingMutations, trackingProvider, trackingProviderFallback }` · `{ userId:1, at:-1 }`, TTL 30 days on `at`.
 
 ### location_stops
-`{ userId, branchId, businessDate, start, end, dwellMin, center: Point, radiusM, customerId?, distanceToPinM?, visitId?, pointsCount }` · `{ userId:1, businessDate:1 }`, TTL 365 days on `end`.
+Written by the nightly `location.summarize` job (re-runnable; replaces the day). `{ userId, branchId, businessDate, start, end, dwellMin, lat, lng, customerId?, customerName?, distanceToPinM?, pointsCount }` · `{ userId:1, businessDate:1 }`, TTL 365 days on `end`.
 
 ### location_daily_summaries
-`{ userId, branchId, businessDate, distanceKm, movingMin, stoppedMin, stopsCount, customerStops, firstPointAt, lastPointAt, gapsMin, mockPoints }` · `{ userId:1, businessDate:1 } unique` · TTL 730 days.
+`{ userId, branchId, businessDate, day, distanceKm, movingMin, stoppedMin, stopsCount, customerStops, firstPointAt, lastPointAt, gapsMin, mockPoints }` · `{ userId:1, businessDate:1 } unique` · TTL 730 days on `day`.
 
 ## 6. Notifications, inbox, sync, audit
 

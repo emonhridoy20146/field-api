@@ -49,3 +49,33 @@ describe('deriveDay', () => {
     expect(autoCloseAt(t('12:00'))).toEqual(t('15:00'));
   });
 });
+
+import { dutyIntervals, dutyStateAt } from '../domain/day.js';
+
+describe('duty intervals (FR-LOC-001)', () => {
+  const at = (hhmm: string) => new Date(`2026-11-15T${hhmm}:00+06:00`);
+  const ev = (id: string, type: 'work_in' | 'break_start' | 'break_end' | 'work_out', hhmm: string) => ({ id, type, at: at(hhmm) });
+
+  it('closed day with a break', () => {
+    const i = dutyIntervals([ev('1', 'work_in', '09:00'), ev('2', 'break_start', '13:00'), ev('3', 'break_end', '13:30'), ev('4', 'work_out', '18:00')], at('21:00'));
+    expect(dutyStateAt(i, at('08:59'))).toBe('off_duty');
+    expect(dutyStateAt(i, at('10:00'))).toBe('on_duty');
+    expect(dutyStateAt(i, at('13:10'))).toBe('on_break');
+    expect(dutyStateAt(i, at('14:00'))).toBe('on_duty');
+    expect(dutyStateAt(i, at('18:01'))).toBe('off_duty');
+  });
+
+  it('open day counts only until the cap; invalid events are ignored', () => {
+    const i = dutyIntervals([ev('0', 'break_end', '08:00'), ev('1', 'work_in', '09:00')], at('21:00'));
+    expect(dutyStateAt(i, at('20:59'))).toBe('on_duty');
+    expect(dutyStateAt(i, at('21:01'))).toBe('off_duty');
+    expect(dutyStateAt(i, at('08:30'))).toBe('off_duty');
+  });
+
+  it('second span the same day and leaving while on break', () => {
+    const i = dutyIntervals([ev('1', 'work_in', '09:00'), ev('2', 'break_start', '12:00'), ev('3', 'work_out', '12:30'), ev('4', 'work_in', '16:00')], at('21:00'));
+    expect(dutyStateAt(i, at('12:10'))).toBe('on_break');
+    expect(dutyStateAt(i, at('14:00'))).toBe('off_duty');
+    expect(dutyStateAt(i, at('17:00'))).toBe('on_duty');
+  });
+});

@@ -945,3 +945,17 @@ export async function searchCustomers(user: AuthUser, term: string, limit = 10) 
     subtitle: `${c.code} · ${c.phone}`,
   }));
 }
+
+/** Closest customer pin to a point within `radiusM` in one branch (stop detection, FR-LOC-008). */
+export async function nearestCustomer(branchId: string, at: LatLng, radiusM: number): Promise<{ id: string; name: { bn: string; en: string }; distanceM: number } | null> {
+  const rows = (await CustomerModel.find({ branchId, location: { $geoWithin: { $centerSphere: [[at.lng, at.lat], radiusM / 6378100] } } })
+    .select({ name: 1, location: 1 })
+    .limit(50)
+    .lean()) as Doc[];
+  let best: { id: string; name: { bn: string; en: string }; distanceM: number } | null = null;
+  for (const r of rows) {
+    const d = Math.round(haversineM(at, { lat: r.location.coordinates[1], lng: r.location.coordinates[0] }));
+    if (!best || d < best.distanceM) best = { id: r._id.toHexString(), name: r.name, distanceM: d };
+  }
+  return best;
+}

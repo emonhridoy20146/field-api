@@ -18,6 +18,7 @@ export {
   registerTimelineSource,
   overdueSummary,
   searchCustomers,
+  nearestCustomer,
 } from './service.js';
 export type { CustomerRef, AssignmentChange, ListExtras, ListEnricher, DetailContributor, TimelineItem, TimelineSource } from './service.js';
 export type { CustomerStatus } from './domain/status.js';

@@ -115,3 +115,47 @@ export const AUTO_CLOSE_AFTER_MIN = 180;
 export function autoCloseAt(shiftEnd: Date): Date {
   return new Date(shiftEnd.getTime() + AUTO_CLOSE_AFTER_MIN * 60_000);
 }
+
+export interface DutyIntervals {
+  /** Work-in → work-out spans; an open span ends at `openUntil`. */
+  duty: { start: Date; end: Date }[];
+  breaks: { start: Date; end: Date }[];
+}
+
+/**
+ * Time ranges in which the person was on duty / on break, from the same state machine as deriveDay
+ * (invalid events are ignored). Used to refuse location points outside duty hours (FR-LOC-001).
+ */
+export function dutyIntervals(input: DayEvent[], openUntil: Date): DutyIntervals {
+  const events = [...input].sort((a, b) => a.at.getTime() - b.at.getTime() || a.id.localeCompare(b.id));
+  const out: DutyIntervals = { duty: [], breaks: [] };
+  let state: LiveState = 'not_started';
+  let spanStart: Date | null = null;
+  let breakStart: Date | null = null;
+  for (const e of events) {
+    if (!ALLOWED[state].includes(e.type)) continue;
+    if (e.type === 'work_in') spanStart = e.at;
+    else if (e.type === 'break_start') breakStart = e.at;
+    else if (e.type === 'break_end') {
+      out.breaks.push({ start: breakStart!, end: e.at });
+      breakStart = null;
+    } else {
+      if (breakStart) out.breaks.push({ start: breakStart, end: e.at });
+      breakStart = null;
+      out.duty.push({ start: spanStart!, end: e.at });
+      spanStart = null;
+    }
+    state = NEXT[e.type];
+  }
+  if (breakStart && openUntil > breakStart) out.breaks.push({ start: breakStart, end: openUntil });
+  if (spanStart && openUntil > spanStart) out.duty.push({ start: spanStart, end: openUntil });
+  return out;
+}
+
+export type DutyState = 'on_duty' | 'on_break' | 'off_duty';
+export function dutyStateAt(i: DutyIntervals, at: Date): DutyState {
+  const t = at.getTime();
+  const within = (r: { start: Date; end: Date }) => t >= r.start.getTime() && t <= r.end.getTime();
+  if (!i.duty.some(within)) return 'off_duty';
+  return i.breaks.some(within) ? 'on_break' : 'on_duty';
+}

@@ -9,7 +9,7 @@ import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { getSetting, isHoliday, resolveShift, type ShiftView } from '../settings/index.js';
 import { getUser, getUsers, listByRole, type UserView } from '../users/index.js';
-import { autoCloseAt, deriveDay, type DayEvent, type DayKind, type EventType } from './domain/day.js';
+import { autoCloseAt, deriveDay, dutyIntervals, dutyStateAt, type DayEvent, type DayKind, type DutyIntervals, type EventType } from './domain/day.js';
 import { AttendanceDayModel, AttendanceEventModel, LeaveModel } from './models/attendance.model.js';
 import { weekday } from '../../core/time/index.js';
 
@@ -161,6 +161,48 @@ export async function isOnDuty(userId: string, at: Date): Promise<boolean> {
   const rows = (await AttendanceEventModel.find({ userId, businessDate: date, replacedBy: null, at: { $lte: at } }).lean()) as Lean[];
   const r = deriveDay({ events: rows.map((e) => ({ id: e._id.toHexString(), type: e.type, at: e.at })), shiftStart: at, shiftEnd: at, lateGraceMin: 0, maxBreakMin: 0, kind: 'working', now: at, closed: false });
   return r.state === 'on_duty';
+}
+
+/**
+ * Duty and break ranges of a user for the business dates touching [from, to]. An open day counts
+ * only until its auto-close time (shift end + 3 h), so nothing is "on duty" past that (FR-LOC-001).
+ */
+export async function dutyWindows(userId: string, from: Date, to: Date): Promise<DutyIntervals> {
+  const u = await getUser(userId);
+  const out: DutyIntervals = { duty: [], breaks: [] };
+  if (!u) return out;
+  const shift = await resolveShift(u.shiftId, u.branchIds[0] ?? null);
+  const rows = (await AttendanceEventModel.find({ userId, businessDate: { $gte: businessDate(from), $lte: businessDate(to) }, replacedBy: null }).lean()) as Lean[];
+  const byDate = new Map<string, DayEvent[]>();
+  for (const e of rows) byDate.set(e.businessDate, [...(byDate.get(e.businessDate) ?? []), { id: e._id.toHexString(), type: e.type as EventType, at: e.at }]);
+  for (const [date, events] of byDate) {
+    const i = dutyIntervals(events, autoCloseAt(dhakaInstant(date, shift.end)));
+    out.duty.push(...i.duty);
+    out.breaks.push(...i.breaks);
+  }
+  return out;
+}
+
+/** Field staff of the caller's scope who are on duty (or on break) right now, with that state. */
+export async function onDutyNow(user: AuthUser, branchId?: string): Promise<Map<string, { name: string; branchId: string | null; onBreak: boolean }>> {
+  const now = ctx().clock.now();
+  const out = new Map<string, { name: string; branchId: string | null; onBreak: boolean }>();
+  for (const s of await staffInScope(user, branchId)) {
+    const state = dutyStateAt(await dutyWindows(s.id, now, now), now);
+    if (state !== 'off_duty') out.set(s.id, { name: s.name.en || s.name.bn, branchId: s.branchIds[0] ?? null, onBreak: state === 'on_break' });
+  }
+  return out;
+}
+
+/** Every active field staff member who is on duty right now (system jobs; no caller scope). */
+export async function allOnDutyNow(): Promise<{ userId: string; branchId: string | null; onBreak: boolean }[]> {
+  const now = ctx().clock.now();
+  const out: { userId: string; branchId: string | null; onBreak: boolean }[] = [];
+  for (const s of await listByRole(['field_staff'])) {
+    const state = dutyStateAt(await dutyWindows(s.id, now, now), now);
+    if (state !== 'off_duty') out.push({ userId: s.id, branchId: s.branchIds[0] ?? null, onBreak: state === 'on_break' });
+  }
+  return out;
 }
 
 async function staffInScope(user: AuthUser, branchId?: string, userId?: string): Promise<UserView[]> {

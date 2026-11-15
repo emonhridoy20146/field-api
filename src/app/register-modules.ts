@@ -29,6 +29,7 @@ import { manifest as notifications } from '../modules/notifications/manifest.js'
 import { manifest as inbox } from '../modules/inbox/manifest.js';
 import { manifest as reports } from '../modules/reports/manifest.js';
 import { manifest as search } from '../modules/search/manifest.js';
+import { manifest as location } from '../modules/location/manifest.js';
 import { manifest as microfinance } from '../modules/microfinance/manifest.js';
 
-export const manifests: ModuleManifest[] = [audit, settings, flags, erpGateway, branches, users, rbac, auth, devices, system, customers, tags, assignments, handovers, collections, cash, media, visits, notes, promises, attendance, sync, notifications, inbox, reports, search, microfinance];
+export const manifests: ModuleManifest[] = [audit, settings, flags, erpGateway, branches, users, rbac, auth, devices, system, customers, tags, assignments, handovers, collections, cash, media, visits, notes, promises, attendance, sync, notifications, inbox, reports, search, location, microfinance];

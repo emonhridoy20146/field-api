@@ -38,6 +38,8 @@ const RAISE: Raise[] = [
   { event: 'customer.location.proposed', type: 'location.proposal', id: (p) => str(p.proposalId), entity: 'customer', summary: () => t('লোকেশন প্রস্তাব অনুমোদনের অপেক্ষায়', 'Location proposal waiting for approval'), link: () => '/location-proposals' },
   { event: 'promise.broken', type: 'promise.broken', id: (p) => str(p.promiseId), entity: 'promise', summary: () => t('প্রতিশ্রুতি রক্ষা হয়নি', 'Promise broken'), link: (p) => `/customers/${str(p.customerId)}` },
   { event: 'attendance.absent', type: 'attendance.absent', id: (p) => `${str(p.userId)}:${str(p.businessDate)}`, entity: 'user', summary: (p) => t(`${str(p.businessDate)} তারিখে অনুপস্থিত`, `Absent on ${str(p.businessDate)}`), link: (p) => `/attendance?userId=${str(p.userId)}` },
+  { event: 'location.mock_detected', type: 'location.mock', id: (p) => `${str(p.userId)}:${str(p.businessDate)}`, entity: 'user', summary: (p) => t(`${str(p.businessDate)} তারিখে নকল GPS ধরা পড়েছে`, `Mock GPS detected on ${str(p.businessDate)}`), link: (p) => `/location/history?userId=${str(p.userId)}&date=${str(p.businessDate)}` },
+  { event: 'location.tracking_lost', type: 'location.tracking_lost', id: (p) => `${str(p.userId)}:${str(p.businessDate)}`, entity: 'user', summary: () => t('ডিউটিতে থাকা অবস্থায় ট্র্যাকিং বন্ধ', 'Tracking stopped while on duty'), link: (p) => `/location/latest?userId=${str(p.userId)}` },
   { event: 'leave.requested', type: 'leave.requested', id: (p) => str(p.leaveId), entity: 'leave_request', summary: () => t('ছুটির আবেদন অপেক্ষমাণ', 'Leave request pending'), link: () => '/leave-requests?status=pending' },
 ];
 
