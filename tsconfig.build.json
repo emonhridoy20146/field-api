@@ -1,1 +1,1 @@
-{ "extends": "./tsconfig.json", "compilerOptions": { "rootDir": "." }, "include": ["src", "mock-erp"] }
+{ "extends": "./tsconfig.json", "compilerOptions": { "rootDir": "." }, "include": ["src", "mock-erp"], "exclude": ["src/**/__tests__/**"] }

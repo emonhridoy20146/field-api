@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ctx } from '../../core/context/index.js';
 import { AppError, notFound } from '../../core/errors/index.js';
-import { isDuplicateKey, isOid } from '../../core/db/index.js';
+import { isDuplicateKey, isOid, type LeanDoc } from '../../core/db/index.js';
 import { recordChange } from '../../core/changefeed/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { haversineM } from '../../core/geo/index.js';
@@ -11,7 +11,7 @@ import { getUsers } from '../users/index.js';
 import { getCustomerRef, getCustomerRefs, type TimelineItem } from '../customers/index.js';
 import { VisitModel } from './models/visit.model.js';
 
-type Lean = Record<string, any> & { _id: { toHexString(): string } };
+type Lean = LeanDoc;
 export const OUTCOMES = ['paid', 'partial_paid', 'promised', 'not_home', 'refused', 'shifted_address', 'customer_dead', 'product_returned_request', 'other'] as const;
 const OUTCOME_BN: Record<string, string> = { paid: 'পরিশোধ', partial_paid: 'আংশিক পরিশোধ', promised: 'প্রতিশ্রুতি', not_home: 'বাড়িতে নেই', refused: 'অস্বীকার', shifted_address: 'ঠিকানা পরিবর্তন', customer_dead: 'মৃত', product_returned_request: 'পণ্য ফেরতের অনুরোধ', other: 'অন্যান্য' };
 

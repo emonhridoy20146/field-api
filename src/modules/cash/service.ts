@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ctx } from '../../core/context/index.js';
 import { AppError, businessRule, notFound } from '../../core/errors/index.js';
-import { isOid, withTransaction } from '../../core/db/index.js';
+import { isOid, withTransaction, type LeanDoc } from '../../core/db/index.js';
 import { recordChange } from '../../core/changefeed/index.js';
 import { payloadHash, withIdempotency } from '../../core/idempotency/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
@@ -15,7 +15,7 @@ import { cashCollectionsOf, cashSums } from '../collections/index.js';
 import { oldestUndeposited, onHand, stateOf } from './domain/position.js';
 import { ClosingModel, DepositModel } from './models/cash.model.js';
 
-type Lean = Record<string, any> & { _id: { toHexString(): string } };
+type Lean = LeanDoc;
 const today = () => businessDate(ctx().clock.now());
 
 async function limitFor(u: UserView): Promise<number> {

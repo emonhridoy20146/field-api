@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ctx } from '../../core/context/index.js';
 import { AppError, notFound } from '../../core/errors/index.js';
-import { isOid } from '../../core/db/index.js';
+import { isOid, type LeanDoc } from '../../core/db/index.js';
 import { recordChanges } from '../../core/changefeed/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import type { RequestMeta } from '../../core/http/router.js';
@@ -16,7 +16,7 @@ import { shouldPush, type QuietHours } from './domain/quiet-hours.js';
 import { BroadcastModel, NotificationModel } from './models/notification.model.js';
 import { pushSender } from './push.js';
 
-type Lean = Record<string, any> & { _id: { toHexString(): string } };
+type Lean = LeanDoc;
 const now = () => ctx().clock.now();
 
 const view = (n: Lean) => ({

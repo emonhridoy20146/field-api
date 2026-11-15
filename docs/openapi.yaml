@@ -419,6 +419,15 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Shift' } } } }
       responses:
         '201': { description: Created }
+  /shifts/{id}:
+    patch:
+      tags: [system]
+      operationId: updateShift
+      description: 'Partial update of a shift (declared in 1.5.0; the route already existed)'
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/Shift' } } } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Shift' } } } }
 
   /customers:
     get:

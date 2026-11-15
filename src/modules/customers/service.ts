@@ -1,6 +1,6 @@
 import { ctx } from '../../core/context/index.js';
 import { AppError, businessRule, notFound } from '../../core/errors/index.js';
-import { isDuplicateKey, isOid } from '../../core/db/index.js';
+import { isDuplicateKey, isOid, type LeanDoc, type LooseObject } from '../../core/db/index.js';
 import { recordChange, recordChanges, type ChangeInput } from '../../core/changefeed/index.js';
 import { classifyCoords, haversineM, parseBbox, type LatLng } from '../../core/geo/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
@@ -15,7 +15,7 @@ import { refreshCustomer as erpRefresh, ErpUnavailableError, type ErpCustomer } 
 import { badges, deriveCustomer, worstStatus, type CustomerStatus } from './domain/status.js';
 import { CustomerModel, LocationProposalModel } from './models/customer.model.js';
 
-type Doc = Record<string, any> & { _id: { toHexString(): string } };
+type Doc = LeanDoc;
 const today = () => businessDate(ctx().clock.now());
 
 // ---------------- extension points (inversion of control, no import cycles) ----------------
@@ -115,7 +115,7 @@ function ref(c: Doc): CustomerRef {
     badSuggested: !!c.derived?.badSuggested,
     tagged: c.fos?.tag?.state === 'tagged',
     tag: c.fos?.tag ?? null,
-    plans: (c.plans ?? []).map((p: Record<string, any>) => ({
+    plans: (c.plans ?? []).map((p: LooseObject) => ({
       erpPlanId: p.erpPlanId,
       status: p.status,
       outstandingPoisha: p.outstandingPoisha,
@@ -175,7 +175,7 @@ export async function erpPaidBetween(
   if (!isOid(customerId)) return 0;
   const c = (await CustomerModel.findById(customerId).select('recentPayments').lean()) as Doc | null;
   let sum = 0;
-  for (const p of (c?.recentPayments ?? []) as Record<string, any>[])
+  for (const p of (c?.recentPayments ?? []) as LooseObject[])
     if (!p.reversed && p.date >= from && p.date <= to && (!erpPlanId || !p.erpPlanId || p.erpPlanId === erpPlanId))
       sum += p.amountPoisha;
   return sum;
@@ -187,7 +187,7 @@ export async function idsAssignedTo(userId: string): Promise<string[]> {
 
 // ---------------- ERP sync → read model ----------------
 
-function locationFields(c: ErpCustomer, override: Record<string, any> | null) {
+function locationFields(c: ErpCustomer, override: LooseObject | null) {
   if (override?.point) return { location: override.point, locationStatus: 'overridden', locationSource: 'overlay' };
   const status = classifyCoords(c.lat, c.lng);
   return {
@@ -528,7 +528,7 @@ export async function list(user: AuthUser, q: ListQuery) {
   };
 }
 
-function planView(p: Record<string, any>, d: Record<string, any> | undefined) {
+function planView(p: LooseObject, d: LooseObject | undefined) {
   return {
     erpPlanId: p.erpPlanId,
     product: p.product ?? '',
@@ -541,7 +541,7 @@ function planView(p: Record<string, any>, d: Record<string, any> | undefined) {
     outstandingPoisha: p.outstandingPoisha ?? 0,
     status: p.status,
     badSuggested: !!d?.badSuggested,
-    schedule: (d?.lines ?? []).map((l: Record<string, any>) => ({
+    schedule: (d?.lines ?? []).map((l: LooseObject) => ({
       seq: l.seq,
       dueDate: l.dueDate,
       amountPoisha: l.amountPoisha,
@@ -563,8 +563,8 @@ function fmtDate(d: string, lang: 'bn' | 'en') {
 
 async function detailOf(c: Doc, user: AuthUser) {
   const [item] = await listItems([c], user, null);
-  const dPlans = new Map<string, Record<string, any>>(
-    (c.derived?.plans ?? []).map((p: Record<string, any>) => [p.erpPlanId, p]),
+  const dPlans = new Map<string, LooseObject>(
+    (c.derived?.plans ?? []).map((p: LooseObject) => [p.erpPlanId, p]),
   );
   const br = c.derived?.badReason as { erpPlanId: string; finalDueDate: string; outstandingPoisha: number } | null;
   const extra: Record<string, unknown> = { pendingCollections: [], recentNotes: [], lastVisit: null };
@@ -577,8 +577,8 @@ async function detailOf(c: Doc, user: AuthUser) {
     ...item!,
     phones: c.phones ?? [],
     ...(c.guarantor ? { guarantor: c.guarantor } : {}),
-    plans: (c.plans ?? []).map((p: Record<string, any>) => planView(p, dPlans.get(p.erpPlanId))),
-    payments: (c.recentPayments ?? []).map((p: Record<string, any>) => ({
+    plans: (c.plans ?? []).map((p: LooseObject) => planView(p, dPlans.get(p.erpPlanId))),
+    payments: (c.recentPayments ?? []).map((p: LooseObject) => ({
       erpPaymentId: p.erpPaymentId,
       date: p.date,
       amountPoisha: p.amountPoisha,
@@ -633,7 +633,7 @@ export async function timeline(user: AuthUser, id: string, limit: number, cursor
   const before = decodeCursor<{ before: string }>(cursor)?.before ?? null;
   const beforeDate = before ? new Date(before) : null;
   const items: TimelineItem[] = [];
-  for (const p of (c.recentPayments ?? []) as Record<string, any>[]) {
+  for (const p of (c.recentPayments ?? []) as LooseObject[]) {
     const at = new Date(`${p.date}T12:00:00+06:00`);
     if (beforeDate && at >= beforeDate) continue;
     items.push({

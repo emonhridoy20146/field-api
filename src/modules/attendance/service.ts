@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ctx } from '../../core/context/index.js';
 import { AppError, businessRule, notFound } from '../../core/errors/index.js';
-import { isDuplicateKey, isOid, newId, withTransaction } from '../../core/db/index.js';
+import { isDuplicateKey, isOid, newId, withTransaction, type LeanDoc, type LooseObject } from '../../core/db/index.js';
 import { recordChange } from '../../core/changefeed/index.js';
 import { addDays, businessDate, dhakaInstant, isIsoDate } from '../../core/time/index.js';
 import { branchQuery, canSeeBranch, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
@@ -13,7 +13,7 @@ import { autoCloseAt, deriveDay, type DayEvent, type DayKind, type EventType } f
 import { AttendanceDayModel, AttendanceEventModel, LeaveModel } from './models/attendance.model.js';
 import { weekday } from '../../core/time/index.js';
 
-type Lean = Record<string, any> & { _id: { toHexString(): string } };
+type Lean = LeanDoc;
 const today = () => businessDate(ctx().clock.now());
 
 export const eventSchema = z.object({
@@ -33,7 +33,7 @@ async function kindOf(userId: string, date: string, shift: ShiftView, branchId: 
   return 'working';
 }
 
-function dayView(userId: string, date: string, d: Record<string, any>) {
+function dayView(userId: string, date: string, d: LooseObject) {
   const iso = (x: Date | null | undefined) => (x ? new Date(x).toISOString() : null);
   return {
     userId,

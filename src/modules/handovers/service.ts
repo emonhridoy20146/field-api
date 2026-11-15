@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ctx } from '../../core/context/index.js';
 import { AppError, businessRule, notFound } from '../../core/errors/index.js';
-import { isOid, withTransaction } from '../../core/db/index.js';
+import { isOid, withTransaction, type LeanDoc } from '../../core/db/index.js';
 import { businessDate, isIsoDate } from '../../core/time/index.js';
 import { branchQuery, canSeeBranch, type AuthUser } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
@@ -13,7 +13,7 @@ import { areasHeldBy, recomputeBranch, revertTransfer, transfer } from '../assig
 import { dueToApply, dueToRevert, EXPIRY_HOURS, REMIND_AFTER_HOURS, transition, type HandoverAction, type HandoverStatus } from './domain/lifecycle.js';
 import { HandoverModel } from './models/handover.model.js';
 
-type Lean = Record<string, any> & { _id: { toHexString(): string } };
+type Lean = LeanDoc;
 const today = () => businessDate(ctx().clock.now());
 
 /** Other modules add to the receiver's summary (promises → openPromises, collections → openConflicts, cash → cashOnHandPoisha). */

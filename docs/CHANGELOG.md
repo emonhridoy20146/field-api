@@ -20,6 +20,8 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 - inbox module: "needs attention" items raised and auto-resolved by domain events (conflicts, posting failures, flagged collections, over-limit cash, deposits unverified > 24 h, unaccepted handovers, tag reviews, pin proposals, broken promises, absences, leave requests); resolve (audited) and snooze.
 - reports module: `GET /dashboard/overview` (collected by method, visits, promises, attendance, cash, exceptions, overdue summary, ERP status, 7-day trend). search module: `GET /search` across customers, staff and receipts with per-type permission checks.
 - Contract 1.5.0 also declares `Notification`, the `POST /broadcasts` response and `Broadcast.acked`.
+- Tooling: ESLint config (no `any` outside one documented type, no system clock in domain code), dependency-cruiser module-boundary rules, `check:permissions`, `openapi:lint`, `check:changelog`, `db:migrate`, `seed:dev`, `new:module` with `templates/module`, HTTP mock ERP (`mock-erp/server.ts`) with a client contract test, `smoke` run of the real entrypoints, `.env.example`, Dockerfile, docker-compose, GitHub Actions CI.
+- Contract 1.5.0 also declares `PATCH /shifts/{id}`, which was implemented but missing from the contract (found by `openapi:lint`).
 ### Notes
 - Person names in responses stay plain strings (changing them to I18nText would break v1); clients show the string as given.
 - The permission catalog in `02-requirements §3.1` is the source of truth; the "50 keys" figure in the original spec text was a miscount.

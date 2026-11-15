@@ -1,6 +1,6 @@
 import { ctx } from '../../core/context/index.js';
 import { AppError, notFound } from '../../core/errors/index.js';
-import { isOid } from '../../core/db/index.js';
+import { isOid, type LeanDoc } from '../../core/db/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import type { I18n } from '../../core/module/types.js';
@@ -8,7 +8,7 @@ import { branchQuery, type AuthUser } from '../../core/security/types.js';
 import * as audit from '../audit/index.js';
 import { InboxItemModel } from './models/inbox.model.js';
 
-type Lean = Record<string, any> & { _id: { toHexString(): string } };
+type Lean = LeanDoc;
 const now = () => ctx().clock.now();
 const RANK = { low: 0, medium: 1, high: 2, critical: 3 } as const;
 export type Severity = keyof typeof RANK;

@@ -9,7 +9,7 @@ export const systemRoutes = defineRoutes((r) => {
   // Liveness/readiness for the load balancer. Never does ERP-heavy work.
   r.get('/system/health', { access: 'public' }, async () => {
     const mongoOk = mongoose.connection.readyState === 1;
-    let erp = 'unknown';
+    let erp: string;
     try {
       erp = (await Promise.race([erpClient().health(), new Promise<{ ok: boolean }>((res) => setTimeout(() => res({ ok: false }), 1500))])).ok ? 'ok' : 'down';
     } catch {

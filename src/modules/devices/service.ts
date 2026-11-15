@@ -5,7 +5,7 @@ import { isOid } from '../../core/db/index.js';
 import { isSuperAdmin, type AuthUser } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
-import { getUser, getUsers, type UserView } from '../users/index.js';
+import { getUser, type UserView } from '../users/index.js';
 import { isEnabledForUser } from '../flags/index.js';
 import { getSetting } from '../settings/index.js';
 import { revokeForDevice, type DeviceInfo } from '../auth/index.js';

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ctx } from '../../core/context/index.js';
 import { AppError, businessRule, notFound } from '../../core/errors/index.js';
-import { isDuplicateKey, isOid, withTransaction } from '../../core/db/index.js';
+import { isDuplicateKey, isOid, withTransaction, type LeanDoc } from '../../core/db/index.js';
 import { recordChange } from '../../core/changefeed/index.js';
 import { cancelPending, enqueue, hasActive } from '../../core/events/outbox.js';
 import { payloadHash } from '../../core/idempotency/index.js';
@@ -34,7 +34,7 @@ import {
 } from './domain/rules.js';
 import { CollectionModel } from './models/collection.model.js';
 
-type Lean = Record<string, any> & { _id: { toHexString(): string } };
+type Lean = LeanDoc;
 const OUTBOX = 'erp.post_payment';
 
 /** Cash position is owned by the cash module (which depends on us); it plugs in here to decorate responses. */

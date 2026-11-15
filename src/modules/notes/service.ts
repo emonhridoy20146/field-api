@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ctx } from '../../core/context/index.js';
 import { AppError, notFound } from '../../core/errors/index.js';
-import { isDuplicateKey, isOid } from '../../core/db/index.js';
+import { isDuplicateKey, isOid, type LeanDoc } from '../../core/db/index.js';
 import { recordChange } from '../../core/changefeed/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import type { AuthUser } from '../../core/security/types.js';
@@ -9,7 +9,7 @@ import { getUsers } from '../users/index.js';
 import { getCustomerRef, type CustomerRef, type TimelineItem } from '../customers/index.js';
 import { ContactAttemptModel, NoteModel } from './models/note.model.js';
 
-type Lean = Record<string, any> & { _id: { toHexString(): string } };
+type Lean = LeanDoc;
 const EDIT_WINDOW_MS = 15 * 60_000;
 
 /** Notes are visible to everyone who can see the customer (FR-NOTE-001: "all in branch"). */

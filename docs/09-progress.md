@@ -8,11 +8,11 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 ## Phase 0 — Foundations (≈ 2–3 weeks)
 | Item | Repo | Status |
 |---|---|---|
-| Repos created with CLAUDE.md, README, docs, CI, lint boundaries | all | ☐ |
+| Repos created with CLAUDE.md, README, docs, CI, lint boundaries | all | ◐ (field-api ✅) |
 | core: config, db, logger, errors, events, outbox, jobs, idempotency, clock | A | ✅ |
 | Module loader + manifest validation + feature gate + permission catalog | A | ✅ |
 | auth, rbac, users, branches (ERP mirror), settings, flags, audit | A | ✅ |
-| erp-gateway with MockErpClient + mock-erp server + fixtures from this spec | A | ◐ (mock-erp HTTP server pending) |
+| erp-gateway with MockErpClient + mock-erp server + fixtures from this spec | A | ✅ |
 | Admin shell: layout, login, RBAC-aware nav, users & roles, permissions matrix, settings, flags, audit viewer | W | ☐ |
 | App shell: theme, Bangla fonts, login, PIN unlock, local DB, sync engine skeleton, version gate | M | ☐ |
 | Design tokens v1.0 implemented in both clients | W M | ☐ |
@@ -27,15 +27,15 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Customer list/detail/map (both clients) | FR-CUS-* | ✅ API |
 | Assignments, areas, bulk assign | FR-ASG-* | ✅ API |
 | Handovers incl. temporary cover | FR-HO-001..006 | ✅ API |
-| Collections offline + idempotency + receipt blocks + ERP posting + conflicts | FR-COL-001..011, 013 | ✅ API (sync push pending) |
+| Collections offline + idempotency + receipt blocks + ERP posting + conflicts | FR-COL-001..011, 013 | ✅ API |
 | Cash on hand, limits, deposits, closing | FR-CASH-* | ✅ API |
 | Visits + camera photos + media | FR-VIS-001..004, FR-MED-001 | ✅ API (thumbnails pending) |
 | Notes, promises, reminders, nightly evaluation | FR-NOTE-001, FR-PRM-001..003 | ✅ API |
 | Tags + suggestion + review | FR-TAG-* | ✅ API |
-| Attendance + shifts + holidays + corrections | FR-ATT-001..007, FR-SET-002/003 | ☑ (FR-ATT-007 geofence not built; leave FR-ATT-008 built early) |
-| Sync push/pull/bootstrap + sync center | FR-SYNC-* | ☑ (API; bootstrap snapshots customers only, other entities arrive by pull) |
-| Notifications (FCM + center) | FR-NOT-001..004 | ☑ (push goes through a port; the real FCM sender needs credentials at deploy time; broadcasts FR-NOT-005 built early) |
-| Inbox, dashboard, global search | FR-INB-001, FR-DSH-001, FR-SRCH-001 | ☑ (inbox items for mock GPS / tracking stopped come with the location module; daily target is 0 until phase 3) |
+| Attendance + shifts + holidays + corrections | FR-ATT-001..007, FR-SET-002/003 | ✅ API (FR-ATT-007 geofence not built; leave FR-ATT-008 built early) |
+| Sync push/pull/bootstrap + sync center | FR-SYNC-* | ✅ API (API; bootstrap snapshots customers only, other entities arrive by pull) |
+| Notifications (FCM + center) | FR-NOT-001..004 | ✅ API (push goes through a port; the real FCM sender needs credentials at deploy time; broadcasts FR-NOT-005 built early) |
+| Inbox, dashboard, global search | FR-INB-001, FR-DSH-001, FR-SRCH-001 | ✅ API (inbox items for mock GPS / tracking stopped come with the location module; daily target is 0 until phase 3) |
 | Pin corrections | FR-CUS-008 | ✅ API |
 | Devices binding/remote logout | FR-AUTH-006..008 | ✅ API |
 

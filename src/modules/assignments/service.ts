@@ -2,7 +2,7 @@ import type { ClientSession } from 'mongoose';
 import { z } from 'zod';
 import { ctx } from '../../core/context/index.js';
 import { AppError, businessRule, notFound } from '../../core/errors/index.js';
-import { isOid, withTransaction } from '../../core/db/index.js';
+import { isOid, withTransaction, type LeanDoc } from '../../core/db/index.js';
 import { branchQuery, canSeeBranch, type AuthUser } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
@@ -11,7 +11,7 @@ import { applyAssignments, assignmentStateOfBranch, getCustomerRef, getCustomerR
 import { computePrimary, type ActiveAssignment } from './domain/primary.js';
 import { AreaModel, AssignmentModel } from './models/assignment.model.js';
 
-type Lean = Record<string, any> & { _id: { toHexString(): string } };
+type Lean = LeanDoc;
 
 // ---------------- areas (FR-ASG-001) ----------------
 

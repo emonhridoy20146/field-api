@@ -40,3 +40,12 @@ export const newId = () => new mongoose.Types.ObjectId().toHexString();
 
 export { mongoose };
 export type { ClientSession };
+
+/**
+ * A `.lean()` document read without a typed schema. Mongoose infers awkward types for nested
+ * and Mixed fields, so services read these loosely and convert to typed views at their edge.
+ * This is the single place where `any` is allowed (CLAUDE.md §7).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type LooseObject = Record<string, any>;
+export type LeanDoc = LooseObject & { _id: { toHexString(): string } };

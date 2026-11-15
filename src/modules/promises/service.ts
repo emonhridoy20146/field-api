@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ctx } from '../../core/context/index.js';
 import { AppError, businessRule, notFound } from '../../core/errors/index.js';
-import { isDuplicateKey, isOid } from '../../core/db/index.js';
+import { isDuplicateKey, isOid, type LeanDoc } from '../../core/db/index.js';
 import { recordChange } from '../../core/changefeed/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { formatBdt } from '../../core/money/index.js';
@@ -13,7 +13,7 @@ import { erpPaidBetween, getCustomerRef, getCustomerRefs, setOpenPromiseDates, t
 import { dateInRange, isDue, verdict } from './domain/evaluate.js';
 import { PromiseModel } from './models/promise.model.js';
 
-type Lean = Record<string, any> & { _id: { toHexString(): string } };
+type Lean = LeanDoc;
 const today = () => businessDate(ctx().clock.now());
 
 export const createSchema = z.object({

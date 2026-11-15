@@ -4,7 +4,7 @@ import { as, createTestApp, seedBasics, type Seeded, type TestApp } from '../hel
 import { expectConforms } from '../helpers/openapi.js';
 import { deltaSync } from '../../src/modules/erp-gateway/index.js';
 import { applyAssignments, getByErpId } from '../../src/modules/customers/index.js';
-import { storage, MemoryStorage } from '../../src/core/storage/index.js';
+import { storage, type MemoryStorage } from '../../src/core/storage/index.js';
 import { evaluateDue, remindToday } from '../../src/modules/promises/service.js';
 import { setFlagSystem } from '../../src/modules/flags/index.js';
 

@@ -1,0 +1,27 @@
+{
+  "_comment": "Field names the HTTP mock ERP needs. Laravel names live only here and in the mappers (CLAUDE.md §2.2).",
+  "prefix": "/api/integrations/field/v1",
+  "fields": {
+    "id": "id",
+    "branchId": "branch_id",
+    "updatedAt": "updated_at",
+    "payments": "recent_payments",
+    "meta": "meta",
+    "nextCursor": "next_cursor",
+    "serverTime": "server_time",
+    "queryBranch": "branch_id",
+    "queryUpdatedSince": "updated_since",
+    "queryCursor": "page[cursor]",
+    "querySize": "page[size]",
+    "requestCustomerId": "customer_id",
+    "requestPlanId": "plan_id",
+    "requestAmount": "amount",
+    "postedId": "id",
+    "postedReceiptNo": "receipt_no",
+    "postedCustomerId": "customer_id",
+    "postedPlanId": "plan_id",
+    "postedAmount": "amount",
+    "postedAt": "posted_at",
+    "idempotentReplay": "idempotent_replay"
+  }
+}
