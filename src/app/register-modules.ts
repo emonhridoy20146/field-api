@@ -13,6 +13,7 @@ import { manifest as rbac } from '../modules/rbac/manifest.js';
 import { manifest as auth } from '../modules/auth/manifest.js';
 import { manifest as devices } from '../modules/devices/manifest.js';
 import { manifest as system } from '../modules/system/manifest.js';
+import { manifest as customers } from '../modules/customers/manifest.js';
 import { manifest as microfinance } from '../modules/microfinance/manifest.js';
 
-export const manifests: ModuleManifest[] = [audit, settings, flags, erpGateway, branches, users, rbac, auth, devices, system, microfinance];
+export const manifests: ModuleManifest[] = [audit, settings, flags, erpGateway, branches, users, rbac, auth, devices, system, customers, microfinance];

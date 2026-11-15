@@ -84,7 +84,7 @@ export async function seedBasics(t: TestApp, opts: { flagsOn?: boolean } = {}): 
 export interface Res<T = any> {
   status: number;
   body: T;
-  headers: Record<string, string | string[] | undefined>;
+  headers: Record<string, string | string[] | number | undefined>;
 }
 
 export function client(app: FastifyInstance, token?: string, extraHeaders: Record<string, string> = {}) {
