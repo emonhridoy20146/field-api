@@ -144,13 +144,13 @@ Retention: permanent (≥ 8 years, OD-09).
 `{ _id, ownerId, kind: 'visit_photo'|'deposit_slip'|'selfie'|'location_proof'|'refund_proof'|'voice_note'|'export', bucketKey: 'media/2026/11/15/<uuid>.jpg', contentType, sizeBytes, sha256, width, height, capturedAt, geo, status: 'pending'|'confirmed', thumbKey }` · `{ sha256:1 }`, TTL on pending: `{ createdAt:1 } partial(status=pending) 1 day` (implemented by job since TTL partial filters on status are allowed).
 
 ### attendance_events
-`{ clientId, userId, branchId, type: 'work_in'|'break_start'|'break_end'|'work_out'|'auto_close'|'correction', at, deviceTime, receivedAt, geo, selfieMediaId?, flags[], correctionOf?, reason? }` · `{ clientId:1 } unique`, `{ userId:1, at:1 }`.
+`{ clientId, userId, branchId, businessDate, type: 'work_in'|'break_start'|'break_end'|'work_out', at, deviceTime, receivedAt, geo|null, geoUnavailableReason, selfieMediaId?, source: 'app'|'correction'|'system', correction?: { by, reason, replacesEventId }, replacedBy?, flags[] }` · `{ clientId:1 } unique`, `{ userId:1, businessDate:1, at:1 }`. Append-only: a correction adds an event and marks the replaced one with `replacedBy`; the auto work-out is a `system` event.
 
 ### attendance_days
-`{ userId, branchId, businessDate, shiftId, firstIn, lastOut, lateMin, breakMin, breaks: [{start,end}], dutyMin, status: 'present'|'late'|'absent'|'leave'|'holiday'|'weekly_off', autoClosed, corrected }` · `{ userId:1, businessDate:1 } unique`, `{ branchId:1, businessDate:1 }`.
+Derived, rebuildable from events. `{ userId, branchId, businessDate, status: 'not_started'|'on_duty'|'on_break'|'off_duty'|'present'|'late'|'absent'|'leave'|'holiday'|'weekly_off', state, firstIn, lastOut, lateMin, breakMin, overBreakMin, breaks: [{start,end}], dutyMin, autoClosed, corrected, closed, flags[], shift: {start,end} }` · `{ userId:1, businessDate:1 } unique`, `{ branchId:1, businessDate:1 }`, `{ closed:1, state:1 }`.
 
 ### leave_requests [ADDED]
-`{ userId, branchId, type: 'casual'|'sick'|'other', from, to, reason, status, decidedBy, decidedAt }`.
+`{ userId, branchId, type: 'casual'|'sick'|'other', from, to, reason, status: 'pending'|'approved'|'rejected', decidedBy, decidedAt, decisionReason, createdAt }` · `{ userId:1, from:1 }`, `{ branchId:1, status:1, createdAt:-1 }`.
 
 ## 5. Location
 
