@@ -227,3 +227,16 @@ export async function timelineItems(customerId: string, before: Date | null, lim
     data: { status: p.status, promisedDate: p.promisedDate },
   }));
 }
+
+/** Dashboard counters: due on `date`, kept on `date`, broken the day before. */
+export async function dayCounts(user: AuthUser, branchId: string | undefined, date: string) {
+  const f = { ...scopeFilter(user), ...(branchId ? branchQuery(user, branchId) : {}) };
+  const day = (d: string) => ({ $gte: new Date(`${d}T00:00:00+06:00`), $lte: new Date(`${d}T23:59:59.999+06:00`) });
+  const prev = new Date(new Date(`${date}T12:00:00+06:00`).getTime() - 86_400_000).toISOString().slice(0, 10);
+  const [dueToday, keptToday, brokenYesterday] = await Promise.all([
+    PromiseModel.countDocuments({ ...f, promisedDate: date, status: { $in: ['open', 'kept', 'partially_kept', 'broken'] } }),
+    PromiseModel.countDocuments({ ...f, status: 'kept', closedAt: day(date) }),
+    PromiseModel.countDocuments({ ...f, status: 'broken', promisedDate: prev }),
+  ]);
+  return { dueToday, keptToday, brokenYesterday };
+}

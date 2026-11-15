@@ -11,5 +11,6 @@ export {
   loadAuthUser,
   createSystemUser,
   displayName,
+  searchUsers,
   type UserView,
 } from './service.js';

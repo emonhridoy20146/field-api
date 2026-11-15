@@ -291,3 +291,9 @@ export async function createSystemUser(input: z.infer<typeof createSchema> & { p
   await audit.record({ actor: null, action: 'user.created', entity: 'user', entityId: view.id, branchId: view.branchIds[0] ?? null, after: view, reason: 'system seed' });
   return view;
 }
+
+/** Staff search for the global search box (FR-SRCH-001); phone is never part of the result text. */
+export async function searchUsers(actor: AuthUser, term: string, limit = 5) {
+  const r = await list(actor, { q: term, limit });
+  return r.items.map((u) => ({ type: 'user', id: u.id, title: u.name.bn || u.name.en, subtitle: `${u.employeeCode} · ${u.role}` }));
+}

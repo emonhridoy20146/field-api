@@ -170,3 +170,12 @@ export async function timelineItems(customerId: string, before: Date | null, lim
     };
   });
 }
+
+/** Visit count and unique customers per Dhaka business day in the caller's scope (dashboard). */
+export async function visitsByDay(user: AuthUser, branchId: string | undefined, from: string, to: string) {
+  const rows = await VisitModel.aggregate<{ _id: string; n: number; c: string[] }>([
+    { $match: { ...scopeFilter(user), ...(branchId ? branchQuery(user, branchId) : {}), checkInAt: { $gte: new Date(`${from}T00:00:00+06:00`), $lte: new Date(`${to}T23:59:59.999+06:00`) } } },
+    { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$checkInAt', timezone: 'Asia/Dhaka' } }, n: { $sum: 1 }, c: { $addToSet: '$customerId' } } },
+  ]);
+  return new Map(rows.map((r) => [r._id, { count: r.n, uniqueCustomers: r.c.length }]));
+}

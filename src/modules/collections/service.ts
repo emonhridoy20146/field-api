@@ -30,6 +30,7 @@ import {
   RESOLVABLE,
   VOIDABLE,
   type Status,
+  CASH_COUNTED_STATUSES,
 } from './domain/rules.js';
 import { CollectionModel } from './models/collection.model.js';
 
@@ -558,4 +559,33 @@ export async function timelineItems(customerId: string, before: Date | null, lim
       data: { receiptNo: c.receiptNo, status: c.status, flags: c.flags },
     };
   });
+}
+
+// ---------------- aggregates for dashboard and search ----------------
+
+const MOBILE_METHODS = ['bkash', 'nagad', 'rocket'];
+
+/** Collected money per Dhaka business day in the caller's scope; voided and rejected records are not counted. */
+export async function collectedByDay(user: AuthUser, branchId: string | undefined, from: string, to: string) {
+  const rows = await CollectionModel.aggregate<{ _id: { d: string; m: string }; s: number; n: number }>([
+    { $match: { ...scopeFilter(user), ...(branchId ? branchQuery(user, branchId) : {}), businessDate: { $gte: from, $lte: to }, status: { $in: CASH_COUNTED_STATUSES } } },
+    { $group: { _id: { d: '$businessDate', m: '$method' }, s: { $sum: '$amountPoisha' }, n: { $sum: 1 } } },
+  ]);
+  const out = new Map<string, { totalPoisha: number; cashPoisha: number; mobilePoisha: number; count: number }>();
+  for (const r of rows) {
+    const d = out.get(r._id.d) ?? { totalPoisha: 0, cashPoisha: 0, mobilePoisha: 0, count: 0 };
+    d.totalPoisha += r.s;
+    d.count += r.n;
+    if (r._id.m === 'cash') d.cashPoisha += r.s;
+    else if (MOBILE_METHODS.includes(r._id.m)) d.mobilePoisha += r.s;
+    out.set(r._id.d, d);
+  }
+  return out;
+}
+
+/** Receipt search by FOS or ERP receipt number prefix (FR-SRCH-001). */
+export async function searchReceipts(user: AuthUser, term: string, limit = 5) {
+  const rx = new RegExp('^' + term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+  const rows = (await CollectionModel.find({ ...scopeFilter(user), $or: [{ receiptNo: rx }, { erpReceiptNo: rx }] }).sort({ _id: -1 }).limit(limit).lean()) as Lean[];
+  return rows.map((c) => ({ type: 'receipt', id: c._id.toHexString(), title: c.receiptNo as string, subtitle: `${formatBdt(c.amountPoisha)} · ${c.businessDate} · ${c.status}` }));
 }

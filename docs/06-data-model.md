@@ -181,6 +181,7 @@ Secondary index: `{ 'meta.userId': 1, recordedAt: 1 }`.
 - `notifications { userId, type, title {bn,en}, body {bn,en}, data, readAt, createdAt }` · `{ userId:1, createdAt:-1 }` · TTL 90 days.
 - `push_tokens` → stored on `devices.fcmToken` (one per device).
 - `broadcasts [ADDED] { scope: {branchIds, roles}, title, body, requireAck, acks: [{userId, at}], createdBy }`.
+- `broadcasts [ADDED] { title {bn,en}, body {bn,en}, branchIds[], roles[], requireAck, createdBy, createdAt, recipientIds[], ackedBy[] }` · `{ recipientIds:1, _id:-1 }`.
 - `inbox_items [ADDED] { key (dedupe, e.g. 'collection.conflict:6750…'), type, severity: 'low'|'medium'|'high'|'critical', branchId, entity, entityId, summary {bn,en}, status: 'open'|'snoozed'|'resolved', snoozedUntil, resolvedBy, resolvedAt, createdAt }` · `{ key:1 } unique`, `{ branchId:1, status:1, severity:-1, createdAt:-1 }`.
 - `sync_changes { seq (int64 from counters), userIds: [] (audience), branchId, entity, entityId, op: 'upsert'|'delete', at }` · `{ userIds:1, seq:1 }` · TTL 30 days (devices older than 30 days get a full resync: `410 CURSOR_EXPIRED`).
 - `device_sync_state { deviceId, userId, branchId, lastPullSeq, lastPullAt, lastPushAt, pendingReported, lastError, appVersion }` · `{ deviceId:1, userId:1 } unique`, `{ branchId:1, lastPullAt:-1 }`.

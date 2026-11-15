@@ -34,8 +34,8 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Tags + suggestion + review | FR-TAG-* | ✅ API |
 | Attendance + shifts + holidays + corrections | FR-ATT-001..007, FR-SET-002/003 | ☑ (FR-ATT-007 geofence not built; leave FR-ATT-008 built early) |
 | Sync push/pull/bootstrap + sync center | FR-SYNC-* | ☑ (API; bootstrap snapshots customers only, other entities arrive by pull) |
-| Notifications (FCM + center) | FR-NOT-001..004 | ☐ |
-| Inbox, dashboard, global search | FR-INB-001, FR-DSH-001, FR-SRCH-001 | ☐ |
+| Notifications (FCM + center) | FR-NOT-001..004 | ☑ (push goes through a port; the real FCM sender needs credentials at deploy time; broadcasts FR-NOT-005 built early) |
+| Inbox, dashboard, global search | FR-INB-001, FR-DSH-001, FR-SRCH-001 | ☑ (inbox items for mock GPS / tracking stopped come with the location module; daily target is 0 until phase 3) |
 | Pin corrections | FR-CUS-008 | ✅ API |
 | Devices binding/remote logout | FR-AUTH-006..008 | ✅ API |
 

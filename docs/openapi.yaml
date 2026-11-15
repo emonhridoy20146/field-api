@@ -1117,7 +1117,7 @@ paths:
       operationId: listNotifications
       parameters: [ { $ref: '#/components/parameters/Limit' }, { $ref: '#/components/parameters/Cursor' }, { name: unread, in: query, schema: { type: boolean } } ]
       responses:
-        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { type: object, additionalProperties: true } }, nextCursor: { type: [string, 'null'] }, unreadCount: { type: integer } } } } } }
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/Notification' } }, nextCursor: { type: [string, 'null'] }, unreadCount: { type: integer } } } } } }
   /notifications/{id}/read:
     post:
       tags: [notifications]
@@ -1146,7 +1146,7 @@ paths:
           application/json:
             schema: { type: object, required: [title, body], properties: { branchIds: { type: array, items: { type: string } }, roles: { type: array, items: { $ref: '#/components/schemas/Role' } }, title: { $ref: '#/components/schemas/I18nText' }, body: { $ref: '#/components/schemas/I18nText' }, requireAck: { type: boolean } } }
       responses:
-        '201': { description: Created }
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Broadcast' } } } }
   /broadcasts/{id}/ack:
     post:
       tags: [notifications]
@@ -1683,9 +1683,13 @@ components:
     LeaveRequest:
       type: object
       properties: { id: { type: string }, userId: { type: string }, userName: { type: string }, type: { type: string, enum: [casual, sick, other] }, from: { type: string, format: date }, to: { type: string, format: date }, reason: { type: string }, status: { type: string, enum: [pending, approved, rejected] }, decidedBy: { type: string }, decidedAt: { type: string, format: date-time }, createdAt: { type: string, format: date-time } }
+    Notification:
+      type: object
+      description: 'Declared in 1.5.0. `data` holds ids for deep links only.'
+      properties: { id: { type: string }, type: { type: string, example: promise.due }, title: { $ref: '#/components/schemas/I18nText' }, body: { $ref: '#/components/schemas/I18nText' }, data: { type: object, additionalProperties: { type: string } }, read: { type: boolean }, readAt: { type: string, format: date-time }, createdAt: { type: string, format: date-time } }
     Broadcast:
       type: object
-      properties: { id: { type: string }, title: { $ref: '#/components/schemas/I18nText' }, body: { $ref: '#/components/schemas/I18nText' }, branchIds: { type: array, items: { type: string } }, roles: { type: array, items: { $ref: '#/components/schemas/Role' } }, requireAck: { type: boolean }, createdBy: { type: object, properties: { id: { type: string }, name: { type: string } } }, createdAt: { type: string, format: date-time }, recipientCount: { type: integer }, ackCount: { type: integer } }
+      properties: { id: { type: string }, title: { $ref: '#/components/schemas/I18nText' }, body: { $ref: '#/components/schemas/I18nText' }, branchIds: { type: array, items: { type: string } }, roles: { type: array, items: { $ref: '#/components/schemas/Role' } }, requireAck: { type: boolean }, createdBy: { type: object, properties: { id: { type: string }, name: { type: string } } }, createdAt: { type: string, format: date-time }, recipientCount: { type: integer }, ackCount: { type: integer }, acked: { type: boolean, description: 'Whether the caller acknowledged it' } }
     AttendanceDay:
       type: object
       properties:

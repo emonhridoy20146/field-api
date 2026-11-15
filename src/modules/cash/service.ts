@@ -187,3 +187,10 @@ export async function onCollectionReceived(p: { collectorId: string; branchId: s
   if (pos.state !== 'ok' && pos.state !== before)
     await ctx().bus.emit('cash.limit_reached', { userId: p.collectorId, branchId: p.branchId, state: pos.state, onHandPoisha: pos.onHandPoisha, limitPoisha: pos.limitPoisha });
 }
+
+/** Dashboard totals for the caller's scope. */
+export async function cashOverview(user: AuthUser, branchId?: string) {
+  const pos = await branchPositions(user, branchId);
+  const pendingDeposits = await DepositModel.countDocuments({ ...branchQuery(user, branchId), ...(user.role === 'field_staff' ? { userId: user.id } : {}), status: 'pending' });
+  return { onHandPoisha: pos.reduce((s, p) => s + p.onHandPoisha, 0), overLimitStaff: pos.filter((p) => p.state === 'exceeded').length, pendingDeposits };
+}
