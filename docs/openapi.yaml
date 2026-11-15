@@ -1052,7 +1052,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { type: object, properties: { battery: { type: number }, charging: { type: boolean }, gpsEnabled: { type: boolean }, permission: { type: string, enum: [always, while_in_use, denied] }, bgRestricted: { type: boolean }, appVersion: { type: string }, pendingPoints: { type: integer }, pendingMutations: { type: integer } } }
+            schema: { type: object, properties: { battery: { type: number }, charging: { type: boolean }, gpsEnabled: { type: boolean }, permission: { type: string, enum: [always, while_in_use, denied] }, bgRestricted: { type: boolean }, appVersion: { type: string }, pendingPoints: { type: integer }, pendingMutations: { type: integer }, trackingProvider: { type: string, enum: [free, paid], description: 'Plugin actually running on the device (1.5.0)' }, trackingProviderFallback: { type: boolean, description: 'true when the setting asked for paid but the app fell back to free (1.5.0)' } } }
       responses:
         '204': { description: OK }
   /location/latest:
@@ -1721,7 +1721,7 @@ components:
       properties: { fastSec: { type: integer, default: 15 }, slowSec: { type: integer, default: 45 }, stillSec: { type: integer, default: 180 }, distanceFilterM: { type: integer, default: 25 }, maxAccuracyM: { type: integer, default: 50 } }
     LatestLocation:
       type: object
-      properties: { userId: { type: string }, name: { type: string }, lat: { type: number }, lng: { type: number }, accuracyM: { type: number }, recordedAt: { type: string }, freshness: { type: string, enum: [fresh, stale, lost] }, battery: { type: number }, onBreak: { type: boolean }, mock: { type: boolean }, activity: { type: string }, todayVisits: { type: integer }, todayCollectedPoisha: { type: integer } }
+      properties: { userId: { type: string }, name: { type: string }, lat: { type: number }, lng: { type: number }, accuracyM: { type: number }, recordedAt: { type: string }, freshness: { type: string, enum: [fresh, stale, lost] }, battery: { type: number }, onBreak: { type: boolean }, mock: { type: boolean }, activity: { type: string }, todayVisits: { type: integer }, todayCollectedPoisha: { type: integer }, trackingProvider: { type: string, enum: [free, paid], description: 'From the last heartbeat (1.5.0)' }, trackingProviderFallback: { type: boolean } }
     Stop:
       type: object
       properties: { start: { type: string }, end: { type: string }, dwellMin: { type: integer }, lat: { type: number }, lng: { type: number }, customerId: { type: [string, 'null'] }, customerName: { type: [string, 'null'] }, distanceToPinM: { type: [integer, 'null'] }, visitId: { type: [string, 'null'] } }
