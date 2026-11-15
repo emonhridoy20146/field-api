@@ -2,7 +2,7 @@
 
 export const METHODS = ['cash', 'bkash', 'nagad', 'rocket', 'bank_transfer', 'other_mobile'] as const;
 export type Method = (typeof METHODS)[number];
-export type Flag = 'far_from_pin' | 'mock_location' | 'clock_skew' | 'late_sync' | 'duplicate_txn_ref' | 'not_in_scope_at_record_time';
+export type Flag = 'far_from_pin' | 'mock_location' | 'clock_skew' | 'late_sync' | 'duplicate_txn_ref' | 'not_in_scope_at_record_time' | 'no_location';
 
 /** Default per-method transaction id patterns (setting `collections.txnRefPatterns` overrides). */
 export const DEFAULT_TXN_PATTERNS: Record<Exclude<Method, 'cash'>, string> = {
@@ -39,6 +39,7 @@ export interface FlagInput {
   distanceToPinM: number | null;
   geofenceM: number;
   mock: boolean;
+  noLocation?: boolean;
   recordedAt: Date;
   deviceTime: Date | null;
   receivedAt: Date;
@@ -56,6 +57,7 @@ export function computeFlags(f: FlagInput): Flag[] {
   if (f.receivedAt.getTime() - f.recordedAt.getTime() > 12 * 3_600_000) out.push('late_sync');
   if (f.duplicateTxnRef) out.push('duplicate_txn_ref');
   if (!f.collectorIsAssignee) out.push('not_in_scope_at_record_time');
+  if (f.noLocation) out.push('no_location');
   return out;
 }
 

@@ -27,6 +27,7 @@ const collectionSchema = new Schema(
       type: { point: { type: { type: String }, coordinates: [Number] }, accuracyM: Number, mock: Boolean, distanceToPinM: { type: Number, default: null }, _id: false },
       default: null,
     },
+    geoUnavailableReason: { type: String, default: null },
     visitClientId: { type: String, default: null },
     photoMediaId: { type: String, default: null },
     status: { type: String, required: true },

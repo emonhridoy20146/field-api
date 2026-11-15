@@ -36,6 +36,10 @@ describe('customer list & scope (FR-CUS-001/002)', () => {
     // default sort: most overdue first
     expect(res.body.items[0].erpCustomerId).toBe('100245');
     expect(res.body.items[0].erpFetchedAt).toBeTruthy();
+    expect(res.body.items[0].overduePoisha).toBe(850000);
+    const rina = res.body.items.find((x: { erpCustomerId: string }) => x.erpCustomerId === '100246');
+    expect(rina.installmentPoisha).toBe(350000); // line due today
+    expect(rina.areaName).toBeNull();
   });
 
   it('branch manager sees the whole branch, not branch B', async () => {

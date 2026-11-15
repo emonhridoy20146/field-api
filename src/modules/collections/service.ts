@@ -61,7 +61,9 @@ export const createSchema = z.object({
   physicalReceiptNo: z.string().max(40).optional(),
   recordedAt: z.string().datetime({ offset: true }),
   deviceTime: z.string().datetime({ offset: true }).optional(),
-  geo: geoFix,
+  // null when the phone has no fix (contract 1.2.0); never rejected, flagged `no_location`.
+  geo: geoFix.nullable(),
+  geoUnavailableReason: z.enum(['permission_denied', 'location_off', 'timeout', 'no_fix']).optional(),
   visitClientId: z.string().max(64).optional(),
   photoMediaId: z.string().max(64).optional(),
   note: z.string().max(500).optional(),
@@ -183,12 +185,14 @@ export async function record(user: AuthUser, idempotencyKey: string, input: Coll
   if (fields.length || !plan.ok) throw new AppError('VALIDATION_FAILED', { fields });
 
   const now = ctx().clock.now();
-  const distanceToPinM = customer.location ? Math.round(haversineM(customer.location, { lat: input.geo.lat, lng: input.geo.lng })) : null;
+  const geo = input.geo;
+  const distanceToPinM = customer.location && geo ? Math.round(haversineM(customer.location, { lat: geo.lat, lng: geo.lng })) : null;
   const duplicateTxnRef = !!txnRef && !!(await CollectionModel.exists({ method: input.method, transactionRef: txnRef, status: { $nin: ['voided', 'resolved_voided'] } }));
   const flags = computeFlags({
     distanceToPinM,
     geofenceM: (await getSetting<number>('collections.geofenceM', customer.branchId)) ?? 300,
-    mock: input.geo.mock,
+    mock: !!geo?.mock,
+    noLocation: !geo,
     recordedAt,
     deviceTime: input.deviceTime ? new Date(input.deviceTime) : null,
     receivedAt: now,
@@ -222,7 +226,8 @@ export async function record(user: AuthUser, idempotencyKey: string, input: Coll
             deviceTime: input.deviceTime ? new Date(input.deviceTime) : null,
             receivedAt: now,
             businessDate: businessDate(recordedAt),
-            geo: { point: { type: 'Point', coordinates: [input.geo.lng, input.geo.lat] }, accuracyM: input.geo.accuracyM, mock: input.geo.mock, distanceToPinM },
+            geo: geo ? { point: { type: 'Point', coordinates: [geo.lng, geo.lat] }, accuracyM: geo.accuracyM, mock: geo.mock, distanceToPinM } : null,
+            geoUnavailableReason: geo ? null : (input.geoUnavailableReason ?? 'no_fix'),
             visitClientId: input.visitClientId ?? null,
             photoMediaId: input.photoMediaId ?? null,
             status: 'received',

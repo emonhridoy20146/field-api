@@ -111,6 +111,15 @@ Client-repo decisions live in `admin-web/docs/08-decisions.md` (ADR-W…) and `s
 
 ---
 
+### ADR-024 Change feed lives in core · accepted
+`sync_changes` + counters are written by `core/changefeed` so a module can record a feed entry inside its own transaction without depending on the sync module. Deviation from 04-architecture (feed owned by `sync`).
+
+### ADR-025 FOS overlay inside `erp_customers`; assignments → customers · accepted
+The FOS overlay (`fos.assigneeId/areaId/tag/openPromiseDates/locationOverride`) is a sub-document of `erp_customers` instead of a separate `customer_overlays` collection, so scope filters and list sorts stay one indexed query. `assignments` depends on `customers` (not the reverse) and pushes the computed primary assignee; customer scope for field staff is `fos.assigneeId` (replaces the materialized `assignment_scopes`). Modules declare full route paths and may register extension points (list enricher, detail contributor, timeline source, handover summary contributor) to avoid import cycles. ERP sync never overwrites `fos.*`.
+
+### ADR-026 Background-location provider is a setting · accepted (2026-11-15, owner)
+Free plugin by default; `location.trackingProvider = paid` switches the app to the paid plugin when its build includes it. The licence key ships in the app build (bound to the app id), never in settings.
+
 ## 2. Rejected or deferred scope ideas
 | Idea | Decision | Reason |
 |---|---|---|
@@ -148,6 +157,7 @@ Client-repo decisions live in `admin-web/docs/08-decisions.md` (ADR-W…) and `s
 | OD-22 | Domains | `api.<domain>`, `admin.<domain>` same parent domain (needed for SameSite cookie) | Deploy |
 | OD-23 | Daily targets per staff (FR-COL-015) | Proposed; set by BM monthly | Reports |
 | OD-24 | Photo required for collections above an amount | Off (0) | Setting |
+| OD-25 | Bad-suggestion tolerance for tiny leftovers (e.g. 1 poisha after a plan ends) | No tolerance (rule as written) | Domain rule in customers/domain/status.ts |
 
 No question blocks the design: every item above has a working default and is isolated in a setting, a flag or a provider config.
 

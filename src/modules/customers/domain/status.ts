@@ -37,6 +37,8 @@ export interface CustomerDerived {
   badSuggested: boolean;
   badReason: { erpPlanId: string; finalDueDate: string; outstandingPoisha: number } | null;
   overdueAmountPoisha: number;
+  /** Unpaid amount of the next upcoming due date across active plans (display only). */
+  nextInstallmentPoisha: number | null;
   plans: PlanDerived[];
 }
 
@@ -110,6 +112,11 @@ export function deriveCustomer(plans: PlanInput[], today: string): CustomerDeriv
     }
     planDerived.push({ erpPlanId: p.erpPlanId, finalDueDate: fdd, badSuggested: isBad, lines });
   }
+  let nextInstallment: number | null = null;
+  if (nextDue) {
+    nextInstallment = 0;
+    for (const pd of planDerived) for (const l of pd.lines) if (l.dueDate === nextDue && l.outstandingPoisha > 0) nextInstallment += l.outstandingPoisha;
+  }
   return {
     totalOutstandingPoisha: active.reduce((s, p) => s + Math.max(0, p.outstandingPoisha), 0),
     overdue: !!oldestOverdue,
@@ -119,6 +126,7 @@ export function deriveCustomer(plans: PlanInput[], today: string): CustomerDeriv
     badSuggested: !!bad,
     badReason: bad,
     overdueAmountPoisha: overdueAmount,
+    nextInstallmentPoisha: nextInstallment,
     plans: planDerived,
   };
 }

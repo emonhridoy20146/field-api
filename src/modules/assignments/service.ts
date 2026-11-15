@@ -276,3 +276,15 @@ export async function revertTransfer(p: { branchId: string; source: string; ende
 export async function areasHeldBy(userId: string): Promise<string[]> {
   return (await AssignmentModel.find({ userId, type: 'area', effectiveTo: null }).select('areaId').lean()).map((a) => a.areaId!).filter(Boolean);
 }
+
+/** customerId → area name, for the customer list (contract 1.2.0 `areaName`). */
+export async function areaNamesFor(customerIds: string[]): Promise<Map<string, { bn: string; en: string }>> {
+  const refs = await getCustomerRefs(customerIds);
+  const areaIds = [...new Set([...refs.values()].map((r) => r.areaId).filter((x): x is string => !!x && isOid(x)))];
+  if (!areaIds.length) return new Map();
+  const areas = await AreaModel.find({ _id: { $in: areaIds } }).select('name').lean();
+  const names = new Map(areas.map((a) => [a._id.toHexString(), { bn: a.name?.bn ?? '', en: a.name?.en ?? '' }]));
+  const out = new Map<string, { bn: string; en: string }>();
+  for (const [id, r] of refs) if (r.areaId && names.has(r.areaId)) out.set(id, names.get(r.areaId)!);
+  return out;
+}

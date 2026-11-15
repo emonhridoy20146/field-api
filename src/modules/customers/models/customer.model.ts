@@ -27,6 +27,7 @@ const customerSchema = new Schema(
       overdue: { type: Boolean, default: false },
       daysOverdue: { type: Number, default: 0 },
       overdueAmountPoisha: { type: Number, default: 0 },
+      nextInstallmentPoisha: { type: Number, default: null },
       nextDueDate: { type: String, default: null },
       dueToday: { type: Boolean, default: false },
       badSuggested: { type: Boolean, default: false },

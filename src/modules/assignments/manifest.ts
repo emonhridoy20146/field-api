@@ -2,7 +2,8 @@ import type { ModuleManifest } from '../../core/module/types.js';
 import { ctx } from '../../core/context/index.js';
 import { indexMigration } from '../../core/db/migrations.js';
 import { assignmentRoutes } from './routes.js';
-import { recomputeBranch } from './service.js';
+import { registerListEnricher } from '../customers/index.js';
+import { areaNamesFor, recomputeBranch } from './service.js';
 
 export const manifest: ModuleManifest = {
   name: 'assignments',
@@ -28,6 +29,7 @@ export const manifest: ModuleManifest = {
     ]),
   ],
   init() {
+    registerListEnricher(async (ids) => new Map([...(await areaNamesFor(ids))].map(([k, v]) => [k, { areaName: v }])));
     // A new or moved customer may fall into (or out of) an area: recompute just that customer.
     ctx().bus.on('customer.placed', async (p) => void (p.branchId ? await recomputeBranch(p.branchId as string, [p.customerId as string]) : 0));
   },

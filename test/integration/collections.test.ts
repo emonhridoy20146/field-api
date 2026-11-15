@@ -97,6 +97,17 @@ describe('record + post (FR-COL-001..005, 008)', () => {
   });
 });
 
+describe('no GPS fix (contract 1.2.0)', () => {
+  it('accepts geo: null and flags no_location', async () => {
+    const fs = await as(t, '01700000003');
+    const r = await post(fs, body({ geo: null, geoUnavailableReason: 'location_off', amountPoisha: 500 }));
+    expect(r.res.status).toBe(201);
+    expectConforms('POST', '/collections', 201, r.res.body);
+    expect(r.res.body.flags).toContain('no_location');
+    expect(r.res.body.distanceToPinM).toBeNull();
+  });
+});
+
 describe('ERP failures (07-test-plan §3)', () => {
   it('timeout after store: second attempt finds the payment by key, no double post', async () => {
     const fs = await as(t, '01700000003');

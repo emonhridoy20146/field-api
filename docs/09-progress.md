@@ -9,10 +9,10 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Item | Repo | Status |
 |---|---|---|
 | Repos created with CLAUDE.md, README, docs, CI, lint boundaries | all | ☐ |
-| core: config, db, logger, errors, events, outbox, jobs, idempotency, clock | A | ☐ |
-| Module loader + manifest validation + feature gate + permission catalog | A | ☐ |
-| auth, rbac, users, branches (ERP mirror), settings, flags, audit | A | ☐ |
-| erp-gateway with MockErpClient + mock-erp server + fixtures from this spec | A | ☐ |
+| core: config, db, logger, errors, events, outbox, jobs, idempotency, clock | A | ✅ |
+| Module loader + manifest validation + feature gate + permission catalog | A | ✅ |
+| auth, rbac, users, branches (ERP mirror), settings, flags, audit | A | ✅ |
+| erp-gateway with MockErpClient + mock-erp server + fixtures from this spec | A | ◐ (mock-erp HTTP server pending) |
 | Admin shell: layout, login, RBAC-aware nav, users & roles, permissions matrix, settings, flags, audit viewer | W | ☐ |
 | App shell: theme, Bangla fonts, login, PIN unlock, local DB, sync engine skeleton, version gate | M | ☐ |
 | Design tokens v1.0 implemented in both clients | W M | ☐ |
@@ -23,21 +23,21 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 ## Phase 1 — MVP field operations (≈ 6–8 weeks)
 | Item | FRs | Status |
 |---|---|---|
-| ERP read sync (customers/plans/schedule/payments), status derivation, freshness | FR-ERP-001..005, FR-CUS-001..007, FR-CUS-010 | ☐ |
-| Customer list/detail/map (both clients) | FR-CUS-* | ☐ |
-| Assignments, areas, bulk assign | FR-ASG-* | ☐ |
-| Handovers incl. temporary cover | FR-HO-001..006 | ☐ |
-| Collections offline + idempotency + receipt blocks + ERP posting + conflicts | FR-COL-001..011, 013 | ☐ |
+| ERP read sync (customers/plans/schedule/payments), status derivation, freshness | FR-ERP-001..005, FR-CUS-001..007, FR-CUS-010 | ✅ API |
+| Customer list/detail/map (both clients) | FR-CUS-* | ✅ API |
+| Assignments, areas, bulk assign | FR-ASG-* | ✅ API |
+| Handovers incl. temporary cover | FR-HO-001..006 | ✅ API |
+| Collections offline + idempotency + receipt blocks + ERP posting + conflicts | FR-COL-001..011, 013 | ✅ API (sync push pending) |
 | Cash on hand, limits, deposits, closing | FR-CASH-* | ☐ |
 | Visits + camera photos + media | FR-VIS-001..004, FR-MED-001 | ☐ |
 | Notes, promises, reminders, nightly evaluation | FR-NOTE-001, FR-PRM-001..003 | ☐ |
-| Tags + suggestion + review | FR-TAG-* | ☐ |
+| Tags + suggestion + review | FR-TAG-* | ✅ API |
 | Attendance + shifts + holidays + corrections | FR-ATT-001..007, FR-SET-002/003 | ☐ |
 | Sync push/pull/bootstrap + sync center | FR-SYNC-* | ☐ |
 | Notifications (FCM + center) | FR-NOT-001..004 | ☐ |
 | Inbox, dashboard, global search | FR-INB-001, FR-DSH-001, FR-SRCH-001 | ☐ |
-| Pin corrections | FR-CUS-008 | ☐ |
-| Devices binding/remote logout | FR-AUTH-006..008 | ☐ |
+| Pin corrections | FR-CUS-008 | ✅ API |
+| Devices binding/remote logout | FR-AUTH-006..008 | ✅ API |
 
 **Acceptance (all must pass on staging with mock ERP, then with Laravel staging when available):**
 1. J-1…J-8 and J-11, J-12 green (07-test-plan §5).

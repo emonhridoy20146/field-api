@@ -24,6 +24,7 @@ export interface ListExtras {
   openPromise?: Record<string, unknown> | null;
   lastVisitAt?: string | null;
   pendingFieldPoisha?: number;
+  areaName?: { bn: string; en: string } | null;
 }
 export type ListEnricher = (customerIds: string[], user: AuthUser) => Promise<Map<string, ListExtras>>;
 export type DetailContributor = (customer: { id: string; erpCustomerId: string; branchId: string | null }, user: AuthUser) => Promise<Record<string, unknown>>;
@@ -327,6 +328,9 @@ async function listItems(rows: Doc[], user: AuthUser, near: LatLng | null) {
       openPromise: x.openPromise ?? null,
       lastVisitAt: x.lastVisitAt ?? null,
       pendingFieldPoisha: x.pendingFieldPoisha ?? 0,
+      installmentPoisha: c.derived?.nextInstallmentPoisha ?? null,
+      overduePoisha: c.derived?.overdueAmountPoisha ?? 0,
+      areaName: x.areaName ?? null,
       ...(a ? { assignee: { id: a.id, name: a.name.en || a.name.bn } } : {}),
       erpFetchedAt: (c.erpFetchedAt as Date).toISOString(),
     };

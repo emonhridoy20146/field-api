@@ -39,7 +39,9 @@ describe('areas & assignments (FR-ASG-001..004)', () => {
     expect(await assignee('100245')).toBe(s.fs1.id);
     expect(await assignee('100247')).toBe(s.fs1.id);
     const fs = await as(t, '01700000003');
-    expect((await fs.get('/customers')).body.items).toHaveLength(2);
+    const mine = (await fs.get('/customers')).body.items;
+    expect(mine).toHaveLength(2);
+    expect(mine[0].areaName).toEqual({ bn: 'চরকাওয়া', en: 'Charkawa' });
   });
 
   it('direct assignment overrides area; history is kept', async () => {

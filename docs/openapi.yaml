@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -874,6 +874,22 @@ paths:
       responses:
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Note' } } } }
 
+  /customers/{id}/contact-attempts:
+    get:
+      tags: [notes]
+      operationId: listContactAttempts
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ContactAttempt' } } } } }
+    post:
+      tags: [notes]
+      operationId: logContactAttempt
+      description: Added in 1.2.0 (FR-M-014). Idempotent by clientId.
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ContactAttemptCreate' } } } }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/ContactAttempt' } } } }
+        '200': { description: Replay, content: { application/json: { schema: { $ref: '#/components/schemas/ContactAttempt' } } } }
   /promises:
     get:
       tags: [promises]
@@ -913,7 +929,8 @@ paths:
                 type: { type: string, enum: [work_in, break_start, break_end, work_out] }
                 at: { type: string, format: date-time }
                 deviceTime: { type: string, format: date-time }
-                geo: { $ref: '#/components/schemas/GeoFix' }
+                geo: { oneOf: [ { $ref: '#/components/schemas/GeoFix' }, { type: 'null' } ], description: 'null when no GPS fix could be taken (1.2.0); send geoUnavailableReason' }
+                geoUnavailableReason: { $ref: '#/components/schemas/GeoUnavailableReason' }
                 selfieMediaId: { type: string }
       responses:
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/AttendanceDay' } } } }
@@ -1241,6 +1258,7 @@ components:
         accuracyM: { type: number }
         mock: { type: boolean, default: false }
         fixAt: { type: string, format: date-time }
+    GeoUnavailableReason: { type: string, enum: [permission_denied, location_off, timeout, no_fix], description: 'Why geo is null (1.2.0)' }
     TileProvider:
       type: object
       properties:
@@ -1403,6 +1421,9 @@ components:
         openPromise: { oneOf: [ { $ref: '#/components/schemas/Promise' }, { type: 'null' } ] }
         lastVisitAt: { type: [string, 'null'], format: date-time }
         pendingFieldPoisha: { type: integer, description: 'Field collections not yet posted to ERP' }
+        installmentPoisha: { type: [integer, 'null'], description: 'Amount of the next unpaid schedule line across active plans (ERP cache). Added in 1.2.0' }
+        overduePoisha: { type: integer, description: 'Sum of overdue unpaid schedule amounts (ERP cache). Added in 1.2.0' }
+        areaName: { oneOf: [ { $ref: '#/components/schemas/I18nText' }, { type: 'null' } ], description: 'FOS area the customer falls in. Added in 1.2.0' }
         assignee: { type: object, properties: { id: { type: string }, name: { type: string } } }
         erpFetchedAt: { type: string, format: date-time }
     CustomerPage:
@@ -1472,7 +1493,8 @@ components:
         physicalReceiptNo: { type: string }
         recordedAt: { type: string, format: date-time }
         deviceTime: { type: string, format: date-time }
-        geo: { $ref: '#/components/schemas/GeoFix' }
+        geo: { oneOf: [ { $ref: '#/components/schemas/GeoFix' }, { type: 'null' } ], description: 'null when no GPS fix could be taken (1.2.0); send geoUnavailableReason' }
+        geoUnavailableReason: { $ref: '#/components/schemas/GeoUnavailableReason' }
         visitClientId: { type: string }
         photoMediaId: { type: string }
         note: { type: string, maxLength: 500 }
@@ -1494,7 +1516,7 @@ components:
         status: { $ref: '#/components/schemas/CollectionStatus' }
         conflict: { type: [object, 'null'], properties: { code: { type: string }, message: { $ref: '#/components/schemas/I18nText' }, raisedAt: { type: string } } }
         resolution: { type: [object, 'null'], properties: { action: { type: string }, by: { type: string }, at: { type: string }, reason: { type: string } } }
-        flags: { type: array, items: { type: string, enum: [far_from_pin, mock_location, clock_skew, late_sync, duplicate_txn_ref, not_in_scope_at_record_time] } }
+        flags: { type: array, items: { type: string, enum: [far_from_pin, mock_location, clock_skew, late_sync, duplicate_txn_ref, not_in_scope_at_record_time, no_location] } }
         distanceToPinM: { type: [integer, 'null'] }
         cashOnHand: { $ref: '#/components/schemas/CashPosition' }
     CashPosition:
@@ -1564,7 +1586,8 @@ components:
         checkInAt: { type: string, format: date-time }
         deviceTime: { type: string, format: date-time }
         outcome: { $ref: '#/components/schemas/VisitOutcome' }
-        geo: { $ref: '#/components/schemas/GeoFix' }
+        geo: { oneOf: [ { $ref: '#/components/schemas/GeoFix' }, { type: 'null' } ], description: 'null when no GPS fix could be taken (1.2.0); send geoUnavailableReason' }
+        geoUnavailableReason: { $ref: '#/components/schemas/GeoUnavailableReason' }
         photoMediaIds: { type: array, items: { type: string } }
         source: { type: string, enum: [manual, suggested] }
     Visit:
@@ -1638,9 +1661,17 @@ components:
       required: [mutationId, entity, op, payload]
       properties:
         mutationId: { type: string, format: uuid }
-        entity: { type: string, enum: [visit, collection, note, promise, promise_cancel, deposit, attendance_event, tag, location_proposal, visit_checkout, handover_decision, cash_closing] }
+        entity: { type: string, enum: [visit, collection, note, promise, promise_cancel, deposit, attendance_event, tag, location_proposal, visit_checkout, handover_decision, cash_closing, contact_attempt] }
         op: { type: string, enum: [create, update] }
-        payload: { type: object, additionalProperties: true }
+        payload:
+          type: object
+          additionalProperties: true
+          description: |
+            Same body as the matching REST call (1.2.0 documents the mapping):
+            collection → CollectionCreate (+ idempotencyKey) · visit → VisitCreate · note → POST /customers/{id}/notes body (+ customerId) ·
+            promise → POST /promises body · deposit → DepositCreate · attendance_event → POST /attendance/events body ·
+            tag → PUT /customers/{id}/tag body (+ customerId) · location_proposal → POST /customers/{id}/location-proposals body (+ customerId) ·
+            contact_attempt → ContactAttemptCreate
         createdAt: { type: string, format: date-time }
     SyncPushRequest:
       type: object
@@ -1668,11 +1699,37 @@ components:
       type: object
       properties:
         seq: { type: integer }
-        entity: { type: string, enum: [customer, collection, visit, note, promise, tag, handover, assignment, area, deposit, attendance_day, notification, broadcast, setting] }
+        entity: { type: string, enum: [customer, collection, visit, note, promise, tag, handover, assignment, area, deposit, attendance_day, notification, broadcast, setting, contact_attempt] }
         op: { type: string, enum: [upsert, delete] }
         id: { type: string }
-        data: { type: object, additionalProperties: true }
+        data:
+          type: object
+          additionalProperties: true
+          description: |
+            Present for op=upsert. Shape per entity (1.2.0 documents the mapping; values unchanged):
+            customer → CustomerDetail · collection → Collection · visit → Visit · note → Note · promise → Promise ·
+            tag → Tag (with customerId) · handover → Handover · assignment → Assignment · area → Area · deposit → Deposit ·
+            attendance_day → AttendanceDay · notification → Notification · broadcast → Broadcast · setting → { key, value } ·
+            contact_attempt → ContactAttempt
         reason: { type: string }
+    ContactAttemptCreate:
+      type: object
+      description: FR-M-014 call/SMS attempt logged by the app (1.2.0)
+      required: [clientId, customerId, channel, at]
+      properties:
+        clientId: { type: string, format: uuid }
+        customerId: { type: string }
+        channel: { type: string, enum: [call, sms, whatsapp] }
+        phoneIndex: { type: integer, minimum: 0, description: 'Index into customer phones (never the number itself)' }
+        at: { type: string, format: date-time }
+        durationSec: { type: [integer, 'null'] }
+        outcome: { type: string, enum: [connected, no_answer, busy, switched_off, wrong_number, sent] }
+        note: { type: string, maxLength: 300 }
+    ContactAttempt:
+      allOf:
+        - $ref: '#/components/schemas/ContactAttemptCreate'
+        - type: object
+          properties: { id: { type: string }, userId: { type: string }, receivedAt: { type: string, format: date-time } }
     SyncPullResponse:
       type: object
       properties:
