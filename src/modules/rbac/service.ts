@@ -1,11 +1,11 @@
 import { Schema, model } from 'mongoose';
 import { ctx } from '../../core/context/index.js';
 import { AppError, businessRule, notFound } from '../../core/errors/index.js';
-import { withTransaction } from '../../core/db/index.js';
+import { isOid, withTransaction } from '../../core/db/index.js';
 import { nextSeq, CounterModel } from '../../core/changefeed/index.js';
 import type { PermissionDef } from '../../core/module/types.js';
 import type { AuthUser, Role } from '../../core/security/types.js';
-import { isSuperAdmin } from '../../core/security/types.js';
+import { canSeeBranch, isSuperAdmin } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { getUser, listByRole } from '../users/index.js';
@@ -142,4 +142,18 @@ export async function holdersOf(key: string, branchId: string): Promise<string[]
   const out: string[] = [];
   for (const u of all.values()) if ((await effectivePermissions(u)).has(key)) out.push(u.id);
   return out;
+}
+
+/** Current exceptions for a branch (all roles), for the admin permissions matrix (contract 1.3.0). */
+export async function listBranchOverrides(actor: AuthUser, branchId: string) {
+  if (!canSeeBranch(actor, branchId)) throw notFound('branch');
+  const rows = await OverrideModel.find({ level: 'branch', branchId }).sort({ role: 1, key: 1 }).lean();
+  return { branchId, items: rows.map((o) => ({ role: o.role, key: o.key, effect: o.effect, reason: o.reason ?? '', setBy: o.setBy ?? '', setAt: o.setAt ? o.setAt.toISOString() : null })) };
+}
+
+export async function listUserOverrides(actor: AuthUser, userId: string) {
+  const u = isOid(userId) ? await getUser(userId) : null;
+  if (!u || !u.branchIds.some((b) => canSeeBranch(actor, b))) throw notFound('user');
+  const rows = await OverrideModel.find({ level: 'user', userId }).sort({ key: 1 }).lean();
+  return { userId, items: rows.map((o) => ({ key: o.key, effect: o.effect, reason: o.reason ?? '', setBy: o.setBy ?? '', setAt: o.setAt ? o.setAt.toISOString() : null })) };
 }

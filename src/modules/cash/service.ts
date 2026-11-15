@@ -82,8 +82,9 @@ export const depositSchema = z.object({
   geo: z.object({ lat: z.number(), lng: z.number(), accuracyM: z.number().min(0) }).passthrough().nullable().optional(),
 });
 
-function view(d: Lean) {
+function view(d: Lean, userName?: string) {
   return {
+    ...(userName !== undefined ? { userName } : {}),
     id: d._id.toHexString(),
     clientId: d.clientId,
     userId: d.userId,
@@ -126,7 +127,7 @@ export async function listDeposits(user: AuthUser, q: { branchId?: string | unde
   const items = rows.slice(0, q.limit);
   const users = await getUsers(items.map((d) => d.userId));
   return {
-    items: items.map((d) => ({ ...view(d), userName: users.get(d.userId)?.name.en ?? '' })),
+    items: items.map((d) => view(d, users.get(d.userId)?.name.en || users.get(d.userId)?.name.bn || '')),
     nextCursor: rows.length > q.limit ? encodeCursor({ id: items[items.length - 1]!._id.toHexString() }) : null,
   };
 }

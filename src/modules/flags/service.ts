@@ -72,6 +72,12 @@ export async function flagsFor(user: AuthUser | null): Promise<Record<string, bo
   return out;
 }
 
+export async function effectiveForBranch(branchId: string): Promise<Record<string, boolean>> {
+  const out: Record<string, boolean> = {};
+  for (const f of registry()) out[f.key] = await isEnabled(f.key, branchId);
+  return out;
+}
+
 export async function list() {
   const st = await states();
   return registry().map((f) => {

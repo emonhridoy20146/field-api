@@ -19,6 +19,10 @@ import { manifest as assignments } from '../modules/assignments/manifest.js';
 import { manifest as handovers } from '../modules/handovers/manifest.js';
 import { manifest as collections } from '../modules/collections/manifest.js';
 import { manifest as cash } from '../modules/cash/manifest.js';
+import { manifest as media } from '../modules/media/manifest.js';
+import { manifest as visits } from '../modules/visits/manifest.js';
+import { manifest as notes } from '../modules/notes/manifest.js';
+import { manifest as promises } from '../modules/promises/manifest.js';
 import { manifest as microfinance } from '../modules/microfinance/manifest.js';
 
-export const manifests: ModuleManifest[] = [audit, settings, flags, erpGateway, branches, users, rbac, auth, devices, system, customers, tags, assignments, handovers, collections, cash, microfinance];
+export const manifests: ModuleManifest[] = [audit, settings, flags, erpGateway, branches, users, rbac, auth, devices, system, customers, tags, assignments, handovers, collections, cash, media, visits, notes, promises, microfinance];

@@ -142,6 +142,16 @@ export async function assignmentStateOfBranch(branchId: string): Promise<{ id: s
   return rows.map((r) => ({ id: r._id.toHexString(), assigneeId: r.fos?.assigneeId ?? null, areaId: r.fos?.areaId ?? null }));
 }
 
+/** Sum of non-reversed ERP payments on a plan between two business dates (promise evaluation). Display/evaluation only. */
+export async function erpPaidBetween(customerId: string, erpPlanId: string | null, from: string, to: string): Promise<number> {
+  if (!isOid(customerId)) return 0;
+  const c = (await CustomerModel.findById(customerId).select('recentPayments').lean()) as Doc | null;
+  let sum = 0;
+  for (const p of (c?.recentPayments ?? []) as Record<string, any>[])
+    if (!p.reversed && p.date >= from && p.date <= to && (!erpPlanId || !p.erpPlanId || p.erpPlanId === erpPlanId)) sum += p.amountPoisha;
+  return sum;
+}
+
 export async function idsAssignedTo(userId: string): Promise<string[]> {
   return (await CustomerModel.find({ 'fos.assigneeId': userId }).select('_id').lean()).map((r) => r._id.toHexString());
 }

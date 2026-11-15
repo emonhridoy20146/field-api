@@ -11,6 +11,7 @@ import { AppError, toProblem } from '../core/errors/index.js';
 import { EventBus } from '../core/events/bus.js';
 import { createLogger, type Logger } from '../core/logger/index.js';
 import { initJwtKeys, verifyAccessToken } from '../core/security/jwt.js';
+import { setStorage, storageFromConfig } from '../core/storage/index.js';
 import { systemClock, type Clock } from '../core/time/index.js';
 import { compareVersions, parseClientHeader } from '../core/http/index.js';
 import { topoSort, validateManifests } from '../core/module/validate.js';
@@ -39,6 +40,7 @@ export async function bootModules(opts: BuildOptions): Promise<AppContext> {
   const ctx: AppContext = { config: opts.config, clock: opts.clock ?? systemClock, logger, bus: new EventBus(logger), ports: {}, manifests };
   setContext(ctx);
   await initJwtKeys(opts.config);
+  setStorage(storageFromConfig(opts.config));
   for (const m of manifests) await m.init?.();
   if (opts.migrate) await runMigrations(manifests.map((m) => ({ module: m.name, migrations: m.migrations ?? [] })), (msg) => logger.info(msg));
   return ctx;

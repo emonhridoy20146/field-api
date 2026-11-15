@@ -7,6 +7,7 @@ export {
   getByErpId,
   idsInArea,
   idsAssignedTo,
+  erpPaidBetween,
   assignmentStateOfBranch,
   applyAssignments,
   setTag,
