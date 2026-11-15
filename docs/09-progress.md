@@ -28,7 +28,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Assignments, areas, bulk assign | FR-ASG-* | ✅ API |
 | Handovers incl. temporary cover | FR-HO-001..006 | ✅ API |
 | Collections offline + idempotency + receipt blocks + ERP posting + conflicts | FR-COL-001..011, 013 | ✅ API (sync push pending) |
-| Cash on hand, limits, deposits, closing | FR-CASH-* | ☐ |
+| Cash on hand, limits, deposits, closing | FR-CASH-* | ✅ API |
 | Visits + camera photos + media | FR-VIS-001..004, FR-MED-001 | ☐ |
 | Notes, promises, reminders, nightly evaluation | FR-NOTE-001, FR-PRM-001..003 | ☐ |
 | Tags + suggestion + review | FR-TAG-* | ✅ API |
