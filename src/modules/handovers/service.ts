@@ -174,7 +174,7 @@ export async function accept(user: AuthUser, id: string, meta: RequestMeta) {
   await move(h, 'accept', { decidedAt: now });
   await audit.record({ actor: user, action: 'handover.accepted', entity: 'handover', entityId: id, branchId: h.branchId, meta });
   const fresh = (await HandoverModel.findById(id).lean()) as Lean;
-  if (dueToApply(fresh as { status: string; appliedAt: Date | null; effectiveDate: string }, today())) await apply(fresh, user.id);
+  if (dueToApply({ status: fresh.status, appliedAt: fresh.appliedAt, effectiveDate: fresh.effectiveDate }, today())) await apply(fresh, user.id);
   return view((await HandoverModel.findById(id).lean()) as Lean);
 }
 
@@ -221,7 +221,7 @@ export async function tick(): Promise<{ expired: number; applied: number; revert
     out.applied++;
   }
   for (const h of (await HandoverModel.find({ status: 'accepted', appliedAt: { $ne: null }, endDate: { $ne: null, $lt: date } }).lean()) as Lean[]) {
-    if (!dueToRevert(h as { status: string; appliedAt: Date | null; endDate: string | null }, date)) continue;
+    if (!dueToRevert({ status: h.status, appliedAt: h.appliedAt, endDate: h.endDate }, date)) continue;
     const id = h._id.toHexString();
     const ok = await withTransaction(async (session) => {
       const r = await HandoverModel.updateOne({ _id: h._id, status: 'accepted' }, { $set: { status: 'reverted', revertedAt: now } }, { session });

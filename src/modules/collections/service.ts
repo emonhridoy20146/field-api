@@ -1,0 +1,556 @@
+import { z } from 'zod';
+import { ctx } from '../../core/context/index.js';
+import { AppError, businessRule, notFound } from '../../core/errors/index.js';
+import { isDuplicateKey, isOid, withTransaction } from '../../core/db/index.js';
+import { recordChange } from '../../core/changefeed/index.js';
+import { cancelPending, enqueue, hasActive } from '../../core/events/outbox.js';
+import { payloadHash } from '../../core/idempotency/index.js';
+import { decodeCursor, encodeCursor } from '../../core/http/index.js';
+import { haversineM } from '../../core/geo/index.js';
+import { formatBdt } from '../../core/money/index.js';
+import { businessDate } from '../../core/time/index.js';
+import { branchQuery, canSeeBranch, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
+import type { RequestMeta } from '../../core/http/router.js';
+import * as audit from '../audit/index.js';
+import { getSetting } from '../settings/index.js';
+import { getBranch } from '../branches/index.js';
+import { getUser, getUsers } from '../users/index.js';
+import { getCustomerRef, getCustomerRefs, type TimelineItem } from '../customers/index.js';
+import { refreshCustomer, type ErpPayment, type PostPaymentJob, type PostPaymentResult } from '../erp-gateway/index.js';
+import {
+  checkReceipt,
+  checkTxnRef,
+  choosePlan,
+  computeFlags,
+  CONFLICT_TEXT,
+  DEFAULT_TXN_PATTERNS,
+  METHODS,
+  normalizeTxnRef,
+  PENDING_STATUSES,
+  RESOLVABLE,
+  VOIDABLE,
+  type Status,
+} from './domain/rules.js';
+import { CollectionModel } from './models/collection.model.js';
+
+type Lean = Record<string, any> & { _id: { toHexString(): string } };
+const OUTBOX = 'erp.post_payment';
+
+/** Cash position is owned by the cash module (which depends on us); it plugs in here to decorate responses. */
+type CashProvider = (userId: string) => Promise<Record<string, unknown>>;
+let cashProvider: CashProvider | null = null;
+export const registerCashPositionProvider = (p: CashProvider) => void (cashProvider = p);
+
+const geoFix = z.object({
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  accuracyM: z.number().min(0),
+  mock: z.boolean().default(false),
+  fixAt: z.string().datetime({ offset: true }).optional(),
+});
+
+export const createSchema = z.object({
+  clientId: z.string().uuid(),
+  customerId: z.string().max(64),
+  erpPlanId: z.string().max(64).optional(),
+  amountPoisha: z.number().int().min(1).max(100_000_000_00),
+  method: z.enum(METHODS),
+  transactionRef: z.string().max(60).optional(),
+  payerName: z.string().max(100).optional(),
+  receiptNo: z.string().max(40),
+  physicalReceiptNo: z.string().max(40).optional(),
+  recordedAt: z.string().datetime({ offset: true }),
+  deviceTime: z.string().datetime({ offset: true }).optional(),
+  geo: geoFix,
+  visitClientId: z.string().max(64).optional(),
+  photoMediaId: z.string().max(64).optional(),
+  note: z.string().max(500).optional(),
+});
+export type CollectionInput = z.infer<typeof createSchema>;
+
+/** Fields that define "the same collection" for idempotency (FR-COL-004). */
+const HASH_FIELDS = ['customerId', 'erpPlanId', 'amountPoisha', 'method', 'transactionRef', 'recordedAt'];
+
+// ---------------- views ----------------
+
+async function views(rows: Lean[]) {
+  const refs = await getCustomerRefs(rows.map((r) => r.customerId));
+  const users = await getUsers(rows.map((r) => r.collectorId));
+  return rows.map((c) => {
+    const ref = refs.get(c.customerId);
+    const u = users.get(c.collectorId);
+    return {
+      id: c._id.toHexString(),
+      clientId: c.clientId,
+      customer: { id: c.customerId, name: ref?.name ?? { bn: '', en: '' }, code: ref?.code ?? '' },
+      erpPlanId: c.erpPlanId,
+      collector: { id: c.collectorId, name: u ? u.name.en || u.name.bn : '' },
+      amountPoisha: c.amountPoisha,
+      method: c.method,
+      transactionRef: c.transactionRef ?? null,
+      receiptNo: c.receiptNo,
+      erpReceiptNo: c.erp?.receiptNo ?? null,
+      recordedAt: (c.recordedAt as Date).toISOString(),
+      receivedAt: (c.receivedAt as Date).toISOString(),
+      status: c.status as Status,
+      conflict: c.conflict ? { code: c.conflict.code, message: c.conflict.message, raisedAt: (c.conflict.raisedAt as Date).toISOString() } : null,
+      resolution: c.resolution ? { action: c.resolution.action, by: c.resolution.by, at: (c.resolution.at as Date).toISOString(), reason: c.resolution.reason } : null,
+      flags: c.flags ?? [],
+      distanceToPinM: c.geo?.distanceToPinM ?? null,
+      ...(c.erp?.reversed ? { erpReversed: true } : {}),
+      ...(c.voided ? { voided: { by: c.voided.by, at: (c.voided.at as Date).toISOString(), reason: c.voided.reason } } : {}),
+    };
+  });
+}
+const viewOne = async (c: Lean) => (await views([c]))[0]!;
+
+// ---------------- scope ----------------
+
+/** Field staff see only their own collections (permission catalog: "own only for FS"). */
+export function scopeFilter(user: AuthUser): Record<string, unknown> {
+  if (isSuperAdmin(user)) return {};
+  if (user.role === 'field_staff') return { collectorId: user.id };
+  return { branchId: { $in: user.branchIds } };
+}
+
+async function load(user: AuthUser, id: string): Promise<Lean> {
+  if (!isOid(id)) throw notFound('collection');
+  const c = (await CollectionModel.findOne({ _id: id, ...scopeFilter(user) }).lean()) as Lean | null;
+  if (!c) throw notFound('collection');
+  return c;
+}
+
+// ---------------- record (FR-COL-001..006, 013) ----------------
+
+function jobFor(c: Lean, employeeId: string | null, key: string): PostPaymentJob {
+  const lat = c.geo?.point?.coordinates?.[1];
+  const lng = c.geo?.point?.coordinates?.[0];
+  return {
+    collectionId: c._id.toHexString(),
+    input: {
+      idempotencyKey: key,
+      erpCustomerId: c.erpCustomerId,
+      erpPlanId: c.erpPlanId,
+      erpBranchId: c.erpBranchId,
+      amountPoisha: c.amountPoisha,
+      method: c.method,
+      transactionRef: c.transactionRef,
+      collectedAt: (c.recordedAt as Date).toISOString(),
+      employeeId,
+      fieldReceiptNo: c.receiptNo,
+      physicalReceiptNo: c.physicalReceiptNo,
+      note: c.note,
+      fieldCollectionId: c._id.toHexString(),
+      geo: lat !== undefined && lng !== undefined ? { lat, lng, accuracyM: c.geo.accuracyM } : null,
+    },
+  };
+}
+
+export interface RecordResult {
+  statusCode: 200 | 201;
+  replayed: boolean;
+  body: Record<string, unknown>;
+}
+
+/**
+ * Record a field collection. Same key + same payload → replay; same key + different payload → 409.
+ * Business problems never reject the request: they surface later as a `conflict` (FR-COL-006).
+ */
+export async function record(user: AuthUser, idempotencyKey: string, input: CollectionInput, meta: RequestMeta): Promise<RecordResult> {
+  const txnRef = normalizeTxnRef(input.transactionRef);
+  const recordedAt = new Date(input.recordedAt);
+  const hash = payloadHash({ ...input, transactionRef: txnRef, recordedAt: recordedAt.toISOString() }, HASH_FIELDS);
+
+  const existing = (await CollectionModel.findOne({ idempotencyKey }).lean()) as Lean | null;
+  if (existing) return replay(existing, hash, idempotencyKey, user);
+
+  // Malformed input is a 400; everything else is accepted.
+  const fields: { path: string; message: string }[] = [];
+  const patterns = { ...DEFAULT_TXN_PATTERNS, ...((await getSetting<Record<string, string>>('collections.txnRefPatterns')) ?? {}) };
+  const txnProblem = checkTxnRef(input.method, txnRef, patterns);
+  if (txnProblem) fields.push({ path: 'transactionRef', message: txnProblem });
+  // Branch scope, not assignment scope: a just-reassigned customer is accepted and flagged (04-architecture §7.3).
+  const customer = await getCustomerRef(null, input.customerId);
+  if (!customer?.branchId || !canSeeBranch(user, customer.branchId)) throw notFound('customer');
+  const branch = await getBranch(customer.branchId);
+  const collector = await getUser(user.id);
+  if (!branch || !collector) throw notFound('customer');
+  const prefix = `${branch.code}-${collector.employeeCode}`.toUpperCase();
+  const receiptProblem = checkReceipt(input.receiptNo, prefix);
+  if (receiptProblem) fields.push({ path: 'receiptNo', message: receiptProblem });
+  const plan = choosePlan(customer.plans, input.erpPlanId);
+  if (!plan.ok) fields.push({ path: 'erpPlanId', message: plan.message });
+  if (fields.length || !plan.ok) throw new AppError('VALIDATION_FAILED', { fields });
+
+  const now = ctx().clock.now();
+  const distanceToPinM = customer.location ? Math.round(haversineM(customer.location, { lat: input.geo.lat, lng: input.geo.lng })) : null;
+  const duplicateTxnRef = !!txnRef && !!(await CollectionModel.exists({ method: input.method, transactionRef: txnRef, status: { $nin: ['voided', 'resolved_voided'] } }));
+  const flags = computeFlags({
+    distanceToPinM,
+    geofenceM: (await getSetting<number>('collections.geofenceM', customer.branchId)) ?? 300,
+    mock: input.geo.mock,
+    recordedAt,
+    deviceTime: input.deviceTime ? new Date(input.deviceTime) : null,
+    receivedAt: now,
+    duplicateTxnRef,
+    collectorIsAssignee: customer.assigneeId === user.id || user.role !== 'field_staff',
+  });
+
+  try {
+    const doc = await withTransaction(async (session) => {
+      const [c] = await CollectionModel.create(
+        [
+          {
+            clientId: input.clientId,
+            idempotencyKey,
+            payloadHash: hash,
+            branchId: customer.branchId,
+            customerId: customer.id,
+            erpCustomerId: customer.erpCustomerId,
+            erpBranchId: customer.erpBranchId,
+            erpPlanId: plan.erpPlanId,
+            collectorId: user.id,
+            deviceId: meta.deviceId ?? null,
+            amountPoisha: input.amountPoisha,
+            method: input.method,
+            transactionRef: txnRef,
+            payerName: input.payerName ?? null,
+            note: input.note ?? null,
+            receiptNo: input.receiptNo,
+            physicalReceiptNo: input.physicalReceiptNo ?? null,
+            recordedAt,
+            deviceTime: input.deviceTime ? new Date(input.deviceTime) : null,
+            receivedAt: now,
+            businessDate: businessDate(recordedAt),
+            geo: { point: { type: 'Point', coordinates: [input.geo.lng, input.geo.lat] }, accuracyM: input.geo.accuracyM, mock: input.geo.mock, distanceToPinM },
+            visitClientId: input.visitClientId ?? null,
+            photoMediaId: input.photoMediaId ?? null,
+            status: 'received',
+            statusHistory: [{ status: 'received', at: now, by: user.id }],
+            erp: { key: idempotencyKey, attempts: 0 },
+            flags,
+          },
+        ],
+        { session },
+      );
+      const lean = c!.toObject() as Lean;
+      await enqueue(OUTBOX, jobFor(lean, collector.erpEmployeeId, idempotencyKey) as unknown as Record<string, unknown>, session);
+      await recordChange({ entity: 'collection', entityId: lean._id.toHexString(), userIds: [user.id], branchId: customer.branchId }, session);
+      await audit.record(
+        {
+          actor: user,
+          action: 'collection.received',
+          entity: 'collection',
+          entityId: lean._id.toHexString(),
+          branchId: customer.branchId,
+          after: { amountPoisha: input.amountPoisha, method: input.method, receiptNo: input.receiptNo, erpPlanId: plan.erpPlanId, flags },
+          meta,
+          money: true,
+        },
+        session,
+      );
+      return lean;
+    });
+    await ctx().bus.emit('collection.received', { collectionId: doc._id.toHexString(), branchId: doc.branchId, collectorId: user.id, customerId: doc.customerId, amountPoisha: doc.amountPoisha, method: doc.method, flags });
+    return { statusCode: 201, replayed: false, body: await withCash(await viewOne(doc), user.id) };
+  } catch (e) {
+    if (!isDuplicateKey(e)) throw e;
+    const raced = (await CollectionModel.findOne({ idempotencyKey }).lean()) as Lean | null;
+    if (raced) return replay(raced, hash, idempotencyKey, user);
+    throw new AppError('DUPLICATE_RECEIPT_NO', { receiptNo: input.receiptNo });
+  }
+}
+
+async function replay(existing: Lean, hash: string, key: string, user: AuthUser): Promise<RecordResult> {
+  if (existing.payloadHash !== hash) throw new AppError('IDEMPOTENCY_MISMATCH', { idempotencyKey: key });
+  if (existing.collectorId !== user.id) throw new AppError('IDEMPOTENCY_MISMATCH', { idempotencyKey: key });
+  return { statusCode: 200, replayed: true, body: { ...(await withCash(await viewOne(existing), user.id)), replayed: true } };
+}
+
+async function withCash(v: Record<string, unknown>, userId: string) {
+  return cashProvider ? { ...v, cashOnHand: await cashProvider(userId) } : v;
+}
+
+// ---------------- read ----------------
+
+export const listSchema = z.object({
+  branchId: z.string().max(64).optional(),
+  collectorId: z.string().max(64).optional(),
+  customerId: z.string().max(64).optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  method: z.enum(METHODS).optional(),
+  status: z.enum(['received', 'posting', 'posted', 'conflict', 'posting_failed', 'resolved_posted', 'resolved_refund', 'resolved_voided', 'voided']).optional(),
+  flag: z.string().max(40).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  cursor: z.string().max(200).optional(),
+});
+
+function filterOf(user: AuthUser, q: Partial<z.infer<typeof listSchema>>) {
+  const f: Record<string, unknown> = { ...scopeFilter(user), ...(q.branchId ? branchQuery(user, q.branchId) : {}) };
+  if (q.collectorId && user.role !== 'field_staff') f.collectorId = q.collectorId;
+  if (q.customerId) f.customerId = q.customerId;
+  if (q.from || q.to) f.businessDate = { ...(q.from ? { $gte: q.from } : {}), ...(q.to ? { $lte: q.to } : {}) };
+  if (q.method) f.method = q.method;
+  if (q.status) f.status = q.status;
+  if (q.flag) f.flags = q.flag;
+  return f;
+}
+
+export async function list(user: AuthUser, q: z.infer<typeof listSchema>) {
+  const f = filterOf(user, q);
+  const cur = decodeCursor<{ at: string; id: string }>(q.cursor);
+  const page = cur ? { $or: [{ recordedAt: { $lt: new Date(cur.at) } }, { recordedAt: new Date(cur.at), _id: { $lt: cur.id } }] } : {};
+  const rows = (await CollectionModel.find({ ...f, ...page }).sort({ recordedAt: -1, _id: -1 }).limit(q.limit + 1).lean()) as Lean[];
+  const items = rows.slice(0, q.limit);
+  const last = items[items.length - 1];
+  const totalsAgg = await CollectionModel.aggregate([{ $match: { ...f, status: { $nin: ['voided', 'resolved_voided', 'resolved_refund'] } } }, { $group: { _id: '$method', sum: { $sum: '$amountPoisha' } } }]);
+  return {
+    items: await views(items),
+    nextCursor: rows.length > q.limit && last ? encodeCursor({ at: (last.recordedAt as Date).toISOString(), id: last._id.toHexString() }) : null,
+    totals: Object.fromEntries(totalsAgg.map((t: { _id: string; sum: number }) => [t._id, t.sum])),
+  };
+}
+
+export async function get(user: AuthUser, id: string) {
+  return viewOne(await load(user, id));
+}
+
+export async function conflicts(user: AuthUser, q: { branchId?: string | undefined; limit: number; cursor?: string | undefined }) {
+  const offset = decodeCursor<{ o: number }>(q.cursor)?.o ?? 0;
+  const f = { ...scopeFilter(user), ...(q.branchId ? branchQuery(user, q.branchId) : {}), status: { $in: RESOLVABLE } };
+  const rows = (await CollectionModel.find(f).sort({ 'conflict.raisedAt': 1, receivedAt: 1 }).skip(offset).limit(q.limit + 1).lean()) as Lean[];
+  return { items: await views(rows.slice(0, q.limit)), nextCursor: rows.length > q.limit ? encodeCursor({ o: offset + q.limit }) : null };
+}
+
+// ---------------- void (FR-COL-009) ----------------
+
+async function transition(c: Lean, to: Status, by: string, set: Record<string, unknown> = {}, from: Status[] = [c.status]) {
+  const now = ctx().clock.now();
+  const r = await CollectionModel.updateOne(
+    { _id: c._id, status: { $in: from } },
+    { $set: { status: to, ...set }, $push: { statusHistory: { status: to, at: now, by } }, $inc: { version: 1 } },
+  );
+  if (r.modifiedCount === 1) await recordChange({ entity: 'collection', entityId: c._id.toHexString(), userIds: [c.collectorId], branchId: c.branchId });
+  return r.modifiedCount === 1;
+}
+
+export async function voidCollection(user: AuthUser, id: string, reason: string, meta: RequestMeta) {
+  const c = await load(user, id);
+  if (!VOIDABLE.includes(c.status)) throw new AppError('INVALID_STATE', { reason: c.status === 'conflict' ? 'USE_RESOLVE' : 'ALREADY_POSTED_OR_CLOSED', status: c.status });
+  // Stop the pending ERP post first; if a worker is posting right now we cannot know the outcome yet.
+  const cancel = await cancelPending(OUTBOX, { collectionId: id });
+  if (cancel === 'in_flight') throw new AppError('INVALID_STATE', { reason: 'POSTING_IN_PROGRESS' });
+  const now = ctx().clock.now();
+  if (!(await transition(c, 'voided', user.id, { voided: { by: user.id, at: now, reason } }, VOIDABLE))) throw new AppError('INVALID_STATE', { reason: 'STATUS_CHANGED' });
+  await audit.record({ actor: user, action: 'collection.voided', entity: 'collection', entityId: id, branchId: c.branchId, before: { status: c.status }, after: { status: 'voided' }, reason, meta, money: true });
+  await ctx().bus.emit('collection.voided', { collectionId: id, branchId: c.branchId, collectorId: c.collectorId, amountPoisha: c.amountPoisha, method: c.method });
+  return viewOne((await CollectionModel.findById(id).lean()) as Lean);
+}
+
+// ---------------- resolve (FR-COL-007) ----------------
+
+export const resolveSchema = z.object({
+  action: z.enum(['post_to_plan', 'post_as_advance', 'retry_post', 'refund', 'void']),
+  erpPlanId: z.string().max(64).optional(),
+  proofMediaId: z.string().max(64).optional(),
+  reason: z.string().trim().min(5).max(500),
+});
+
+/**
+ * Manager resolution. Re-posting uses the resolve request's own Idempotency-Key as the new ERP key
+ * (the original key was already consumed by a rejection) — never a server-generated key (CLAUDE.md §2.4).
+ */
+export async function resolve(user: AuthUser, id: string, requestKey: string, input: z.infer<typeof resolveSchema>, meta: RequestMeta) {
+  const c = await load(user, id);
+  // Replay of the same resolve request: the key is already the collection's ERP key.
+  if (c.resolution && c.erp?.key === requestKey) return viewOne(c);
+  if (!RESOLVABLE.includes(c.status)) throw new AppError('INVALID_STATE', { reason: 'NOT_IN_CONFLICT', status: c.status });
+  const now = ctx().clock.now();
+  const resolution = { action: input.action, by: user.id, at: now, reason: input.reason, proofMediaId: input.proofMediaId ?? null, targetPlanId: input.erpPlanId ?? null };
+  const collector = await getUser(c.collectorId);
+  if (input.action === 'post_as_advance') throw businessRule('ADVANCE_NOT_SUPPORTED'); // ERP E-20 default: no advances
+  if (input.action === 'refund' && !input.proofMediaId) throw businessRule('PROOF_REQUIRED');
+  if (input.action === 'post_to_plan' && !input.erpPlanId) throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'erpPlanId', message: 'required for post_to_plan' }] });
+  if (await hasActive(OUTBOX, { collectionId: id })) throw new AppError('INVALID_STATE', { reason: 'POSTING_IN_PROGRESS' });
+
+  await withTransaction(async (session) => {
+    const set: Record<string, unknown> = { resolution };
+    let to: Status;
+    if (input.action === 'refund') to = 'resolved_refund';
+    else if (input.action === 'void') to = 'resolved_voided';
+    else {
+      to = 'received';
+      const planId = input.action === 'post_to_plan' ? input.erpPlanId! : c.erpPlanId;
+      // retry_post keeps the original key when the original was never answered by ERP (posting_failed);
+      // after an ERP rejection the payload changes (new plan) so the request's key is used.
+      const key = input.action === 'retry_post' && c.status === 'posting_failed' ? c.erp.key : requestKey;
+      set.erpPlanId = planId;
+      set['erp.key'] = key;
+      set['erp.lastError'] = null;
+      set.conflict = null;
+      await enqueue(OUTBOX, jobFor({ ...c, erpPlanId: planId }, collector?.erpEmployeeId ?? null, key) as unknown as Record<string, unknown>, session);
+    }
+    const r = await CollectionModel.updateOne(
+      { _id: c._id, status: c.status },
+      { $set: { status: to, ...set }, $push: { statusHistory: { status: to, at: now, by: user.id } }, $inc: { version: 1 } },
+      { session },
+    );
+    if (r.modifiedCount !== 1) throw new AppError('INVALID_STATE', { reason: 'STATUS_CHANGED' });
+    await recordChange({ entity: 'collection', entityId: id, userIds: [c.collectorId], branchId: c.branchId }, session);
+    await audit.record(
+      { actor: user, action: `collection.resolved.${input.action}`, entity: 'collection', entityId: id, branchId: c.branchId, before: { status: c.status, conflict: c.conflict?.code ?? null }, after: { status: to, erpPlanId: input.erpPlanId ?? c.erpPlanId }, reason: input.reason, meta, money: true },
+      session,
+    );
+  });
+  await ctx().bus.emit('collection.resolved', { collectionId: id, branchId: c.branchId, collectorId: c.collectorId, action: input.action, amountPoisha: c.amountPoisha, method: c.method });
+  return viewOne((await CollectionModel.findById(id).lean()) as Lean);
+}
+
+// ---------------- ERP outcomes (events from erp-gateway) ----------------
+
+async function byId(id: string) {
+  return isOid(id) ? ((await CollectionModel.findById(id).lean()) as Lean | null) : null;
+}
+
+export async function onPosting(p: { collectionId: string; attempt: number }) {
+  const c = await byId(p.collectionId);
+  if (!c) return;
+  await CollectionModel.updateOne({ _id: c._id }, { $set: { 'erp.attempts': p.attempt } });
+  if (c.status === 'received') await transition(c, 'posting', 'system');
+}
+
+export async function onPosted(p: { collectionId: string; result: Extract<PostPaymentResult, { kind: 'posted' }> }) {
+  const c = await byId(p.collectionId);
+  if (!c || ['posted', 'resolved_posted'].includes(c.status)) return;
+  if (['voided', 'resolved_voided', 'resolved_refund'].includes(c.status)) {
+    // ERP stored it although we closed it (lost race): never hide money — raise a conflict for a manager.
+    await CollectionModel.updateOne({ _id: c._id }, { $set: { 'erp.paymentId': p.result.erpPaymentId, 'erp.receiptNo': p.result.receiptNo } });
+    await ctx().bus.emit('collection.posted_after_close', { collectionId: p.collectionId, branchId: c.branchId });
+    return;
+  }
+  const to: Status = c.resolution ? 'resolved_posted' : 'posted';
+  const ok = await transition(c, to, 'system', { 'erp.paymentId': p.result.erpPaymentId, 'erp.receiptNo': p.result.receiptNo, 'erp.postedAt': new Date(p.result.postedAt), 'erp.lastError': null, 'erp.deferred': false }, ['received', 'posting', 'posting_failed']);
+  if (!ok) return;
+  await audit.record({ actor: null, action: 'collection.posted', entity: 'collection', entityId: p.collectionId, branchId: c.branchId, after: { erpPaymentId: p.result.erpPaymentId, erpReceiptNo: p.result.receiptNo, replay: p.result.replay }, money: true });
+  await ctx().bus.emit('collection.posted', { collectionId: p.collectionId, branchId: c.branchId, collectorId: c.collectorId, customerId: c.customerId, erpPlanId: c.erpPlanId, amountPoisha: c.amountPoisha });
+  try {
+    await refreshCustomer(c.erpCustomerId); // keep balances fresh for the app (money truth stays in ERP)
+  } catch (e) {
+    ctx().logger.warn({ err: (e as Error).message }, 'customer refresh after post failed');
+  }
+}
+
+export async function onRejected(p: { collectionId: string; code: string; message: string; details?: unknown }) {
+  const c = await byId(p.collectionId);
+  if (!c) return;
+  const now = ctx().clock.now();
+  const ok = await transition(c, 'conflict', 'system', { conflict: { code: p.code, message: CONFLICT_TEXT[p.code] ?? { en: p.message, bn: p.message }, erpResponse: p.details ?? null, raisedAt: now }, 'erp.lastError': p.message }, ['received', 'posting', 'posting_failed']);
+  if (!ok) return;
+  await audit.record({ actor: null, action: 'collection.conflict', entity: 'collection', entityId: p.collectionId, branchId: c.branchId, after: { code: p.code }, money: true });
+  await ctx().bus.emit('collection.conflict', { collectionId: p.collectionId, branchId: c.branchId, collectorId: c.collectorId, code: p.code, amountPoisha: c.amountPoisha });
+}
+
+export async function onRetrying(p: { collectionId: string; error: string; attempt: number }) {
+  await CollectionModel.updateOne({ _id: p.collectionId }, { $set: { 'erp.lastError': p.error.slice(0, 300), 'erp.attempts': p.attempt } });
+}
+
+export async function onFailed(p: { collectionId: string; code: string; error: string }) {
+  const c = await byId(p.collectionId);
+  if (!c) return;
+  const now = ctx().clock.now();
+  const ok = await transition(c, 'posting_failed', 'system', { 'erp.lastError': p.error.slice(0, 300), conflict: { code: p.code, message: CONFLICT_TEXT[p.code] ?? { en: p.error, bn: p.error }, raisedAt: now } }, ['received', 'posting']);
+  if (!ok) return;
+  await audit.record({ actor: null, action: 'collection.posting_failed', entity: 'collection', entityId: p.collectionId, branchId: c.branchId, after: { code: p.code }, money: true });
+  await ctx().bus.emit('collection.posting_failed', { collectionId: p.collectionId, branchId: c.branchId, collectorId: c.collectorId });
+}
+
+export async function onDeferred(p: { collectionId: string }) {
+  await CollectionModel.updateOne({ _id: p.collectionId }, { $set: { 'erp.deferred': true } });
+}
+
+/** Record-only mode ended (or outbox lost an item): re-enqueue `received` collections that have no live job. */
+export async function requeueStuck(): Promise<number> {
+  const cutoff = new Date(ctx().clock.now().getTime() - 10 * 60_000);
+  const rows = (await CollectionModel.find({ status: 'received', receivedAt: { $lt: cutoff } }).limit(500).lean()) as Lean[];
+  let n = 0;
+  for (const c of rows) {
+    if (await hasActive(OUTBOX, { collectionId: c._id.toHexString() })) continue;
+    const u = await getUser(c.collectorId);
+    await enqueue(OUTBOX, jobFor(c, u?.erpEmployeeId ?? null, c.erp?.key ?? c.idempotencyKey) as unknown as Record<string, unknown>);
+    await CollectionModel.updateOne({ _id: c._id }, { $set: { 'erp.deferred': false } });
+    n++;
+  }
+  return n;
+}
+
+/** ERP sync reports reversals of field payments (FR-COL-009): reflect, never reverse ourselves. */
+export async function onPaymentsSynced(p: { customerId: string; payments: ErpPayment[] }) {
+  for (const pay of p.payments) {
+    if (!pay.reversed || pay.source !== 'field') continue;
+    const c = (await CollectionModel.findOne({ $or: [{ 'erp.paymentId': pay.erpPaymentId }, ...(pay.idempotencyKey ? [{ 'erp.key': pay.idempotencyKey }] : [])] }).lean()) as Lean | null;
+    if (!c || c.erp?.reversed) continue;
+    await CollectionModel.updateOne({ _id: c._id }, { $set: { 'erp.reversed': true, 'erp.reversedAt': pay.reversedAt }, $inc: { version: 1 } });
+    await recordChange({ entity: 'collection', entityId: c._id.toHexString(), userIds: [c.collectorId], branchId: c.branchId });
+    await audit.record({ actor: null, action: 'collection.reversed_in_erp', entity: 'collection', entityId: c._id.toHexString(), branchId: c.branchId, after: { erpPaymentId: pay.erpPaymentId }, money: true });
+    await ctx().bus.emit('collection.reversed', { collectionId: c._id.toHexString(), branchId: c.branchId, collectorId: c.collectorId });
+  }
+}
+
+// ---------------- helpers for other modules ----------------
+
+/** Sums for cash positions (FR-CASH-001). */
+export async function cashSums(userIds: string[], today: string) {
+  const counted = ['received', 'posting', 'posted', 'conflict', 'posting_failed', 'resolved_posted'];
+  const rows = await CollectionModel.aggregate([
+    { $match: { collectorId: { $in: userIds }, status: { $in: counted } } },
+    {
+      $group: {
+        _id: '$collectorId',
+        cashPoisha: { $sum: { $cond: [{ $eq: ['$method', 'cash'] }, '$amountPoisha', 0] } },
+        todayCashPoisha: { $sum: { $cond: [{ $and: [{ $eq: ['$method', 'cash'] }, { $eq: ['$businessDate', today] }] }, '$amountPoisha', 0] } },
+        todayMobilePoisha: { $sum: { $cond: [{ $and: [{ $ne: ['$method', 'cash'] }, { $eq: ['$businessDate', today] }] }, '$amountPoisha', 0] } },
+        oldestCashAt: { $min: { $cond: [{ $eq: ['$method', 'cash'] }, '$recordedAt', null] } },
+      },
+    },
+  ]);
+  return new Map<string, { cashPoisha: number; todayCashPoisha: number; todayMobilePoisha: number; oldestCashAt: Date | null }>(
+    rows.map((r: { _id: string; cashPoisha: number; todayCashPoisha: number; todayMobilePoisha: number; oldestCashAt: Date | null }) => [r._id, r]),
+  );
+}
+
+/** Cash collections of a user ordered oldest first (for "oldest undeposited" after FIFO netting of deposits). */
+export async function cashCollectionsOf(userId: string): Promise<{ at: Date; amountPoisha: number }[]> {
+  const rows = await CollectionModel.find({ collectorId: userId, method: 'cash', status: { $in: ['received', 'posting', 'posted', 'conflict', 'posting_failed', 'resolved_posted'] } }).select('recordedAt amountPoisha').sort({ recordedAt: 1 }).lean();
+  return rows.map((r) => ({ at: r.recordedAt, amountPoisha: r.amountPoisha }));
+}
+
+export async function pendingByCustomer(customerIds: string[]): Promise<Map<string, number>> {
+  const rows = await CollectionModel.aggregate([{ $match: { customerId: { $in: customerIds }, status: { $in: PENDING_STATUSES } } }, { $group: { _id: '$customerId', sum: { $sum: '$amountPoisha' } } }]);
+  return new Map(rows.map((r: { _id: string; sum: number }) => [r._id, r.sum]));
+}
+
+export async function openConflictsFor(customerIds: string[]): Promise<number> {
+  return CollectionModel.countDocuments({ customerId: { $in: customerIds }, status: { $in: RESOLVABLE } });
+}
+
+export async function pendingForDetail(customerId: string) {
+  const rows = (await CollectionModel.find({ customerId, status: { $in: PENDING_STATUSES } }).sort({ recordedAt: -1 }).limit(20).lean()) as Lean[];
+  return views(rows);
+}
+
+export async function timelineItems(customerId: string, before: Date | null, limit: number): Promise<TimelineItem[]> {
+  const rows = (await CollectionModel.find({ customerId, ...(before ? { recordedAt: { $lt: before } } : {}) }).sort({ recordedAt: -1 }).limit(limit).lean()) as Lean[];
+  const users = await getUsers(rows.map((r) => r.collectorId));
+  return rows.map((c) => {
+    const u = users.get(c.collectorId);
+    return {
+      kind: 'field_collection',
+      at: (c.recordedAt as Date).toISOString(),
+      ...(u ? { actor: { id: u.id, name: u.name.en || u.name.bn } } : {}),
+      summary: { en: `${formatBdt(c.amountPoisha)} collected (${c.method}) — ${c.status}`, bn: `${formatBdt(c.amountPoisha, 'bn')} আদায় (${c.method}) — ${c.status}` },
+      refId: c._id.toHexString(),
+      data: { receiptNo: c.receiptNo, status: c.status, flags: c.flags },
+    };
+  });
+}
