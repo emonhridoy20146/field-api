@@ -210,7 +210,8 @@ describe('pin corrections (FR-CUS-008)', () => {
   it('manager approves; pin becomes overridden and survives the next ERP sync', async () => {
     const bm = await as(t, '01700000002');
     const list = await bm.get('/location-proposals');
-    expect(list.body.items.map((p: { id: string }) => p.id)).toContain(proposalId);
+    expectConforms('GET', '/location-proposals', 200, list.body);
+    expect(list.body.map((p: { id: string }) => p.id)).toContain(proposalId);
     const d = await bm.post(`/location-proposals/${proposalId}/decision`, { decision: 'approve' });
     expect(d.status).toBe(200);
     expect((await bm.post(`/location-proposals/${proposalId}/decision`, { decision: 'approve' })).status).toBe(409);
@@ -218,5 +219,37 @@ describe('pin corrections (FR-CUS-008)', () => {
     const det = await bm.get(`/customers/${ids['100246']}`);
     expect(det.body.location.lat).toBeCloseTo(22.7053);
     expect(det.body.location.status).toBe('overridden');
+  });
+
+  it('the proposer learns the decision: own list and /sync/pull carry status and the rejection reason', async () => {
+    const fs = await as(t, '01700000003');
+    const second = await fs.post(`/customers/${ids['100246']}/location-proposals`, { clientId: randomUUID(), geo: { lat: 22.7061, lng: 90.3655, accuracyM: 9 } });
+    const bm = await as(t, '01700000002');
+    expect((await bm.post(`/location-proposals/${second.body.id}/decision`, { decision: 'reject' })).status).toBe(422); // a reason is required
+    expect((await bm.post(`/location-proposals/${second.body.id}/decision`, { decision: 'reject', reason: 'Pin is on the main road, not the house' })).status).toBe(200);
+
+    const mine = await fs.get('/location-proposals/mine');
+    expect(mine.status).toBe(200);
+    expectConforms('GET', '/location-proposals/mine', 200, mine.body);
+    expect(mine.body.map((p: { status: string }) => p.status)).toEqual(['rejected', 'approved']); // newest first
+    expect(mine.body[0]).toMatchObject({ id: second.body.id, customerId: ids['100246'], decisionReason: 'Pin is on the main road, not the house', lat: 22.7061 });
+    expect(mine.body[0].decidedAt).not.toBeNull();
+    expect(mine.body[1]).toMatchObject({ id: proposalId, clientId, decisionReason: null });
+    expect((await fs.get('/location-proposals/mine?status=rejected')).body).toHaveLength(1);
+    expect((await fs.get('/location-proposals/mine?status=lost')).status).toBe(400);
+
+    const pull = await fs.get('/sync/pull?cursor=s_0');
+    expectConforms('GET', '/sync/pull', 200, pull.body);
+    const changes = pull.body.changes.filter((c: { entity: string }) => c.entity === 'location_proposal');
+    expect(changes.map((c: { id: string; op: string; data: { status: string } }) => [c.id, c.op, c.data.status]).sort()).toEqual([[proposalId, 'upsert', 'approved'], [second.body.id, 'upsert', 'rejected']].sort());
+    expect(changes.find((c: { id: string }) => c.id === second.body.id).data.decisionReason).toBe('Pin is on the main road, not the house');
+
+    // Nobody else sees them: not another staff member, not the manager's own list, not their sync feed.
+    const other = await as(t, '01700000004');
+    expect((await other.get('/location-proposals/mine')).body).toEqual([]);
+    expect((await other.get('/sync/pull?cursor=s_0')).body.changes.filter((c: { entity: string }) => c.entity === 'location_proposal')).toEqual([]);
+    expect((await bm.get('/location-proposals/mine')).body).toEqual([]);
+    expect((await (await as(t, '01700000006')).get('/location-proposals/mine')).status).toBe(403); // viewer cannot propose
+    expect((await t.app.inject({ method: 'GET', url: '/api/v1/location-proposals/mine' })).statusCode).toBe(401);
   });
 });

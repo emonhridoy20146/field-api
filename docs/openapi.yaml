@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.6.0
+  version: 1.7.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -524,6 +524,14 @@ paths:
       parameters: [ { $ref: '#/components/parameters/BranchId' }, { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected] } } ]
       responses:
         '200': { description: 'OK. Plain array, newest first, max 200 (declared in 1.4.0)', content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/LocationProposal' } } } } }
+  /location-proposals/mine:
+    get:
+      tags: [customers]
+      operationId: listOwnLocationProposals
+      description: 'Own pin proposals with their status, newest first, max 200 (1.7.0). Permission customer.location.propose.'
+      parameters: [ { name: status, in: query, schema: { type: string, enum: [pending, approved, rejected] } } ]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/OwnLocationProposal' } } } } }
   /location-proposals/{id}/decision:
     post:
       tags: [customers]
@@ -1679,6 +1687,22 @@ components:
         - $ref: '#/components/schemas/Promise'
         - type: object
           properties: { customer: { type: object, properties: { id: { type: string }, name: { $ref: '#/components/schemas/I18nText' }, code: { type: string } } }, owner: { type: object, properties: { id: { type: string }, name: { type: string } } } }
+    OwnLocationProposal:
+      type: object
+      description: A pin proposal as seen by the staff member who made it (1.7.0)
+      required: [id, clientId, customerId, status, lat, lng]
+      properties:
+        id: { type: string }
+        clientId: { type: string, description: 'The clientId the app sent, to match its local record' }
+        customerId: { type: string }
+        status: { type: string, enum: [pending, approved, rejected] }
+        lat: { type: number }
+        lng: { type: number }
+        accuracyM: { type: number }
+        note: { type: [string, 'null'] }
+        decisionReason: { type: [string, 'null'], description: "The manager's reason; always present when rejected" }
+        createdAt: { type: string }
+        decidedAt: { type: [string, 'null'] }
     LocationProposal:
       type: object
       properties:
@@ -1800,7 +1824,7 @@ components:
       type: object
       properties:
         seq: { type: integer }
-        entity: { type: string, enum: [customer, collection, visit, note, promise, tag, handover, assignment, area, deposit, attendance_day, notification, broadcast, setting, contact_attempt] }
+        entity: { type: string, enum: [customer, collection, visit, note, promise, tag, handover, assignment, area, deposit, attendance_day, notification, broadcast, setting, contact_attempt, location_proposal] }
         op: { type: string, enum: [upsert, delete] }
         id: { type: string }
         data:
@@ -1811,7 +1835,7 @@ components:
             customer → CustomerDetail · collection → Collection · visit → Visit · note → Note · promise → Promise ·
             tag → Tag (with customerId) · handover → Handover · assignment → Assignment · area → Area · deposit → Deposit ·
             attendance_day → AttendanceDay · notification → Notification · broadcast → Broadcast · setting → { key, value } ·
-            contact_attempt → ContactAttempt
+            contact_attempt → ContactAttempt · location_proposal → OwnLocationProposal (1.7.0; sent only to the staff member who proposed, on create and on the manager's decision)
         reason: { type: string }
     ContactAttemptCreate:
       type: object

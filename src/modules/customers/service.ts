@@ -790,6 +790,8 @@ export async function proposeLocation(
       customerId,
       branchId: c.branchId,
     });
+    // The proposer follows the proposal's fate on /sync/pull (contract 1.7.0).
+    await recordChange({ entity: 'location_proposal', entityId: p._id.toHexString(), userIds: [user.id], branchId: c.branchId });
     return { id: p._id.toHexString(), status: 'pending', replayed: false };
   } catch (e) {
     if (isDuplicateKey(e)) return proposeLocation(user, customerId, input, meta);
@@ -830,6 +832,35 @@ export async function listProposals(user: AuthUser, q: { branchId?: string; stat
   }));
 }
 
+/** What the proposing staff member sees of their own proposal (sync entity `location_proposal`, contract 1.7.0). */
+function ownProposalView(p: LooseObject) {
+  return {
+    id: p._id.toHexString() as string,
+    clientId: p.clientId as string,
+    customerId: p.customerId as string,
+    status: p.status as string,
+    lat: p.point.coordinates[1] as number,
+    lng: p.point.coordinates[0] as number,
+    accuracyM: p.accuracyM as number,
+    note: (p.note ?? null) as string | null,
+    decisionReason: (p.decisionReason ?? null) as string | null,
+    createdAt: (p.createdAt as Date).toISOString(),
+    decidedAt: p.decidedAt ? (p.decidedAt as Date).toISOString() : null,
+  };
+}
+
+/** Own proposals, newest first (after a reinstall the app has no sync history to learn them from). */
+export async function myProposals(user: AuthUser, status?: string) {
+  const rows = (await LocationProposalModel.find({ proposedBy: user.id, ...(status ? { status } : {}) }).sort({ createdAt: -1 }).limit(200).lean()) as LooseObject[];
+  return rows.map(ownProposalView);
+}
+
+/** Sync loader: only the proposer ever receives a proposal; anyone else's id resolves to nothing. */
+export async function proposalSyncLoad(ids: string[], user: AuthUser): Promise<Map<string, Record<string, unknown>>> {
+  const rows = (await LocationProposalModel.find({ _id: { $in: ids.filter(isOid) }, proposedBy: user.id }).lean()) as LooseObject[];
+  return new Map(rows.map((r) => [r._id.toHexString() as string, ownProposalView(r)]));
+}
+
 export async function decideProposal(
   user: AuthUser,
   id: string,
@@ -853,6 +884,7 @@ export async function decideProposal(
       },
     },
   );
+  if (p.proposedBy) await recordChange({ entity: 'location_proposal', entityId: id, userIds: [p.proposedBy], branchId: p.branchId ?? null });
   if (input.decision === 'approve') {
     const before = (await CustomerModel.findById(p.customerId).lean()) as Doc | null;
     const override = { point: p.point, approvedBy: user.id, approvedAt: now, proposalId: id };
