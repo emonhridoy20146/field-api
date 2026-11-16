@@ -2,7 +2,7 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
-## [Unreleased] — contract 1.7.0
+## [Unreleased] — contract 1.7.1
 ### Added
 - Phase 0 implementation: core (config, errors bn/en problem+json, Dhaka time, money, geo, Mongo + migrations, event bus, outbox, Mongo-leased jobs, idempotency, change feed), module loader with manifest validation, auth (EdDSA JWT, refresh rotation with reuse detection, lockout), users, rbac (catalog, overrides, explain), branches, settings (holidays, shifts), flags (locked microfinance flag), audit (hash chain), devices (binding/approval), system (health, app-config), erp-gateway (Laravel client, circuit breaker, mappers, MockErpClient, delta sync, reconcile, posting outbox handler).
 - Phase 1 modules: customers (read model + FOS overlay, status derivation, bad suggestion, list/detail/map/timeline, refresh, pin corrections), tags (tag/untag, history, approval mode, balance-cleared review), assignments (areas, primary assignee, bulk, history), handovers (receiver acceptance, 72 h expiry, temporary cover revert), collections (idempotent record, receipt blocks, anomaly flags, ERP posting with timeout-after-store recovery, conflicts, void, resolve, ERP reversal reflection).
@@ -28,13 +28,14 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 - Contract 1.6.0 (additive): response schemas `BranchTrends` and `ReconciliationReport`; documented export `params` per type.
 - `ObjectStorage.put` for server-generated files. New public functions for reports: collections `collectedByUser`/`collectionRows`, visits `visitsByUser`, promises `promiseStatsByOwner`, attendance `attendanceDays`, location `fieldStatsByUser`, customers `overdueAging`/`overdueRows`/`erpFieldPayments`, cash `cashPositions`.
 - Contract 1.7.0 (additive, answering a staff-app gap): staff can follow their own pin proposals. `/sync/pull` emits entity `location_proposal` (`OwnLocationProposal`: `id`, `clientId`, `customerId`, `status`, `lat`, `lng`, `accuracyM`, `note`, `decisionReason`, `createdAt`, `decidedAt`) to the proposer only, when the proposal is created and when a manager decides; `GET /location-proposals/mine` lists them (for a reinstalled app).
+- Live map and route history filled in (no schema change): `LatestLocation.todayVisits` / `todayCollectedPoisha`, the `events` overlay of `GET /location/history` (visits and collections of the day as `TimelineItem`s), and `Stop.visitId` when a visit to the stop's customer was recorded during the stop (5 minutes either side). Visit data needs `visit.view` and collection data `collection.view`; without them those parts are left out.
+- Export type `audit` (CSV/XLSX, ≤ 31 days, needs `audit.view` as well as `report.export`); before/after snapshots, IPs and device ids are not exported. Contract 1.7.1 documents it (description only).
 ### Fixed
 - `GET /location-proposals` now returns the plain array the contract has declared since 1.4.0 (it was wrapped in `{ items }`); a conformance test covers it.
 ### Notes
-- Exports: `format: pdf` and `type: audit` answer `422 BUSINESS_RULE` (`export_format_unavailable`, `export_type_unavailable`) — see OD-26. `targetPoisha` stays 0 until daily targets (FR-COL-015) are approved.
+- Exports: `format: pdf` answers `422 BUSINESS_RULE` (`export_format_unavailable`) — see OD-26. `targetPoisha` stays 0 until daily targets (FR-COL-015) are approved.
 - Reconciliation reads the ERP side from the cached recent payments, so "missing in ERP" straight after posting can simply mean the cache is older than the posting; the response carries `erpFetchedAt`.
 - `POST /location/points` reports off-duty points per item inside the 200 response (as `docs/openapi.yaml` declares); the batch itself is not answered with `422 OFF_DUTY`, so one late point does not make the app resend 499 good ones.
-- Not yet filled: `LatestLocation.todayVisits/todayCollectedPoisha`, the `events` overlay in route history, `Stop.visitId` (FR-VIS-005 suggestion is app side).
 - Person names in responses stay plain strings (changing them to I18nText would break v1); clients show the string as given.
 - The permission catalog in `02-requirements §3.1` is the source of truth; the "50 keys" figure in the original spec text was a miscount.
 - A plan ended yesterday with 1 poisha left is suggested as bad (FR-TAG-001 has no tolerance) — see OD-25.

@@ -54,7 +54,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Spike: background location engine on 4 OEMs (Xiaomi, Samsung, Oppo/Realme, Vivo) | ADR-009 | ☐ |
 | Duty-only adaptive tracking, filters, offline queue, heartbeat | FR-LOC-001..004, 010, 011 | ◐ server ✅ (ingest, duty check, filters, sampling config, heartbeat, tracking-stopped watchdog); app side in staff-app |
 | Mock-location detection | FR-LOC-005 | ◐ server ✅ (flag stored, inbox once per staff and day); detection itself in staff-app |
-| Latest-location map, route history, stops | FR-LOC-006..008 | ◐ API ✅; visit/collection overlay in history and today's totals on the marker not filled yet |
+| Latest-location map, route history, stops | FR-LOC-006..008 | ✅ API (with visit/collection overlay, stop ↔ visit link, today's totals on the marker); screens in admin-web |
 | Visit suggestion from dwell | FR-VIS-005 | ☐ |
 | Retention TTL + daily summaries | FR-LOC-009, 012 | ✅ |
 
@@ -65,7 +65,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 |---|---|---|
 | daily_metrics + overdue_snapshots jobs | FR-REP-001/002 | ◐ overdue snapshots ✅; daily_metrics not needed yet (ADR-028, reports aggregate live) |
 | Staff performance (daily/monthly), branch trends, promise fulfilment | FR-REP-001/002, FR-PRM-004 | ✅ |
-| Exports CSV/XLSX/PDF (Bangla) | FR-REP-003/004 | ◐ CSV + XLSX ✅ (async, 7 days, signed link, audited, bn/en headers); PDF waits for OD-26; `audit` dataset not built |
+| Exports CSV/XLSX/PDF (Bangla) | FR-REP-003/004 | ◐ CSV + XLSX ✅ (async, 7 days, signed link, audited, bn/en headers); PDF waits for OD-26 |
 | Reconciliation report, data-quality report, targets, leaderboard | FR-COL-014/015, FR-CUS-009, FR-REP-005 | ◐ reconciliation ✅; data-quality, targets, leaderboard are still `proposed` |
 
 **Acceptance:** report numbers equal raw-query numbers for a sampled month; Bangla PDF renders conjuncts correctly; export of 10k rows < 60 s.

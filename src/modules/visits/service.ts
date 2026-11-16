@@ -188,3 +188,25 @@ export async function visitsByUser(user: AuthUser, branchId: string | undefined,
   ]);
   return new Map(rows.map((r) => [r._id, { count: r.n, uniqueCustomers: r.c.length }]));
 }
+
+/** One staff member's visits of a business date, oldest first (route-history overlay, stop ↔ visit link). */
+export async function visitsOfUserDay(userId: string, date: string) {
+  const rows = (await VisitModel.find({ userId, checkInAt: { $gte: new Date(`${date}T00:00:00+06:00`), $lte: new Date(`${date}T23:59:59.999+06:00`) } }).sort({ checkInAt: 1 }).lean()) as Lean[];
+  return rows.map((v) => ({
+    id: v._id.toHexString() as string,
+    customerId: v.customerId as string,
+    checkInAt: v.checkInAt as Date,
+    outcome: v.outcome as string,
+    lat: (v.geo?.point?.coordinates?.[1] ?? null) as number | null,
+    lng: (v.geo?.point?.coordinates?.[0] ?? null) as number | null,
+  }));
+}
+
+/** Visit counts of a business date for the given staff (live-map marker). */
+export async function visitCountsOfDay(userIds: string[], date: string): Promise<Map<string, number>> {
+  const rows = await VisitModel.aggregate<{ _id: string; n: number }>([
+    { $match: { userId: { $in: userIds }, checkInAt: { $gte: new Date(`${date}T00:00:00+06:00`), $lte: new Date(`${date}T23:59:59.999+06:00`) } } },
+    { $group: { _id: '$userId', n: { $sum: 1 } } },
+  ]);
+  return new Map(rows.map((r) => [r._id, r.n]));
+}

@@ -8,7 +8,11 @@ import { canSeeBranch, type AuthUser } from '../../core/security/types.js';
 import { getSetting } from '../settings/index.js';
 import { getUser, listByRole, type UserView } from '../users/index.js';
 import { allOnDutyNow, dutyStateAt, dutyWindows, onDutyNow } from '../attendance/index.js';
-import { nearestCustomer } from '../customers/index.js';
+import { getCustomerRefs, nearestCustomer } from '../customers/index.js';
+import { can } from '../rbac/index.js';
+import { visitCountsOfDay, visitsOfUserDay } from '../visits/index.js';
+import { collectedOfDay, collectionsOfUserDay } from '../collections/index.js';
+import { formatBdt } from '../../core/money/index.js';
 import { filterPoints, type RawPoint } from './domain/filter.js';
 import { detectStops, freshness, segments, summarize, type TrackPoint } from './domain/track.js';
 import { DailySummaryModel, HeartbeatModel, LocationLatestModel, LocationPointModel, StopModel } from './models/location.model.js';
@@ -135,6 +139,10 @@ export async function latest(user: AuthUser, branchId?: string) {
   if (!onDuty.size) return [];
   const rows = (await LocationLatestModel.find({ _id: { $in: [...onDuty.keys()] }, recordedAt: { $gte: startOfBusinessDay(today()) } }).lean()) as LooseObject[];
   const at = now().getTime();
+  // Today's activity on the marker, each part only for callers who may see that data anyway.
+  const ids = rows.map((r) => r._id as string);
+  const visits = (await can(user, 'visit.view')) ? await visitCountsOfDay(ids, today()) : null;
+  const collected = (await can(user, 'collection.view')) ? await collectedOfDay(ids, today()) : null;
   return rows.map((r) => {
     const d = onDuty.get(r._id as string)!;
     return {
@@ -149,6 +157,8 @@ export async function latest(user: AuthUser, branchId?: string) {
       onBreak: d.onBreak,
       mock: !!r.mock,
       activity: (r.activity as string) ?? 'unknown',
+      ...(visits ? { todayVisits: visits.get(r._id as string) ?? 0 } : {}),
+      ...(collected ? { todayCollectedPoisha: collected.get(r._id as string) ?? 0 } : {}),
       ...(r.trackingProvider ? { trackingProvider: r.trackingProvider as string } : {}),
       ...(r.trackingProviderFallback !== null && r.trackingProviderFallback !== undefined ? { trackingProviderFallback: r.trackingProviderFallback as boolean } : {}),
     };
@@ -177,8 +187,10 @@ interface StopView {
   customerId: string | null;
   customerName: string | null;
   distanceToPinM: number | null;
-  visitId: null;
+  visitId: string | null;
 }
+
+const VISIT_SLACK_MS = 5 * 60_000;
 
 async function analyse(u: UserView, date: string) {
   const branchId = u.branchIds[0] ?? null;
@@ -186,22 +198,25 @@ async function analyse(u: UserView, date: string) {
   const minDwell = (await getSetting<number>('stops.minDwellMin', branchId)) ?? 5;
   const gapMin = (await getSetting<number>('location.gapMin', branchId)) ?? 10;
   const track = await trackOf(u.id, date);
+  const visits = track.length ? await visitsOfUserDay(u.id, date) : [];
   const stops: (StopView & { pointsCount: number })[] = [];
   for (const s of detectStops(track, radiusM, minDwell)) {
     const c = branchId ? await nearestCustomer(branchId, s, radiusM) : null;
-    stops.push({ start: s.start.toISOString(), end: s.end.toISOString(), dwellMin: s.dwellMin, lat: s.lat, lng: s.lng, customerId: c?.id ?? null, customerName: c ? c.name.bn || c.name.en : null, distanceToPinM: c?.distanceM ?? null, visitId: null, pointsCount: s.pointsCount });
+    // A customer stop is "explained" by a visit to that customer recorded during the stop (5 min either side).
+    const v = c ? visits.find((x) => x.customerId === c.id && x.checkInAt.getTime() >= s.start.getTime() - VISIT_SLACK_MS && x.checkInAt.getTime() <= s.end.getTime() + VISIT_SLACK_MS) : undefined;
+    stops.push({ start: s.start.toISOString(), end: s.end.toISOString(), dwellMin: s.dwellMin, lat: s.lat, lng: s.lng, customerId: c?.id ?? null, customerName: c ? c.name.bn || c.name.en : null, distanceToPinM: c?.distanceM ?? null, visitId: v?.id ?? null, pointsCount: s.pointsCount });
   }
   return { track, stops, gapMin, summary: summarize(track, stops, gapMin) };
 }
 
-const stopOut = (s: StopView): StopView => ({ start: s.start, end: s.end, dwellMin: s.dwellMin, lat: s.lat, lng: s.lng, customerId: s.customerId, customerName: s.customerName, distanceToPinM: s.distanceToPinM, visitId: null });
+const stopOut = (s: StopView): StopView => ({ start: s.start, end: s.end, dwellMin: s.dwellMin, lat: s.lat, lng: s.lng, customerId: s.customerId, customerName: s.customerName, distanceToPinM: s.distanceToPinM, visitId: s.visitId });
 
 /** Stored results for days whose raw points have aged out (stops 12 months, summaries 24 months). */
 async function stored(userId: string, date: string) {
   const stops = (await StopModel.find({ userId, businessDate: date }).sort({ start: 1 }).lean()) as LeanDoc[];
   const sum = (await DailySummaryModel.findOne({ userId, businessDate: date }).lean()) as LeanDoc | null;
   return {
-    stops: stops.map((s) => stopOut({ start: (s.start as Date).toISOString(), end: (s.end as Date).toISOString(), dwellMin: s.dwellMin, lat: s.lat, lng: s.lng, customerId: s.customerId ?? null, customerName: s.customerName ?? null, distanceToPinM: s.distanceToPinM ?? null, visitId: null })),
+    stops: stops.map((s) => stopOut({ start: (s.start as Date).toISOString(), end: (s.end as Date).toISOString(), dwellMin: s.dwellMin, lat: s.lat, lng: s.lng, customerId: s.customerId ?? null, customerName: s.customerName ?? null, distanceToPinM: s.distanceToPinM ?? null, visitId: s.visitId ?? null })),
     summary: sum ? { distanceKm: sum.distanceKm, movingMin: sum.movingMin, stoppedMin: sum.stoppedMin, stopsCount: sum.stopsCount, customerStops: sum.customerStops, gapsMin: sum.gapsMin, mockPoints: sum.mockPoints } : null,
   };
 }
@@ -210,19 +225,37 @@ function checkDate(date: string) {
   if (!isIsoDate(date) || date > today()) throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'date', message: 'today or earlier (YYYY-MM-DD)' }] });
 }
 
+/** Visits and collections of the day as timeline items for the map (FR-LOC-007), limited to what the caller may view. */
+async function dayEvents(user: AuthUser, u: UserView, date: string) {
+  const visits = (await can(user, 'visit.view')) ? await visitsOfUserDay(u.id, date) : [];
+  const collections = (await can(user, 'collection.view')) ? await collectionsOfUserDay(u.id, date) : [];
+  const refs = await getCustomerRefs([...visits.map((v) => v.customerId), ...collections.map((c) => c.customerId)]);
+  const actor = { id: u.id, name: u.name.en || u.name.bn };
+  const who = (id: string, l: 'bn' | 'en') => {
+    const n = refs.get(id)?.name;
+    return n ? (l === 'bn' ? n.bn || n.en : n.en || n.bn) : '';
+  };
+  const items = [
+    ...visits.map((v) => ({ kind: 'visit', at: v.checkInAt, actor, summary: { bn: `ভিজিট: ${who(v.customerId, 'bn')}`, en: `Visit: ${who(v.customerId, 'en')}` }, refId: v.id, data: { customerId: v.customerId, outcome: v.outcome, lat: v.lat, lng: v.lng } })),
+    ...collections.map((c) => ({ kind: 'collection', at: c.recordedAt, actor, summary: { bn: `আদায় ${formatBdt(c.amountPoisha, 'bn')}: ${who(c.customerId, 'bn')}`, en: `Collected ${formatBdt(c.amountPoisha)}: ${who(c.customerId, 'en')}` }, refId: c.id, data: { customerId: c.customerId, amountPoisha: c.amountPoisha, method: c.method, receiptNo: c.receiptNo, lat: c.lat, lng: c.lng } })),
+  ];
+  return items.sort((a, b) => a.at.getTime() - b.at.getTime()).map((i) => ({ ...i, at: i.at.toISOString() }));
+}
+
 export async function history(user: AuthUser, q: { userId: string; date: string; simplify: number }) {
   checkDate(q.date);
   const u = await staffInScope(user, q.userId);
   const a = await analyse(u, q.date);
+  const events = await dayEvents(user, u, q.date);
   if (!a.track.length) {
     const old = await stored(u.id, q.date);
-    return { polyline: '', segments: [], stops: old.stops, events: [], summary: old.summary ?? a.summary };
+    return { polyline: '', segments: [], stops: old.stops, events, summary: old.summary ?? a.summary };
   }
   return {
     polyline: encodePolyline(simplify(a.track, q.simplify)),
     segments: segments(a.track, a.gapMin).map((s) => ({ from: s.from.toISOString(), to: s.to.toISOString(), kind: s.kind })),
     stops: a.stops.map(stopOut),
-    events: [],
+    events,
     summary: a.summary,
   };
 }
@@ -244,7 +277,7 @@ export async function summarizeDay(date = addDays(today(), -1)): Promise<number>
     if (!a.track.length) continue;
     const branchId = u.branchIds[0] ?? null;
     await StopModel.deleteMany({ userId: u.id, businessDate: date });
-    if (a.stops.length) await StopModel.insertMany(a.stops.map((s) => ({ userId: u.id, branchId, businessDate: date, start: new Date(s.start), end: new Date(s.end), dwellMin: s.dwellMin, lat: s.lat, lng: s.lng, customerId: s.customerId, customerName: s.customerName, distanceToPinM: s.distanceToPinM, pointsCount: s.pointsCount })));
+    if (a.stops.length) await StopModel.insertMany(a.stops.map((s) => ({ userId: u.id, branchId, businessDate: date, start: new Date(s.start), end: new Date(s.end), dwellMin: s.dwellMin, lat: s.lat, lng: s.lng, customerId: s.customerId, customerName: s.customerName, distanceToPinM: s.distanceToPinM, visitId: s.visitId, pointsCount: s.pointsCount })));
     await DailySummaryModel.updateOne({ userId: u.id, businessDate: date }, { $set: { ...a.summary, branchId, day: startOfBusinessDay(date), firstPointAt: a.track[0]!.t, lastPointAt: a.track[a.track.length - 1]!.t } }, { upsert: true });
     n++;
   }

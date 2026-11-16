@@ -9,7 +9,7 @@ export const manifest: ModuleManifest = {
   version: '1.0.0',
   description: 'Overview dashboard (FR-DSH-001), staff performance, branch trends, reconciliation, exports (FR-REP-001..004, FR-COL-014)',
   featureFlag: { key: 'module.reports', default: false, description: 'Dashboard and reports', owner: 'field-api' },
-  dependsOn: ['flags', 'audit', 'users', 'branches', 'erp-gateway', 'customers', 'collections', 'visits', 'promises', 'attendance', 'cash', 'inbox', 'location'],
+  dependsOn: ['flags', 'audit', 'rbac', 'users', 'branches', 'erp-gateway', 'customers', 'collections', 'visits', 'promises', 'attendance', 'cash', 'inbox', 'location'],
   permissions: [
     { key: 'report.view', description: { en: 'Reports and dashboards in scope', bn: 'রিপোর্ট ও ড্যাশবোর্ড দেখা' }, defaults: { super_admin: true, branch_manager: true, viewer: true } },
     { key: 'report.export', description: { en: 'Export reports (CSV/XLSX/PDF)', bn: 'রিপোর্ট এক্সপোর্ট' }, defaults: { super_admin: true, branch_manager: true } },
