@@ -68,9 +68,11 @@ export const customerRoutes = defineRoutes((r) => {
     reply.code(res.replayed ? 200 : 201);
     return { id: res.id, status: res.status };
   });
-  r.get('/location-proposals', { access: perm('customer.location.approve') }, async (req) => ({
-    items: await s.listProposals(requireUser(req), parse(proposalsQuery, req.query)),
-  }));
+  // Plain array, as the contract has declared since 1.4.0.
+  r.get('/location-proposals', { access: perm('customer.location.approve') }, async (req) => s.listProposals(requireUser(req), parse(proposalsQuery, req.query)));
+  r.get('/location-proposals/mine', { access: perm('customer.location.propose') }, async (req) =>
+    s.myProposals(requireUser(req), parse(z.object({ status: z.enum(['pending', 'approved', 'rejected']).optional() }), req.query).status),
+  );
   r.post('/location-proposals/:id/decision', { access: perm('customer.location.approve') }, async (req) =>
     s.decideProposal(requireUser(req), idOf(req), parse(decisionBody, req.body), requestMeta(req)),
   );

@@ -4,7 +4,7 @@ import { ctx } from '../../core/context/index.js';
 import { indexMigration } from '../../core/db/migrations.js';
 import type { ErpCustomer } from '../erp-gateway/index.js';
 import { customerRoutes } from './routes.js';
-import { markMissing, recomputeAllDerived, syncLoad, syncSnapshot, upsertFromErp } from './service.js';
+import { markMissing, recomputeAllDerived, proposalSyncLoad, syncLoad, syncSnapshot, upsertFromErp } from './service.js';
 
 export const manifest: ModuleManifest = {
   name: 'customers',
@@ -24,7 +24,10 @@ export const manifest: ModuleManifest = {
     consumes: ['erp.customer.synced', 'erp.reconcile.completed'],
   },
   jobs: [{ name: 'customers.recompute-derived', schedule: '5 0 * * *', handler: async () => void (await recomputeAllDerived()) }],
-  syncEntities: [{ entity: 'customer', load: syncLoad, snapshot: syncSnapshot }],
+  syncEntities: [
+    { entity: 'customer', load: syncLoad, snapshot: syncSnapshot },
+    { entity: 'location_proposal', load: proposalSyncLoad },
+  ],
   syncMutations,
   migrations: [
     indexMigration('20261115-0001-customers-indexes', [

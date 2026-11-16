@@ -55,6 +55,7 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 | `POST /customers/{id}/refresh` | `customer.view` | FR-ERP-003 |
 | `POST /customers/{id}/location-proposals` | `customer.location.propose` | FR-CUS-008 |
 | `GET /location-proposals` · `POST /location-proposals/{id}/decision` | `customer.location.approve` | FR-CUS-008 |
+| `GET /location-proposals/mine` (own proposals and their status; also sync entity `location_proposal`) | `customer.location.propose` | FR-CUS-008 |
 | `PUT /customers/{id}/tag` | `tag.set` | FR-TAG-003 |
 | `GET /customers/{id}/tag-history` | `tag.view` | FR-TAG-006 |
 | `GET /tags/review-queue` · `POST /tags/review-queue/{eventId}/decision` | `tag.approve` | FR-TAG-005/007 |

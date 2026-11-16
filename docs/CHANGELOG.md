@@ -2,7 +2,7 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
-## [Unreleased] — contract 1.6.0
+## [Unreleased] — contract 1.7.0
 ### Added
 - Phase 0 implementation: core (config, errors bn/en problem+json, Dhaka time, money, geo, Mongo + migrations, event bus, outbox, Mongo-leased jobs, idempotency, change feed), module loader with manifest validation, auth (EdDSA JWT, refresh rotation with reuse detection, lockout), users, rbac (catalog, overrides, explain), branches, settings (holidays, shifts), flags (locked microfinance flag), audit (hash chain), devices (binding/approval), system (health, app-config), erp-gateway (Laravel client, circuit breaker, mappers, MockErpClient, delta sync, reconcile, posting outbox handler).
 - Phase 1 modules: customers (read model + FOS overlay, status derivation, bad suggestion, list/detail/map/timeline, refresh, pin corrections), tags (tag/untag, history, approval mode, balance-cleared review), assignments (areas, primary assignee, bulk, history), handovers (receiver acceptance, 72 h expiry, temporary cover revert), collections (idempotent record, receipt blocks, anomaly flags, ERP posting with timeout-after-store recovery, conflicts, void, resolve, ERP reversal reflection).
@@ -27,6 +27,9 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 - reports (Phase 3): `GET /reports/staff-performance` (daily/monthly per field staff: visits, customers visited, collections by method, promises due/kept and fulfilment rate, attendance, field time, distance), `GET /reports/branch-trends` (collections and visits per day/week/month; overdue aging from nightly `overdue_snapshots`, today live), `GET /reports/reconciliation` (FOS collections vs. ERP field payments of a day, with mismatch kinds and `erpFetchedAt`), `POST /reports/exports` + `GET /reports/exports/{id}` (async CSV/XLSX for staff performance, collections, attendance, overdue customers, cash positions; kept 7 days; 5-minute signed link for the requester only; audited as `report.export.requested`). ADR-028.
 - Contract 1.6.0 (additive): response schemas `BranchTrends` and `ReconciliationReport`; documented export `params` per type.
 - `ObjectStorage.put` for server-generated files. New public functions for reports: collections `collectedByUser`/`collectionRows`, visits `visitsByUser`, promises `promiseStatsByOwner`, attendance `attendanceDays`, location `fieldStatsByUser`, customers `overdueAging`/`overdueRows`/`erpFieldPayments`, cash `cashPositions`.
+- Contract 1.7.0 (additive, answering a staff-app gap): staff can follow their own pin proposals. `/sync/pull` emits entity `location_proposal` (`OwnLocationProposal`: `id`, `clientId`, `customerId`, `status`, `lat`, `lng`, `accuracyM`, `note`, `decisionReason`, `createdAt`, `decidedAt`) to the proposer only, when the proposal is created and when a manager decides; `GET /location-proposals/mine` lists them (for a reinstalled app).
+### Fixed
+- `GET /location-proposals` now returns the plain array the contract has declared since 1.4.0 (it was wrapped in `{ items }`); a conformance test covers it.
 ### Notes
 - Exports: `format: pdf` and `type: audit` answer `422 BUSINESS_RULE` (`export_format_unavailable`, `export_type_unavailable`) — see OD-26. `targetPoisha` stays 0 until daily targets (FR-COL-015) are approved.
 - Reconciliation reads the ERP side from the cached recent payments, so "missing in ERP" straight after posting can simply mean the cache is older than the posting; the response carries `erpFetchedAt`.
