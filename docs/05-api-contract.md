@@ -57,6 +57,8 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 | `GET /location-proposals` · `POST /location-proposals/{id}/decision` | `customer.location.approve` | FR-CUS-008 |
 | `GET /attendance/events` (raw events of a staff member's day, with photo ids) | `attendance.view` | FR-ATT-001/004 |
 | `GET /location-proposals/mine` (own proposals and their status; also sync entity `location_proposal`) | `customer.location.propose` | FR-CUS-008 |
+| `POST /cowork/requests` · `GET /cowork/sessions/mine` · `POST /cowork/sessions/{id}/respond` · `POST /cowork/sessions/{id}/leave` | `cowork.use` | FR-CW-001/002 |
+| `GET /cowork/sessions` · `GET /cowork/sessions/{id}` | `cowork.view` | FR-CW-004 |
 | `PUT /customers/{id}/tag` | `tag.set` | FR-TAG-003 |
 | `GET /customers/{id}/tag-history` | `tag.view` | FR-TAG-006 |
 | `GET /tags/review-queue` · `POST /tags/review-queue/{eventId}/decision` | `tag.approve` | FR-TAG-005/007 |
@@ -231,7 +233,7 @@ Content-Encoding: gzip
 | 412 | `PRECONDITION_FAILED` | Reload and retry edit. |
 | 413 | `PAYLOAD_TOO_LARGE` | Split batch. |
 | 422 | `OFF_DUTY` | Location outside duty; drop points. |
-| 422 | `BUSINESS_RULE` | `details.rule` (e.g. `PROMISE_DATE_RANGE`, `REASON_REQUIRED`, `LAST_SUPER_ADMIN`). |
+| 422 | `BUSINESS_RULE` | `details.rule` (e.g. `PROMISE_DATE_RANGE`, `REASON_REQUIRED`, `LAST_SUPER_ADMIN`, `COWORK_INVALID_INVITEE`, `COWORK_TOO_MANY`). |
 | 423 | `ACCOUNT_LOCKED` | `details.until`. |
 | 426 | `UPGRADE_REQUIRED` | `details.minVersion`, `details.storeUrl`. |
 | 429 | `RATE_LIMITED` | Honour `Retry-After`. |

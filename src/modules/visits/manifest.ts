@@ -37,6 +37,10 @@ export const manifest: ModuleManifest = {
       { collection: 'visits', key: { userId: 1, checkInAt: -1 } },
       { collection: 'visits', key: { branchId: 1, checkInAt: -1 } },
     ]),
+    indexMigration('20261116-0001-visits-cowork-indexes', [
+      { collection: 'visits', key: { 'coWork.sessionId': 1 }, options: { sparse: true } },
+      { collection: 'visits', key: { 'coWork.participantIds': 1, checkInAt: -1 }, options: { sparse: true } },
+    ]),
   ],
   init() {
     registerListEnricher(async (ids) => new Map([...(await s.lastVisits(ids))].map(([k, v]) => [k, { lastVisitAt: v.toISOString() }])));

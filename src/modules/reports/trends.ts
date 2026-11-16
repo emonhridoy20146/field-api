@@ -9,7 +9,8 @@ import { getUsers, listByRole } from '../users/index.js';
 import { listBranches } from '../branches/index.js';
 import { erpFieldPayments, getCustomerRefs, overdueAging, overdueSummary, scopeFilter as customerScope } from '../customers/index.js';
 import { collectedByDay, collectedByUser, collectionRows } from '../collections/index.js';
-import { visitsByDay, visitsByUser } from '../visits/index.js';
+import { visitsByDay, visitsByUser, visitSplitByUser } from '../visits/index.js';
+import { visitCreditFor } from '../cowork/index.js';
 import { promiseStatsByOwner } from '../promises/index.js';
 import { attendanceDays } from '../attendance/index.js';
 import { fieldStatsByUser } from '../location/index.js';
@@ -46,6 +47,7 @@ export async function staffPerformance(user: AuthUser, q: z.infer<typeof perform
   const { from, to } = range;
   const collected = on['module.collections'] ? await collectedByUser(user, branchId, from, to) : new Map();
   const visits = on['module.visits'] ? await visitsByUser(user, branchId, from, to) : new Map();
+  const split = on['module.visits'] ? await visitSplitByUser(user, branchId, from, to) : new Map<string, { solo: number; coWork: number }>();
   const promises = on['module.promises'] ? await promiseStatsByOwner(user, branchId, from, to) : new Map();
   const field = on['module.location'] ? await fieldStatsByUser(staff.map((s) => s.id), from, to) : new Map();
   const att = new Map<string, { presentDays: number; lateDays: number; lateMin: number; breakMin: number }>();
@@ -59,6 +61,9 @@ export async function staffPerformance(user: AuthUser, q: z.infer<typeof perform
       att.set(d.userId, a);
     }
 
+  const credit = new Map<string, number>();
+  for (const s of staff) credit.set(s.id, await visitCreditFor(split.get(s.id)?.solo ?? 0, split.get(s.id)?.coWork ?? 0, s.branchIds[0]));
+
   return staff.map((s) => {
     const p = promises.get(s.id) ?? { due: 0, kept: 0, decided: 0 };
     return {
@@ -67,6 +72,10 @@ export async function staffPerformance(user: AuthUser, q: z.infer<typeof perform
       period: q.date,
       visits: visits.get(s.id)?.count ?? 0,
       uniqueCustomers: visits.get(s.id)?.uniqueCustomers ?? 0,
+      // FR-CW-005: `visits` stays what the person recorded; joint visits credit every participant.
+      soloVisits: split.get(s.id)?.solo ?? 0,
+      coWorkVisits: split.get(s.id)?.coWork ?? 0,
+      visitCredit: credit.get(s.id) ?? 0,
       collectionsCount: collected.get(s.id)?.count ?? 0,
       collectedPoisha: (collected.get(s.id)?.byMethod ?? {}) as Record<string, number>,
       targetPoisha: 0, // daily targets are FR-COL-015 (proposed)

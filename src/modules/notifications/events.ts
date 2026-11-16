@@ -152,6 +152,22 @@ const RULES: Rule[] = [
     body: () => t('আপনি ওয়ার্ক-আউট দেননি, তাই সিস্টেম দিনটি বন্ধ করেছে।', 'You did not work out, so the system closed your day.'),
     data: (p) => ({ businessDate: str(p.businessDate) }),
   },
+  {
+    event: 'cowork.requested',
+    type: 'cowork.requested',
+    to: (p) => (Array.isArray(p.toUserIds) ? p.toUserIds.map(str) : []),
+    title: () => t('যৌথ কাজের অনুরোধ', 'Co-work request'),
+    body: (p) => t(`${str(p.fromName)} আজ আপনার সাথে একসাথে কাজ করতে চান। গ্রহণ বা প্রত্যাখ্যান করুন।`, `${str(p.fromName)} wants to work together with you today. Accept or reject it.`),
+    data: (p) => ({ sessionId: str(p.sessionId) }),
+  },
+  {
+    event: 'cowork.responded',
+    type: 'cowork.responded',
+    to: (p) => [str(p.toUserId)],
+    title: (p) => (p.decision === 'accept' ? t('যৌথ কাজের অনুরোধ গৃহীত', 'Co-work request accepted') : t('যৌথ কাজের অনুরোধ প্রত্যাখ্যাত', 'Co-work request rejected')),
+    body: (p) => (p.decision === 'accept' ? t(`${str(p.name)} আপনার সাথে কাজ করতে রাজি হয়েছেন।`, `${str(p.name)} agreed to work with you.`) : t(`${str(p.name)} অনুরোধটি প্রত্যাখ্যান করেছেন।`, `${str(p.name)} rejected the request.`)),
+    data: (p) => ({ sessionId: str(p.sessionId), decision: str(p.decision) }),
+  },
 ];
 
 export const CONSUMED_EVENTS = RULES.map((r) => r.event);

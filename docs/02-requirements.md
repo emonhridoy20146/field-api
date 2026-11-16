@@ -78,6 +78,8 @@ Defaults: SA = super_admin, BM = branch_manager, FS = field_staff, VW = viewer. 
 | `report.export` | Export reports (CSV/XLSX/PDF) | ● | ● | ○ | ○ | reports |
 | `notification.broadcast` **[ADDED]** | Send announcements to staff in scope | ● | ● | ○ | ○ | notifications |
 | `audit.view` | View audit log in scope | ● | ○ | ○ | ● | audit |
+| `cowork.use` **[ADDED]** | Ask colleagues to work together, accept, leave | ○ | ○ | ● | ○ | cowork |
+| `cowork.view` **[ADDED]** | See co-work sessions in scope | ● | ● | ○ | ● | cowork |
 | `inbox.view` **[ADDED]** | "Needs attention" exceptions inbox | ● | ● | ○ | ○ | inbox |
 | `leave.request` **[ADDED]** | Request leave | ○ | ○ | ● | ○ | attendance |
 | `microfinance.view` | **RESERVED** — not grantable until MF-001 unblocked | — | — | — | — | microfinance |
@@ -240,6 +242,15 @@ Rules:
 | FR-PRM-003 | Promise auto-evaluation nightly: `kept` if ERP + field payments since promise ≥ promised amount by end of promised date (+ grace days setting, default 1); `partially_kept`; `broken`. | active | P1 | A | U I |
 | FR-PRM-004 | Promise fulfilment rate per staff/branch for reports. | active | P3 | A W | U I |
 | FR-MED-001 | Media service: presigned upload/download URLs (5 min expiry), content-type and size validation, SHA-256 dedupe, private bucket, thumbnail generation. | active | P1 | A | I |
+
+### 4.9a Co-work **[ADDED 2026-11-16, owner request]** (module `cowork`)
+| ID | Requirement | Status | Phase | Repos | Test |
+|---|---|---|---|---|---|
+| FR-CW-001 | A field staff member asks one or more colleagues of the same branch to work together for the business day; each invitee accepts or rejects. Online only. At most `cowork.maxMembers` (5) people; a person is an accepted member of one open session at a time. | active | P2 | A M | U I D |
+| FR-CW-002 | A member can leave; recording work-out leaves automatically. The session ends at Dhaka midnight, or when fewer than two accepted members remain and no invitation is pending. | active | P2 | A M | U I |
+| FR-CW-003 | A visit sent with `coWorkSessionId` is stored as a co-work visit with the session members accepted at check-in time as participants. It stays one record by the recorder. A recorder who was not an accepted member then gets a single visit flagged `cowork_invalid`. | active | P2 | A M | U I D |
+| FR-CW-004 | Managers see co-work sessions (members, times, visits) and can filter visits by single / co-work. | active | P2 | A W | I |
+| FR-CW-005 | Staff statistics separate single visits from co-work visits. Every participant gets credit for a joint visit, weighted for targets by `cowork.visitCredit` (0–1, default 1). **Collections and cash are never shared:** they count only for the person who recorded them (cash accountability). | active | P2 | A W | U I |
 
 ### 4.10 Attendance (module `attendance`)
 

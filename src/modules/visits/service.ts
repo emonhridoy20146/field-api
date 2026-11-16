@@ -26,11 +26,18 @@ export const createSchema = z.object({
   geoUnavailableReason: z.enum(['permission_denied', 'location_off', 'timeout', 'no_fix']).optional(),
   photoMediaIds: z.array(z.string().max(64)).max(5).default([]),
   source: z.enum(['manual', 'suggested']).default('manual'),
+  coWorkSessionId: z.string().max(64).optional(),
 });
+
+/** Port filled by the cowork module: the other session members working with the recorder at that instant, or null when the recorder was not one. */
+export type CoWorkResolver = (recorderId: string, sessionId: string, at: Date) => Promise<string[] | null>;
+let coWorkResolver: CoWorkResolver | null = null;
+export const registerCoWorkResolver = (fn: CoWorkResolver) => void (coWorkResolver = fn);
 
 export function scopeFilter(user: AuthUser): Record<string, unknown> {
   if (isSuperAdmin(user)) return {};
-  if (user.role === 'field_staff') return { userId: user.id };
+  // A partner of a joint visit sees it too (FR-CW-003).
+  if (user.role === 'field_staff') return { $or: [{ userId: user.id }, { 'coWork.participantIds': user.id }] };
   return { branchId: { $in: user.branchIds } };
 }
 
@@ -48,6 +55,7 @@ function view(v: Lean) {
     source: v.source,
     distanceToPinM: v.geo?.distanceToPinM ?? null,
     flags: v.flags ?? [],
+    coWork: v.coWork?.sessionId ? { sessionId: v.coWork.sessionId as string, participantIds: (v.coWork.participantIds ?? []) as string[] } : null,
   };
 }
 
@@ -67,6 +75,13 @@ export async function create(user: AuthUser, input: z.infer<typeof createSchema>
   if (geo?.mock) flags.push('mock_location');
   if (!geo) flags.push('no_location');
   if (user.role === 'field_staff' && c.assigneeId !== user.id) flags.push('not_in_scope_at_record_time');
+  // FR-CW-003: the server decides who took part; a claim it cannot confirm is kept as a single visit and flagged.
+  let coWork: { sessionId: string; participantIds: string[] } | null = null;
+  if (input.coWorkSessionId) {
+    const partners = coWorkResolver ? await coWorkResolver(user.id, input.coWorkSessionId, new Date(input.checkInAt)) : null;
+    if (!partners) flags.push('cowork_invalid');
+    else if (partners.length) coWork = { sessionId: input.coWorkSessionId, participantIds: partners };
+  }
   try {
     const v = await VisitModel.create({
       clientId: input.clientId,
@@ -82,9 +97,10 @@ export async function create(user: AuthUser, input: z.infer<typeof createSchema>
       photoMediaIds: input.photoMediaIds,
       source: input.source,
       flags,
+      coWork,
     });
     const lean = v.toObject() as Lean;
-    await recordChange({ entity: 'visit', entityId: lean._id.toHexString(), userIds: [user.id], branchId: c.branchId });
+    await recordChange({ entity: 'visit', entityId: lean._id.toHexString(), userIds: [user.id, ...(coWork?.participantIds ?? [])], branchId: c.branchId });
     await ctx().bus.emit('visit.recorded', { visitId: lean._id.toHexString(), customerId: c.id, branchId: c.branchId, userId: user.id, outcome: input.outcome, flags });
     return { statusCode: 201, body: view(lean) };
   } catch (e) {
@@ -108,24 +124,34 @@ export async function checkout(user: AuthUser, id: string, input: { checkOutAt: 
   if (at < v.checkInAt) throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'checkOutAt', message: 'before check-in' }] });
   if (v.checkOutAt) return view(v); // idempotent
   await VisitModel.updateOne({ _id: id }, { $set: { checkOutAt: at, ...(input.outcome ? { outcome: input.outcome } : {}) } });
-  await recordChange({ entity: 'visit', entityId: id, userIds: [user.id], branchId: v.branchId });
+  await recordChange({ entity: 'visit', entityId: id, userIds: [user.id, ...((v.coWork?.participantIds ?? []) as string[])], branchId: v.branchId });
   return view((await VisitModel.findById(id).lean()) as Lean);
 }
 
 /** List rows carry display refs so admin tables need no extra calls (contract 1.4.0). */
 async function withRefs(rows: Lean[]) {
   const refs = await getCustomerRefs(rows.map((r) => r.customerId));
-  const users = await getUsers(rows.map((r) => r.userId));
+  const users = await getUsers(rows.flatMap((r) => [r.userId, ...((r.coWork?.participantIds ?? []) as string[])]));
+  const nameOf = (id: string) => {
+    const p = users.get(id);
+    return p ? p.name.en || p.name.bn : '';
+  };
   return rows.map((v) => {
     const ref = refs.get(v.customerId);
     const u = users.get(v.userId);
-    return { ...view(v), customer: { id: v.customerId, name: ref?.name ?? { bn: '', en: '' }, code: ref?.code ?? '' }, user: { id: v.userId, name: u ? u.name.en || u.name.bn : '' } };
+    const base = view(v);
+    return { ...base, coWork: base.coWork ? { ...base.coWork, participants: base.coWork.participantIds.map((id) => ({ id, name: nameOf(id) })) } : null, customer: { id: v.customerId, name: ref?.name ?? { bn: '', en: '' }, code: ref?.code ?? '' }, user: { id: v.userId, name: u ? u.name.en || u.name.bn : '' } };
   });
 }
 
-export async function list(user: AuthUser, q: { branchId?: string | undefined; userId?: string | undefined; customerId?: string | undefined; date?: string | undefined; from?: string | undefined; to?: string | undefined; outcome?: string | undefined; limit: number; cursor?: string | undefined }) {
-  const f: Record<string, unknown> = { ...scopeFilter(user), ...(q.branchId ? branchQuery(user, q.branchId) : {}) };
-  if (q.userId && user.role !== 'field_staff') f.userId = q.userId;
+export async function list(user: AuthUser, q: { branchId?: string | undefined; userId?: string | undefined; customerId?: string | undefined; date?: string | undefined; from?: string | undefined; to?: string | undefined; outcome?: string | undefined; coWork?: 'true' | 'false' | undefined; coWorkSessionId?: string | undefined; limit: number; cursor?: string | undefined }) {
+  const f: Record<string, unknown> = { ...(q.branchId ? branchQuery(user, q.branchId) : {}) };
+  const and: Record<string, unknown>[] = [scopeFilter(user)];
+  // A person's visits include the joint visits they took part in without recording them (1.9.0).
+  if (q.userId && user.role !== 'field_staff') and.push({ $or: [{ userId: q.userId }, { 'coWork.participantIds': q.userId }] });
+  if (q.coWork) f['coWork.sessionId'] = q.coWork === 'true' ? { $ne: null } : null;
+  if (q.coWorkSessionId) f['coWork.sessionId'] = q.coWorkSessionId;
+  f.$and = and;
   if (q.customerId) f.customerId = q.customerId;
   // `date` is one Dhaka business day; `from`/`to` (inclusive Dhaka days) are ignored when `date` is given.
   const from = q.date ?? q.from;
@@ -207,6 +233,41 @@ export async function visitCountsOfDay(userIds: string[], date: string): Promise
   const rows = await VisitModel.aggregate<{ _id: string; n: number }>([
     { $match: { userId: { $in: userIds }, checkInAt: { $gte: new Date(`${date}T00:00:00+06:00`), $lte: new Date(`${date}T23:59:59.999+06:00`) } } },
     { $group: { _id: '$userId', n: { $sum: 1 } } },
+  ]);
+  return new Map(rows.map((r) => [r._id, r.n]));
+}
+
+const range = (from: string, to: string) => ({ $gte: new Date(`${from}T00:00:00+06:00`), $lte: new Date(`${to}T23:59:59.999+06:00`) });
+
+/**
+ * FR-CW-005: single visits per recorder, and joint visits per person who took part (recorder or
+ * partner). Two members recording the same customer in the same session is one joint visit, so
+ * nobody is credited twice for one stop.
+ */
+export async function visitSplitByUser(user: AuthUser, branchId: string | undefined, from: string, to: string): Promise<Map<string, { solo: number; coWork: number }>> {
+  const match = { ...scopeFilter(user), ...(branchId ? branchQuery(user, branchId) : {}), checkInAt: range(from, to) };
+  const out = new Map<string, { solo: number; coWork: number }>();
+  const row = (id: string) => out.get(id) ?? out.set(id, { solo: 0, coWork: 0 }).get(id)!;
+  const solo = await VisitModel.aggregate<{ _id: string; n: number }>([{ $match: { ...match, 'coWork.sessionId': null } }, { $group: { _id: '$userId', n: { $sum: 1 } } }]);
+  for (const r of solo) row(r._id).solo = r.n;
+  const joint = await VisitModel.aggregate<{ _id: string; n: number }>([
+    { $match: { ...match, 'coWork.sessionId': { $ne: null } } },
+    { $project: { sessionId: '$coWork.sessionId', customerId: 1, person: { $concatArrays: [['$userId'], '$coWork.participantIds'] } } },
+    { $unwind: '$person' },
+    { $group: { _id: { person: '$person', sessionId: '$sessionId', customerId: '$customerId' } } },
+    { $group: { _id: '$_id.person', n: { $sum: 1 } } },
+  ]);
+  for (const r of joint) row(r._id).coWork = r.n;
+  return out;
+}
+
+/** Joint visits per co-work session (one per customer), for the manager's session list. */
+export async function coWorkVisitCounts(sessionIds: string[]): Promise<Map<string, number>> {
+  if (!sessionIds.length) return new Map();
+  const rows = await VisitModel.aggregate<{ _id: string; n: number }>([
+    { $match: { 'coWork.sessionId': { $in: sessionIds } } },
+    { $group: { _id: { sessionId: '$coWork.sessionId', customerId: '$customerId' } } },
+    { $group: { _id: '$_id.sessionId', n: { $sum: 1 } } },
   ]);
   return new Map(rows.map((r) => [r._id, r.n]));
 }
