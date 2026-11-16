@@ -8,11 +8,11 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 ## Phase 0 — Foundations (≈ 2–3 weeks)
 | Item | Repo | Status |
 |---|---|---|
-| Repos created with CLAUDE.md, README, docs, CI, lint boundaries | all | ☐ |
-| core: config, db, logger, errors, events, outbox, jobs, idempotency, clock | A | ☐ |
-| Module loader + manifest validation + feature gate + permission catalog | A | ☐ |
-| auth, rbac, users, branches (ERP mirror), settings, flags, audit | A | ☐ |
-| erp-gateway with MockErpClient + mock-erp server + fixtures from this spec | A | ☐ |
+| Repos created with CLAUDE.md, README, docs, CI, lint boundaries | all | ◐ (field-api ✅) |
+| core: config, db, logger, errors, events, outbox, jobs, idempotency, clock | A | ✅ |
+| Module loader + manifest validation + feature gate + permission catalog | A | ✅ |
+| auth, rbac, users, branches (ERP mirror), settings, flags, audit | A | ✅ |
+| erp-gateway with MockErpClient + mock-erp server + fixtures from this spec | A | ✅ |
 | Admin shell: layout, login, RBAC-aware nav, users & roles, permissions matrix, settings, flags, audit viewer | W | ☐ |
 | App shell: theme, Bangla fonts, login, PIN unlock, local DB, sync engine skeleton, version gate | M | ☐ |
 | Design tokens v1.0 implemented in both clients | W M | ☐ |
@@ -23,21 +23,21 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 ## Phase 1 — MVP field operations (≈ 6–8 weeks)
 | Item | FRs | Status |
 |---|---|---|
-| ERP read sync (customers/plans/schedule/payments), status derivation, freshness | FR-ERP-001..005, FR-CUS-001..007, FR-CUS-010 | ☐ |
-| Customer list/detail/map (both clients) | FR-CUS-* | ☐ |
-| Assignments, areas, bulk assign | FR-ASG-* | ☐ |
-| Handovers incl. temporary cover | FR-HO-001..006 | ☐ |
-| Collections offline + idempotency + receipt blocks + ERP posting + conflicts | FR-COL-001..011, 013 | ☐ |
-| Cash on hand, limits, deposits, closing | FR-CASH-* | ☐ |
-| Visits + camera photos + media | FR-VIS-001..004, FR-MED-001 | ☐ |
-| Notes, promises, reminders, nightly evaluation | FR-NOTE-001, FR-PRM-001..003 | ☐ |
-| Tags + suggestion + review | FR-TAG-* | ☐ |
-| Attendance + shifts + holidays + corrections | FR-ATT-001..007, FR-SET-002/003 | ☐ |
-| Sync push/pull/bootstrap + sync center | FR-SYNC-* | ☐ |
-| Notifications (FCM + center) | FR-NOT-001..004 | ☐ |
-| Inbox, dashboard, global search | FR-INB-001, FR-DSH-001, FR-SRCH-001 | ☐ |
-| Pin corrections | FR-CUS-008 | ☐ |
-| Devices binding/remote logout | FR-AUTH-006..008 | ☐ |
+| ERP read sync (customers/plans/schedule/payments), status derivation, freshness | FR-ERP-001..005, FR-CUS-001..007, FR-CUS-010 | ✅ API |
+| Customer list/detail/map (both clients) | FR-CUS-* | ✅ API |
+| Assignments, areas, bulk assign | FR-ASG-* | ✅ API |
+| Handovers incl. temporary cover | FR-HO-001..006 | ✅ API |
+| Collections offline + idempotency + receipt blocks + ERP posting + conflicts | FR-COL-001..011, 013 | ✅ API |
+| Cash on hand, limits, deposits, closing | FR-CASH-* | ✅ API |
+| Visits + camera photos + media | FR-VIS-001..004, FR-MED-001 | ✅ API (thumbnails pending) |
+| Notes, promises, reminders, nightly evaluation | FR-NOTE-001, FR-PRM-001..003 | ✅ API |
+| Tags + suggestion + review | FR-TAG-* | ✅ API |
+| Attendance + shifts + holidays + corrections | FR-ATT-001..007, FR-SET-002/003 | ✅ API (FR-ATT-007 geofence not built; leave FR-ATT-008 built early) |
+| Sync push/pull/bootstrap + sync center | FR-SYNC-* | ✅ API (API; bootstrap snapshots customers only, other entities arrive by pull) |
+| Notifications (FCM + center) | FR-NOT-001..004 | ✅ API (push goes through a port; the real FCM sender needs credentials at deploy time; broadcasts FR-NOT-005 built early) |
+| Inbox, dashboard, global search | FR-INB-001, FR-DSH-001, FR-SRCH-001 | ✅ API (inbox items for mock GPS / tracking stopped come with the location module; daily target is 0 until phase 3) |
+| Pin corrections | FR-CUS-008 | ✅ API |
+| Devices binding/remote logout | FR-AUTH-006..008 | ✅ API |
 
 **Acceptance (all must pass on staging with mock ERP, then with Laravel staging when available):**
 1. J-1…J-8 and J-11, J-12 green (07-test-plan §5).
@@ -52,21 +52,21 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Item | FRs | Status |
 |---|---|---|
 | Spike: background location engine on 4 OEMs (Xiaomi, Samsung, Oppo/Realme, Vivo) | ADR-009 | ☐ |
-| Duty-only adaptive tracking, filters, offline queue, heartbeat | FR-LOC-001..004, 010, 011 | ☐ |
-| Mock-location detection | FR-LOC-005 | ☐ |
-| Latest-location map, route history, stops | FR-LOC-006..008 | ☐ |
+| Duty-only adaptive tracking, filters, offline queue, heartbeat | FR-LOC-001..004, 010, 011 | ◐ server ✅ (ingest, duty check, filters, sampling config, heartbeat, tracking-stopped watchdog); app side in staff-app |
+| Mock-location detection | FR-LOC-005 | ◐ server ✅ (flag stored, inbox once per staff and day); detection itself in staff-app |
+| Latest-location map, route history, stops | FR-LOC-006..008 | ◐ API ✅; visit/collection overlay in history and today's totals on the marker not filled yet |
 | Visit suggestion from dwell | FR-VIS-005 | ☐ |
-| Retention TTL + daily summaries | FR-LOC-009, 012 | ☐ |
+| Retention TTL + daily summaries | FR-LOC-009, 012 | ✅ |
 
 **Acceptance:** 9-hour duty day on a mid-range phone uses ≤ 12 % battery for tracking (bike + walking mix); no points outside duty; ≥ 90 % of 5-minute customer stops detected and matched; mock GPS app is flagged within one batch; route history renders a day in < 2 s on admin.
 
 ## Phase 3 — Reports (≈ 3 weeks)
 | Item | FRs | Status |
 |---|---|---|
-| daily_metrics + overdue_snapshots jobs | FR-REP-001/002 | ☐ |
-| Staff performance (daily/monthly), branch trends, promise fulfilment | FR-REP-001/002, FR-PRM-004 | ☐ |
-| Exports CSV/XLSX/PDF (Bangla) | FR-REP-003/004 | ☐ |
-| Reconciliation report, data-quality report, targets, leaderboard | FR-COL-014/015, FR-CUS-009, FR-REP-005 | ☐ |
+| daily_metrics + overdue_snapshots jobs | FR-REP-001/002 | ◐ overdue snapshots ✅; daily_metrics not needed yet (ADR-028, reports aggregate live) |
+| Staff performance (daily/monthly), branch trends, promise fulfilment | FR-REP-001/002, FR-PRM-004 | ✅ |
+| Exports CSV/XLSX/PDF (Bangla) | FR-REP-003/004 | ◐ CSV + XLSX ✅ (async, 7 days, signed link, audited, bn/en headers); PDF waits for OD-26; `audit` dataset not built |
+| Reconciliation report, data-quality report, targets, leaderboard | FR-COL-014/015, FR-CUS-009, FR-REP-005 | ◐ reconciliation ✅; data-quality, targets, leaderboard are still `proposed` |
 
 **Acceptance:** report numbers equal raw-query numbers for a sampled month; Bangla PDF renders conjuncts correctly; export of 10k rows < 60 s.
 

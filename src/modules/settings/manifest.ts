@@ -26,6 +26,10 @@ export const manifest: ModuleManifest = {
       description: 'ADR-014 swappable tile provider; public OSM tiles are for development only',
       exposeToApp: true,
     },
+    // Background location plugin choice (decision 2026-11-15: free now, paid switchable later from admin settings).
+    // The paid plugin's licence key is bound to the app id and ships in the app build, never in this DB.
+    { key: 'location.trackingProvider', type: 'enum', enum: ['free', 'paid'], default: 'free', exposeToApp: true, description: 'Which background-location plugin the staff app uses' },
+    { key: 'location.providerConfig', type: 'json', default: {}, exposeToApp: true, description: 'Non-secret provider tuning (distanceFilterM, intervalSec, …) passed to the app' },
     { key: 'attendance.defaultShift', type: 'json', default: { start: '09:00', end: '18:00', weeklyOff: [5], lateGraceMin: 15, maxBreakMin: 60 }, branchOverridable: true, exposeToApp: true },
     { key: 'locale.default', type: 'enum', enum: ['bn', 'en'], default: 'bn', exposeToApp: true },
   ],

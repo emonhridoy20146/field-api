@@ -1,0 +1,41 @@
+# Local development dependencies only (no production values here).
+#   docker compose up -d          → MongoDB replica set, MinIO (S3), mock ERP
+#   pnpm db:migrate && SEED_PASSWORD=... pnpm seed:dev && pnpm dev
+services:
+  mongo:
+    image: mongo:7
+    command: ['--replSet', 'rs0', '--bind_ip_all']
+    ports: ['27017:27017']
+    volumes: ['mongo-data:/data/db']
+    healthcheck:
+      # Initiates the single-node replica set on first start (transactions need one).
+      test: ['CMD-SHELL', "mongosh --quiet --eval \"try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27017' }] }).ok }\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      # Local-only credentials taken from your shell or .env; compose refuses to start without them.
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:?set S3_ACCESS_KEY_ID in .env}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY in .env}
+    ports: ['9000:9000', '9001:9001']
+    volumes: ['minio-data:/data']
+
+  mock-erp:
+    image: node:22-alpine
+    working_dir: /app
+    command: ['sh', '-c', 'corepack enable && pnpm install --frozen-lockfile && pnpm mock:erp']
+    environment:
+      MOCK_ERP_PORT: '4100'
+      MOCK_ERP_HOST: 0.0.0.0
+      MOCK_ERP_TOKEN: ${ERP_API_TOKEN:-}
+    volumes: ['.:/app']
+    ports: ['4100:4100']
+    profiles: ['erp']
+
+volumes:
+  mongo-data:
+  minio-data:

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import type { Db } from 'mongodb';
+import type { mongo } from 'mongoose';
+type Db = mongo.Db;
 import { db } from './index.js';
 
 /** Forward-only, idempotent migration (06-data-model §8). */

@@ -35,6 +35,11 @@ export class MockErpClient implements ErpClient {
     this.customers.set(c.erpCustomerId, structuredClone(c));
   }
 
+  /** Simulates a customer disappearing from Laravel (deleted/merged there). */
+  removeCustomer(erpCustomerId: string): void {
+    this.customers.delete(erpCustomerId);
+  }
+
   /** Test hook: next postPayment calls fail in the given ways. */
   failNext(...modes: FailMode[]): void {
     this.failQueue.push(...modes);

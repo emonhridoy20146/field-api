@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { Migration } from '../db/migrations.js';
 import type { JobDef } from '../jobs/index.js';
 import type { AuthUser, Role } from '../security/types.js';
+import type { RequestMeta } from '../http/router.js';
 
 export interface I18n {
   en: string;
@@ -34,6 +35,28 @@ export interface SyncEntityDef {
   snapshot?: (user: AuthUser, cursor: string | null, limit: number) => Promise<{ items: Record<string, unknown>[]; nextCursor: string | null }>;
 }
 
+export interface SyncMutationResult {
+  entityId: string;
+  /** true when the underlying write already existed (clientId / idempotency key replay). */
+  replayed?: boolean;
+  status?: string;
+  /** Business conflict that is stored, not rejected (e.g. a collection in conflict). */
+  conflict?: { code: string; message?: I18n };
+  /** Extra fields merged into the per-item push result. */
+  extra?: Record<string, unknown>;
+}
+
+/**
+ * One offline mutation kind accepted by POST /sync/push (FR-SYNC-002). The owning module validates the
+ * payload with the same zod schema as its REST route; the sync module checks flag + permission first.
+ */
+export interface SyncMutationDef {
+  entity: string; // as in openapi SyncMutation.entity
+  /** Omit only for self-service actions the service itself restricts to the acting user. */
+  permission?: string;
+  apply: (user: AuthUser, payload: unknown, m: { mutationId: string; meta: RequestMeta }) => Promise<SyncMutationResult>;
+}
+
 export interface InboxTypeDef {
   type: string;
   severity: 'low' | 'medium' | 'high' | 'critical';
@@ -59,6 +82,7 @@ export interface ModuleManifest {
   migrations?: Migration[];
   settings?: SettingDef[];
   syncEntities?: SyncEntityDef[];
+  syncMutations?: SyncMutationDef[];
   inboxTypes?: InboxTypeDef[];
   notificationTypes?: NotificationTypeDef[];
   /** Called once at boot after all manifests validated: subscribe events, register ports/outbox handlers. */

@@ -102,3 +102,23 @@ export async function outboxCounts(type?: string): Promise<{ pending: number; fa
 export async function setOutboxPaused(type: string, paused: boolean): Promise<void> {
   await OutboxModel.updateMany({ type, status: { $in: ['pending', 'processing'] } }, { $set: { paused } });
 }
+
+/**
+ * Cancel a not-yet-running item whose payload matches (e.g. a voided collection).
+ * Returns 'cancelled', 'none' (nothing pending) or 'in_flight' (a worker holds the lease right now).
+ */
+export async function cancelPending(type: string, match: Record<string, unknown>): Promise<'cancelled' | 'none' | 'in_flight'> {
+  const now = ctx().clock.now();
+  const where = Object.fromEntries(Object.entries(match).map(([k, v]) => [`payload.${k}`, v]));
+  const r = await OutboxModel.updateOne(
+    { type, ...where, status: { $in: ['pending', 'processing'] }, $or: [{ lockedUntil: null }, { lockedUntil: { $lt: now } }] },
+    { $set: { status: 'done', lastError: 'cancelled', lockedUntil: null } },
+  );
+  if (r.modifiedCount === 1) return 'cancelled';
+  return (await OutboxModel.exists({ type, ...where, status: { $in: ['pending', 'processing'] } })) ? 'in_flight' : 'none';
+}
+
+export async function hasActive(type: string, match: Record<string, unknown>): Promise<boolean> {
+  const where = Object.fromEntries(Object.entries(match).map(([k, v]) => [`payload.${k}`, v]));
+  return !!(await OutboxModel.exists({ type, ...where, status: { $in: ['pending', 'processing'] } }));
+}

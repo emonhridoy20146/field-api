@@ -10,14 +10,27 @@ Backend for the Howlader Electronics **Field Operations System**: field collecti
 ```bash
 pnpm install
 cp .env.example .env            # fill values locally; never commit .env
-docker compose up -d            # mongo (replica set), minio (S3), mock-erp
+docker compose up -d            # MongoDB (replica set) and MinIO; add `--profile erp` for the HTTP mock ERP
 pnpm db:migrate
-pnpm seed:dev                   # branches, users (SA/BM/FS), sample customers from fixtures, flags ON
+SEED_PASSWORD='choose-one' pnpm seed:dev   # branches, one user per role, sample customers, module flags ON
 pnpm dev                        # API on http://localhost:4000 (PROCESS_ROLE=api)
 pnpm dev:worker                 # jobs + outbox (PROCESS_ROLE=worker)
-pnpm mock:api                   # Prism mock of openapi.yaml on :4010 for client developers
 ```
-Tests: `pnpm test` (unit + integration), `pnpm test:contract`, `pnpm test:load` (k6, staging only).
+No Docker? `pnpm smoke` boots migrate → seed → API → worker against a throwaway in-memory MongoDB and checks sign-in.
+
+`ERP_MODE=mock` (default) uses an in-process fake ERP. To exercise the real HTTP client, run `pnpm mock:erp` and set `ERP_MODE=live`, `ERP_BASE_URL=http://localhost:4100/api/integrations/field/v1`. Laravel itself is never touched from this repo.
+
+## Checks (all run in CI)
+| Command | What it proves |
+|---|---|
+| `pnpm lint` | ESLint (no `any`, injected clock only), Prettier on scripts, module boundaries (dependency-cruiser) |
+| `pnpm typecheck` | strict TypeScript |
+| `pnpm test` / `pnpm test:coverage` | unit + integration + contract tests on an in-memory MongoDB replica set; coverage gates |
+| `pnpm check:permissions` | every route declares access; permission keys match `docs/02-requirements.md §3.1` |
+| `pnpm openapi:lint` | contract is well formed; every implemented route is in `docs/openapi.yaml` |
+| `pnpm check:changelog` | `src/` changes come with a `docs/CHANGELOG.md` entry |
+
+New module: `pnpm new:module <name>`, then follow the checklist in `CLAUDE.md §5`.
 
 ## Environment variables (names only)
 | Name | Purpose |

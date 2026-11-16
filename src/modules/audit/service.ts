@@ -14,11 +14,11 @@ const GENESIS = 'genesis';
 export interface AuditActor {
   id: string | null;
   role: string | null;
-  name?: string | null;
+  name?: string | { bn?: string; en?: string } | null;
 }
 
 export interface AuditEntryInput {
-  actor: AuditActor | AuthUser | null;
+  actor: AuditActor | null;
   action: string;
   entity: string;
   entityId?: string | null;
@@ -32,7 +32,8 @@ export interface AuditEntryInput {
 
 function actorFields(a: AuditEntryInput['actor']) {
   if (!a) return { actorId: null, actorRole: 'system', actorName: 'system' };
-  const name = 'name' in a && a.name && typeof a.name === 'object' ? (a.name.en ?? a.name.bn ?? null) : ((a as AuditActor).name ?? null);
+  const n = a.name;
+  const name = n && typeof n === 'object' ? (n.en || n.bn || null) : (n ?? null);
   return { actorId: a.id, actorRole: a.role, actorName: name };
 }
 

@@ -144,13 +144,13 @@ Retention: permanent (≥ 8 years, OD-09).
 `{ _id, ownerId, kind: 'visit_photo'|'deposit_slip'|'selfie'|'location_proof'|'refund_proof'|'voice_note'|'export', bucketKey: 'media/2026/11/15/<uuid>.jpg', contentType, sizeBytes, sha256, width, height, capturedAt, geo, status: 'pending'|'confirmed', thumbKey }` · `{ sha256:1 }`, TTL on pending: `{ createdAt:1 } partial(status=pending) 1 day` (implemented by job since TTL partial filters on status are allowed).
 
 ### attendance_events
-`{ clientId, userId, branchId, type: 'work_in'|'break_start'|'break_end'|'work_out'|'auto_close'|'correction', at, deviceTime, receivedAt, geo, selfieMediaId?, flags[], correctionOf?, reason? }` · `{ clientId:1 } unique`, `{ userId:1, at:1 }`.
+`{ clientId, userId, branchId, businessDate, type: 'work_in'|'break_start'|'break_end'|'work_out', at, deviceTime, receivedAt, geo|null, geoUnavailableReason, selfieMediaId?, source: 'app'|'correction'|'system', correction?: { by, reason, replacesEventId }, replacedBy?, flags[] }` · `{ clientId:1 } unique`, `{ userId:1, businessDate:1, at:1 }`. Append-only: a correction adds an event and marks the replaced one with `replacedBy`; the auto work-out is a `system` event.
 
 ### attendance_days
-`{ userId, branchId, businessDate, shiftId, firstIn, lastOut, lateMin, breakMin, breaks: [{start,end}], dutyMin, status: 'present'|'late'|'absent'|'leave'|'holiday'|'weekly_off', autoClosed, corrected }` · `{ userId:1, businessDate:1 } unique`, `{ branchId:1, businessDate:1 }`.
+Derived, rebuildable from events. `{ userId, branchId, businessDate, status: 'not_started'|'on_duty'|'on_break'|'off_duty'|'present'|'late'|'absent'|'leave'|'holiday'|'weekly_off', state, firstIn, lastOut, lateMin, breakMin, overBreakMin, breaks: [{start,end}], dutyMin, autoClosed, corrected, closed, flags[], shift: {start,end} }` · `{ userId:1, businessDate:1 } unique`, `{ branchId:1, businessDate:1 }`, `{ closed:1, state:1 }`.
 
 ### leave_requests [ADDED]
-`{ userId, branchId, type: 'casual'|'sick'|'other', from, to, reason, status, decidedBy, decidedAt }`.
+`{ userId, branchId, type: 'casual'|'sick'|'other', from, to, reason, status: 'pending'|'approved'|'rejected', decidedBy, decidedAt, decisionReason, createdAt }` · `{ userId:1, from:1 }`, `{ branchId:1, status:1, createdAt:-1 }`.
 
 ## 5. Location
 
@@ -165,34 +165,35 @@ Document: `{ recordedAt, meta: { userId, branchId, deviceId }, lat, lng, accurac
 Secondary index: `{ 'meta.userId': 1, recordedAt: 1 }`.
 
 ### location_latest
-`{ _id: userId, branchId, point, accuracyM, recordedAt, battery, activity, mock, onBreak, appVersion }` · `{ branchId:1 }`, `{ point: '2dsphere' }`.
+`{ _id: userId, branchId, point, accuracyM, recordedAt, battery, activity, mock, heartbeatAt, gpsEnabled, permission, bgRestricted, appVersion, trackingProvider, trackingProviderFallback }` · `{ branchId:1 }`. The marker only moves forward in time; "on break" is read from attendance when the map is requested, not stored.
 
 ### location_heartbeats
-`{ userId, at, battery, gpsEnabled, permission: 'always'|'while_in_use'|'denied', bgRestricted, appVersion }` · TTL 30 days.
+`{ userId, at, battery, charging, gpsEnabled, permission: 'always'|'while_in_use'|'denied', bgRestricted, appVersion, pendingPoints, pendingMutations, trackingProvider, trackingProviderFallback }` · `{ userId:1, at:-1 }`, TTL 30 days on `at`.
 
 ### location_stops
-`{ userId, branchId, businessDate, start, end, dwellMin, center: Point, radiusM, customerId?, distanceToPinM?, visitId?, pointsCount }` · `{ userId:1, businessDate:1 }`, TTL 365 days on `end`.
+Written by the nightly `location.summarize` job (re-runnable; replaces the day). `{ userId, branchId, businessDate, start, end, dwellMin, lat, lng, customerId?, customerName?, distanceToPinM?, pointsCount }` · `{ userId:1, businessDate:1 }`, TTL 365 days on `end`.
 
 ### location_daily_summaries
-`{ userId, branchId, businessDate, distanceKm, movingMin, stoppedMin, stopsCount, customerStops, firstPointAt, lastPointAt, gapsMin, mockPoints }` · `{ userId:1, businessDate:1 } unique` · TTL 730 days.
+`{ userId, branchId, businessDate, day, distanceKm, movingMin, stoppedMin, stopsCount, customerStops, firstPointAt, lastPointAt, gapsMin, mockPoints }` · `{ userId:1, businessDate:1 } unique` · TTL 730 days on `day`.
 
 ## 6. Notifications, inbox, sync, audit
 
 - `notifications { userId, type, title {bn,en}, body {bn,en}, data, readAt, createdAt }` · `{ userId:1, createdAt:-1 }` · TTL 90 days.
 - `push_tokens` → stored on `devices.fcmToken` (one per device).
 - `broadcasts [ADDED] { scope: {branchIds, roles}, title, body, requireAck, acks: [{userId, at}], createdBy }`.
+- `broadcasts [ADDED] { title {bn,en}, body {bn,en}, branchIds[], roles[], requireAck, createdBy, createdAt, recipientIds[], ackedBy[] }` · `{ recipientIds:1, _id:-1 }`.
 - `inbox_items [ADDED] { key (dedupe, e.g. 'collection.conflict:6750…'), type, severity: 'low'|'medium'|'high'|'critical', branchId, entity, entityId, summary {bn,en}, status: 'open'|'snoozed'|'resolved', snoozedUntil, resolvedBy, resolvedAt, createdAt }` · `{ key:1 } unique`, `{ branchId:1, status:1, severity:-1, createdAt:-1 }`.
 - `sync_changes { seq (int64 from counters), userIds: [] (audience), branchId, entity, entityId, op: 'upsert'|'delete', at }` · `{ userIds:1, seq:1 }` · TTL 30 days (devices older than 30 days get a full resync: `410 CURSOR_EXPIRED`).
-- `device_sync_state { deviceId, userId, lastPullSeq, lastPullAt, lastPushAt, pendingReported, lastError }`.
+- `device_sync_state { deviceId, userId, branchId, lastPullSeq, lastPullAt, lastPushAt, pendingReported, lastError, appVersion }` · `{ deviceId:1, userId:1 } unique`, `{ branchId:1, lastPullAt:-1 }`.
 - `counters { _id: 'sync_seq', value }`.
 - `outbox`, `jobs` — see 04-architecture §6.5.
 - `audit_logs { at, actorId, actorRole, action, entity, entityId, branchId, before, after, reason, ip, deviceId, requestId, prevHash, hash }` · `{ at:-1 }`, `{ entity:1, entityId:1, at:-1 }`, `{ actorId:1, at:-1 }`, `{ branchId:1, action:1, at:-1 }`. Mongo user for the API has **insert + find only** on this collection (custom role). Retention: money actions 8 years, others 3 years (job, OD-09).
 
 ## 7. Reports
 
-- `daily_metrics { businessDate, branchId, userId, visits, uniqueCustomers, collectionsCount, collectedPoisha: {cash, bkash, nagad, rocket, bank_transfer, other_mobile}, promisesDue, promisesKept, present, lateMin, breakMin, dutyMin, fieldMin, distanceKm }` · `{ businessDate:1, branchId:1, userId:1 } unique` — computed nightly 01:00 Dhaka and incrementally during the day (every 15 min for "today").
-- `overdue_snapshots { businessDate, branchId, buckets: {d1_30:{count,amountPoisha}, d31_60, d61_90, d90p}, totalOverdue, badSuggested, tagged }` · unique `{ businessDate:1, branchId:1 }` · retained 5 years.
-- `exports { requestedBy, type, params, status, mediaId, expiresAt }` · TTL 7 days.
+- `overdue_snapshots { businessDate, branchId, buckets: {d1_30:{count,amountPoisha}, d31_60, d61_90, d90p}, totalOverdue: {count,amountPoisha}, badSuggested, tagged, takenAt }` · unique `{ businessDate:1, branchId:1 }` · retained 5 years. Written by `reports.overdue-snapshot` at 23:50 Dhaka; cached ERP values, never an official balance.
+- `exports { requestedBy, type, format, params, locale, status: 'queued'|'running'|'ready'|'failed', storageKey, rows, error, createdAt, finishedAt, expiresAt }` · `{ status:1, createdAt:1 }`, TTL on `expiresAt` (7 days). The file is stored under `exports/<id>/…` in the private bucket.
+- `daily_metrics` is **not created** (ADR-028): staff performance is aggregated from the source collections at request time. The planned shape, if volumes later need it: `{ businessDate, branchId, userId, visits, uniqueCustomers, collectionsCount, collectedPoisha: {…}, promisesDue, promisesKept, present, lateMin, breakMin, dutyMin, fieldMin, distanceKm }` · `{ businessDate:1, branchId:1, userId:1 } unique`.
 
 ## 8. Migrations
 - Tool: `migrate-mongo`-style runner in `core/db/migrations` with changelog collection `migrations_changelog { id, module, appliedAt, checksum }`.
