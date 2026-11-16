@@ -240,3 +240,23 @@ export async function dayCounts(user: AuthUser, branchId: string | undefined, da
   ]);
   return { dueToday, keptToday, brokenYesterday };
 }
+
+/**
+ * Promises that fell due in the period, per owner (FR-PRM-004). `kept` counts fully kept promises only;
+ * still-open ones are in `due` but not yet in `decided`, so the rate is not dragged down by today.
+ */
+export async function statsByOwner(user: AuthUser, branchId: string | undefined, from: string, to: string) {
+  const rows = await PromiseModel.aggregate<{ _id: { o: string; s: string }; n: number }>([
+    { $match: { ...scopeFilter(user), ...(branchId ? branchQuery(user, branchId) : {}), promisedDate: { $gte: from, $lte: to }, status: { $in: ['open', 'kept', 'partially_kept', 'broken'] } } },
+    { $group: { _id: { o: '$ownerId', s: '$status' }, n: { $sum: 1 } } },
+  ]);
+  const out = new Map<string, { due: number; kept: number; decided: number }>();
+  for (const r of rows) {
+    const d = out.get(r._id.o) ?? { due: 0, kept: 0, decided: 0 };
+    d.due += r.n;
+    if (r._id.s === 'kept') d.kept += r.n;
+    if (r._id.s !== 'open') d.decided += r.n;
+    out.set(r._id.o, d);
+  }
+  return out;
+}

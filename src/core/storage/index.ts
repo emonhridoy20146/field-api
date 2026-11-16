@@ -8,6 +8,8 @@ export interface ObjectStorage {
   presignPut(key: string, contentType: string, sizeBytes: number, sha256Base64: string): Promise<{ url: string; headers: Record<string, string> }>;
   presignGet(key: string): Promise<string>;
   exists(key: string): Promise<boolean>;
+  /** Server-side write (generated exports). Client uploads always go through presignPut. */
+  put(key: string, body: Uint8Array, contentType: string): Promise<void>;
 }
 export const URL_TTL_SEC = 300;
 
@@ -31,6 +33,9 @@ export class S3Storage implements ObjectStorage {
   async presignGet(key: string) {
     return getSignedUrl(this.s3, new GetObjectCommand({ Bucket: this.bucket, Key: key }), { expiresIn: URL_TTL_SEC });
   }
+  async put(key: string, body: Uint8Array, contentType: string) {
+    await this.s3.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType }));
+  }
   async exists(key: string) {
     try {
       await this.s3.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
@@ -44,6 +49,11 @@ export class S3Storage implements ObjectStorage {
 /** Dev/test storage: signed fake URLs, objects "exist" once markUploaded() is called. Never used in production. */
 export class MemoryStorage implements ObjectStorage {
   readonly uploaded = new Set<string>();
+  readonly objects = new Map<string, { body: Uint8Array; contentType: string }>();
+  async put(key: string, body: Uint8Array, contentType: string) {
+    this.objects.set(key, { body, contentType });
+    this.uploaded.add(key);
+  }
   async presignPut(key: string, contentType: string) {
     return { url: `memory://upload/${encodeURIComponent(key)}?sig=${createHmac('sha256', 'dev').update(key).digest('hex').slice(0, 16)}`, headers: { 'Content-Type': contentType } };
   }

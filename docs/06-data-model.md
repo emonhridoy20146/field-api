@@ -191,9 +191,9 @@ Written by the nightly `location.summarize` job (re-runnable; replaces the day).
 
 ## 7. Reports
 
-- `daily_metrics { businessDate, branchId, userId, visits, uniqueCustomers, collectionsCount, collectedPoisha: {cash, bkash, nagad, rocket, bank_transfer, other_mobile}, promisesDue, promisesKept, present, lateMin, breakMin, dutyMin, fieldMin, distanceKm }` · `{ businessDate:1, branchId:1, userId:1 } unique` — computed nightly 01:00 Dhaka and incrementally during the day (every 15 min for "today").
-- `overdue_snapshots { businessDate, branchId, buckets: {d1_30:{count,amountPoisha}, d31_60, d61_90, d90p}, totalOverdue, badSuggested, tagged }` · unique `{ businessDate:1, branchId:1 }` · retained 5 years.
-- `exports { requestedBy, type, params, status, mediaId, expiresAt }` · TTL 7 days.
+- `overdue_snapshots { businessDate, branchId, buckets: {d1_30:{count,amountPoisha}, d31_60, d61_90, d90p}, totalOverdue: {count,amountPoisha}, badSuggested, tagged, takenAt }` · unique `{ businessDate:1, branchId:1 }` · retained 5 years. Written by `reports.overdue-snapshot` at 23:50 Dhaka; cached ERP values, never an official balance.
+- `exports { requestedBy, type, format, params, locale, status: 'queued'|'running'|'ready'|'failed', storageKey, rows, error, createdAt, finishedAt, expiresAt }` · `{ status:1, createdAt:1 }`, TTL on `expiresAt` (7 days). The file is stored under `exports/<id>/…` in the private bucket.
+- `daily_metrics` is **not created** (ADR-028): staff performance is aggregated from the source collections at request time. The planned shape, if volumes later need it: `{ businessDate, branchId, userId, visits, uniqueCustomers, collectionsCount, collectedPoisha: {…}, promisesDue, promisesKept, present, lateMin, breakMin, dutyMin, fieldMin, distanceKm }` · `{ businessDate:1, branchId:1, userId:1 } unique`.
 
 ## 8. Migrations
 - Tool: `migrate-mongo`-style runner in `core/db/migrations` with changelog collection `migrations_changelog { id, module, appliedAt, checksum }`.

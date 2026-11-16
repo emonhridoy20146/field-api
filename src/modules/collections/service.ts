@@ -589,3 +589,58 @@ export async function searchReceipts(user: AuthUser, term: string, limit = 5) {
   const rows = (await CollectionModel.find({ ...scopeFilter(user), $or: [{ receiptNo: rx }, { erpReceiptNo: rx }] }).sort({ _id: -1 }).limit(limit).lean()) as Lean[];
   return rows.map((c) => ({ type: 'receipt', id: c._id.toHexString(), title: c.receiptNo as string, subtitle: `${formatBdt(c.amountPoisha)} · ${c.businessDate} · ${c.status}` }));
 }
+
+/** Per-collector totals for reports (FR-REP-001): counted statuses only, amounts split by method. */
+export async function collectedByUser(user: AuthUser, branchId: string | undefined, from: string, to: string) {
+  const rows = await CollectionModel.aggregate<{ _id: { u: string; m: string }; s: number; n: number }>([
+    { $match: { ...scopeFilter(user), ...(branchId ? branchQuery(user, branchId) : {}), businessDate: { $gte: from, $lte: to }, status: { $in: CASH_COUNTED_STATUSES } } },
+    { $group: { _id: { u: '$collectorId', m: '$method' }, s: { $sum: '$amountPoisha' }, n: { $sum: 1 } } },
+  ]);
+  const out = new Map<string, { count: number; byMethod: Record<string, number> }>();
+  for (const r of rows) {
+    const d = out.get(r._id.u) ?? { count: 0, byMethod: {} };
+    d.count += r.n;
+    d.byMethod[r._id.m] = (d.byMethod[r._id.m] ?? 0) + r.s;
+    out.set(r._id.u, d);
+  }
+  return out;
+}
+
+export interface CollectionReportRow {
+  id: string;
+  receiptNo: string;
+  businessDate: string;
+  recordedAt: Date;
+  branchId: string;
+  customerId: string;
+  collectorId: string;
+  amountPoisha: number;
+  method: string;
+  status: string;
+  erpKey: string;
+  erpPaymentId: string | null;
+  erpReceiptNo: string | null;
+}
+
+/** Every collection of the period in scope, oldest first (exports and the reconciliation report). */
+export async function collectionRows(user: AuthUser, branchId: string | undefined, from: string, to: string, limit = 50_000): Promise<CollectionReportRow[]> {
+  const rows = (await CollectionModel.find({ ...scopeFilter(user), ...(branchId ? branchQuery(user, branchId) : {}), businessDate: { $gte: from, $lte: to } })
+    .sort({ recordedAt: 1 })
+    .limit(limit)
+    .lean()) as Lean[];
+  return rows.map((c) => ({
+    id: c._id.toHexString(),
+    receiptNo: c.receiptNo,
+    businessDate: c.businessDate,
+    recordedAt: c.recordedAt,
+    branchId: c.branchId,
+    customerId: c.customerId,
+    collectorId: c.collectorId,
+    amountPoisha: c.amountPoisha,
+    method: c.method,
+    status: c.status,
+    erpKey: c.erp?.key ?? c.idempotencyKey,
+    erpPaymentId: c.erp?.paymentId ?? null,
+    erpReceiptNo: c.erp?.receiptNo ?? null,
+  }));
+}

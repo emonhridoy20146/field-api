@@ -179,3 +179,12 @@ export async function visitsByDay(user: AuthUser, branchId: string | undefined, 
   ]);
   return new Map(rows.map((r) => [r._id, { count: r.n, uniqueCustomers: r.c.length }]));
 }
+
+/** Per-staff visit counts for reports (FR-REP-001). */
+export async function visitsByUser(user: AuthUser, branchId: string | undefined, from: string, to: string) {
+  const rows = await VisitModel.aggregate<{ _id: string; n: number; c: string[] }>([
+    { $match: { ...scopeFilter(user), ...(branchId ? branchQuery(user, branchId) : {}), checkInAt: { $gte: new Date(`${from}T00:00:00+06:00`), $lte: new Date(`${to}T23:59:59.999+06:00`) } } },
+    { $group: { _id: '$userId', n: { $sum: 1 }, c: { $addToSet: '$customerId' } } },
+  ]);
+  return new Map(rows.map((r) => [r._id, { count: r.n, uniqueCustomers: r.c.length }]));
+}

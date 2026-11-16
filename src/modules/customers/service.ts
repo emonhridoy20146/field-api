@@ -959,3 +959,68 @@ export async function nearestCustomer(branchId: string, at: LatLng, radiusM: num
   }
   return best;
 }
+
+/** FR-REP-002 aging of overdue customers from cached ERP values (never an official balance; see `erpFetchedAt`). */
+export async function overdueAging(filter: Record<string, unknown>) {
+  const rows = await CustomerModel.aggregate<{ _id: string; count: number; amountPoisha: number }>([
+    { $match: { ...filter, 'derived.overdue': true } },
+    { $group: { _id: { $switch: { branches: [{ case: { $lte: ['$derived.daysOverdue', 30] }, then: 'd1_30' }, { case: { $lte: ['$derived.daysOverdue', 60] }, then: 'd31_60' }, { case: { $lte: ['$derived.daysOverdue', 90] }, then: 'd61_90' }], default: 'd90p' } }, count: { $sum: 1 }, amountPoisha: { $sum: '$derived.overdueAmountPoisha' } } },
+  ]);
+  const buckets = { d1_30: { count: 0, amountPoisha: 0 }, d31_60: { count: 0, amountPoisha: 0 }, d61_90: { count: 0, amountPoisha: 0 }, d90p: { count: 0, amountPoisha: 0 } };
+  for (const r of rows) buckets[r._id as keyof typeof buckets] = { count: r.count, amountPoisha: r.amountPoisha };
+  return buckets;
+}
+
+export interface OverdueRow {
+  id: string;
+  code: string;
+  name: { bn: string; en: string };
+  branchId: string;
+  assigneeId: string | null;
+  daysOverdue: number;
+  overdueAmountPoisha: number;
+  nextDueDate: string | null;
+  tag: string;
+  erpFetchedAt: Date;
+}
+
+/** Overdue customers, most days overdue first (export). */
+export async function overdueRows(filter: Record<string, unknown>, limit = 50_000): Promise<OverdueRow[]> {
+  const rows = (await CustomerModel.find({ ...filter, 'derived.overdue': true }).sort({ 'derived.daysOverdue': -1 }).limit(limit).select({ code: 1, name: 1, branchId: 1, fos: 1, derived: 1, erpFetchedAt: 1 }).lean()) as Doc[];
+  return rows.map((c) => ({
+    id: c._id.toHexString(),
+    code: c.code,
+    name: c.name,
+    branchId: c.branchId,
+    assigneeId: c.fos?.assigneeId ?? null,
+    daysOverdue: c.derived.daysOverdue,
+    overdueAmountPoisha: c.derived.overdueAmountPoisha,
+    nextDueDate: c.derived.nextDueDate ?? null,
+    tag: c.fos?.tag?.state ?? 'none',
+    erpFetchedAt: c.erpFetchedAt,
+  }));
+}
+
+export interface ErpFieldPayment {
+  customerId: string;
+  code: string;
+  erpPaymentId: string;
+  idempotencyKey: string | null;
+  receiptNo: string | null;
+  amountPoisha: number;
+  reversed: boolean;
+  erpFetchedAt: Date;
+}
+
+/**
+ * Field payments the ERP reported for one date, read from the cached recent payments (FR-COL-014).
+ * Only as fresh as each customer's `erpFetchedAt`; the report shows that age next to the figures.
+ */
+export async function erpFieldPayments(filter: Record<string, unknown>, date: string): Promise<ErpFieldPayment[]> {
+  const rows = (await CustomerModel.find({ ...filter, recentPayments: { $elemMatch: { source: 'field', date } } }).select({ code: 1, recentPayments: 1, erpFetchedAt: 1 }).lean()) as Doc[];
+  const out: ErpFieldPayment[] = [];
+  for (const c of rows)
+    for (const p of (c.recentPayments ?? []) as LooseObject[])
+      if (p.source === 'field' && p.date === date) out.push({ customerId: c._id.toHexString(), code: c.code, erpPaymentId: p.erpPaymentId, idempotencyKey: p.idempotencyKey ?? null, receiptNo: p.receiptNo ?? null, amountPoisha: p.amountPoisha, reversed: !!p.reversed, erpFetchedAt: c.erpFetchedAt });
+  return out;
+}

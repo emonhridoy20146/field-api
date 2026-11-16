@@ -1,2 +1,2 @@
-/** The location module has no public API yet: reports will read daily summaries through functions added here. */
-export {};
+/** Public API of the location module. */
+export { fieldStatsByUser } from './service.js';

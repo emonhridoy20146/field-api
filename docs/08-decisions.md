@@ -123,6 +123,9 @@ Free plugin by default; `location.trackingProvider = paid` switches the app to t
 ### ADR-027 Sync mutations are declared by the owning module · accepted (2026-11-15)
 `POST /sync/push` does not import business modules. Each module lists its offline mutation kinds in `syncMutations` in its manifest (entity, permission, `apply`), validating with the same zod schema as its REST route. The sync module checks the module flag and the permission, wraps every item in the idempotency store keyed by `(userId, mutationId)`, and reports per-item results. Reason: keeps module boundaries (CLAUDE.md §2.5) and makes a new offline entity a one-file change. Bootstrap snapshots only entities that declare `snapshot` (customers, whose detail already carries open promise and pending collections); everything else arrives through pull.
 
+### ADR-028 Reports aggregate at request time; only overdue history is stored · accepted (2026-11-16)
+Staff performance, collection trends and reconciliation are computed from the source collections (indexed by business date) when asked, so a report always equals a raw query over the same period and there is no second copy to drift. The one thing that cannot be recomputed later is yesterday's overdue picture, so `overdue_snapshots` is written nightly per branch. `daily_metrics` (06-data-model §7) is deferred until a measured report is too slow; adding it later changes no API. Exports are built by a worker job with the requester's *current* scope, in CSV and a small owned XLSX writer (one flat sheet does not justify a spreadsheet dependency).
+
 ## 2. Rejected or deferred scope ideas
 | Idea | Decision | Reason |
 |---|---|---|
@@ -160,6 +163,7 @@ Free plugin by default; `location.trackingProvider = paid` switches the app to t
 | OD-22 | Domains | `api.<domain>`, `admin.<domain>` same parent domain (needed for SameSite cookie) | Deploy |
 | OD-23 | Daily targets per staff (FR-COL-015) | Proposed; set by BM monthly | Reports |
 | OD-24 | Photo required for collections above an amount | Off (0) | Setting |
+| OD-26 | How Bangla PDF exports are rendered (conjuncts need a shaping engine) | Not built; `format: pdf` answers 422. Default proposal: admin-web prints the report page (the browser shapes Bangla correctly); alternative: a headless-Chromium worker | reports/exports.ts |
 | OD-25 | Bad-suggestion tolerance for tiny leftovers (e.g. 1 poisha after a plan ends) | No tolerance (rule as written) | Domain rule in customers/domain/status.ts |
 
 No question blocks the design: every item above has a working default and is isolated in a setting, a flag or a provider config.

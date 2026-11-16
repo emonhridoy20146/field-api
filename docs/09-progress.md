@@ -63,10 +63,10 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 ## Phase 3 — Reports (≈ 3 weeks)
 | Item | FRs | Status |
 |---|---|---|
-| daily_metrics + overdue_snapshots jobs | FR-REP-001/002 | ☐ |
-| Staff performance (daily/monthly), branch trends, promise fulfilment | FR-REP-001/002, FR-PRM-004 | ☐ |
-| Exports CSV/XLSX/PDF (Bangla) | FR-REP-003/004 | ☐ |
-| Reconciliation report, data-quality report, targets, leaderboard | FR-COL-014/015, FR-CUS-009, FR-REP-005 | ☐ |
+| daily_metrics + overdue_snapshots jobs | FR-REP-001/002 | ◐ overdue snapshots ✅; daily_metrics not needed yet (ADR-028, reports aggregate live) |
+| Staff performance (daily/monthly), branch trends, promise fulfilment | FR-REP-001/002, FR-PRM-004 | ✅ |
+| Exports CSV/XLSX/PDF (Bangla) | FR-REP-003/004 | ◐ CSV + XLSX ✅ (async, 7 days, signed link, audited, bn/en headers); PDF waits for OD-26; `audit` dataset not built |
+| Reconciliation report, data-quality report, targets, leaderboard | FR-COL-014/015, FR-CUS-009, FR-REP-005 | ◐ reconciliation ✅; data-quality, targets, leaderboard are still `proposed` |
 
 **Acceptance:** report numbers equal raw-query numbers for a sampled month; Bangla PDF renders conjuncts correctly; export of 10k rows < 60 s.
 

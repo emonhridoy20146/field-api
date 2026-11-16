@@ -278,3 +278,28 @@ export async function watchdog(): Promise<number> {
   }
   return n;
 }
+
+/**
+ * Distance and time in the field per staff member (FR-LOC-012, FR-REP-001). Closed days come from the
+ * stored summaries; today has none yet, so it is analysed live.
+ */
+export async function fieldStatsByUser(userIds: string[], from: string, to: string) {
+  const out = new Map<string, { distanceKm: number; fieldMin: number }>();
+  const add = (id: string, km: number, min: number) => {
+    const d = out.get(id) ?? { distanceKm: 0, fieldMin: 0 };
+    d.distanceKm = Math.round((d.distanceKm + km) * 100) / 100;
+    d.fieldMin += min;
+    out.set(id, d);
+  };
+  const t = today();
+  const rows = (await DailySummaryModel.find({ userId: { $in: userIds }, businessDate: { $gte: from, $lte: to, $ne: t } }).lean()) as LeanDoc[];
+  for (const r of rows) add(r.userId, r.distanceKm, r.movingMin + r.stoppedMin);
+  if (from <= t && t <= to)
+    for (const id of userIds) {
+      const u = await getUser(id);
+      if (!u) continue;
+      const a = await analyse(u, t);
+      if (a.track.length) add(id, a.summary.distanceKm, a.summary.movingMin + a.summary.stoppedMin);
+    }
+  return out;
+}
