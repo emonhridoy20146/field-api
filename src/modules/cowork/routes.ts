@@ -10,6 +10,7 @@ export const coworkRoutes = defineRoutes((r) => {
     reply.code(res.statusCode);
     return res.body;
   });
+  r.get('/cowork/colleagues', { access: perm('cowork.use') }, async (req) => s.colleagues(requireUser(req)));
   r.get('/cowork/sessions/mine', { access: perm('cowork.use') }, async (req) => s.mine(requireUser(req)));
   r.post('/cowork/sessions/:id/respond', { access: perm('cowork.use') }, async (req) => s.respond(requireUser(req), idOf(req), parse(s.respondSchema, req.body)));
   r.post('/cowork/sessions/:id/leave', { access: perm('cowork.use') }, async (req) => s.leave(requireUser(req), idOf(req)));

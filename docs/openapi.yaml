@@ -801,6 +801,13 @@ paths:
       responses:
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/CoworkSession' } } } }
         '200': { description: Replay of the same clientId, content: { application/json: { schema: { $ref: '#/components/schemas/CoworkSession' } } } }
+  /cowork/colleagues:
+    get:
+      tags: [cowork]
+      operationId: coworkColleagues
+      description: "Whom the caller may invite: active field staff of the caller's branch, without the caller, ordered by employee code (1.9.0). Online only. Permission cowork.use."
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/CoworkColleague' } } } } }
   /cowork/sessions/mine:
     get:
       tags: [cowork]
@@ -1725,6 +1732,15 @@ components:
       type: object
       description: 'Who else took part in a co-work visit: the session members accepted at checkInAt, without the recorder (1.9.0)'
       properties: { sessionId: { type: string }, participantIds: { type: array, items: { type: string } }, participants: { type: array, description: 'Names, on list rows only', items: { type: object, properties: { id: { type: string }, name: { type: string } } } } }
+    CoworkColleague:
+      type: object
+      required: [id, name, employeeCode, onDutyToday, inSession]
+      properties:
+        id: { type: string }
+        name: { type: string, description: 'Plain display name, like other person names in v1' }
+        employeeCode: { type: string }
+        onDutyToday: { type: boolean, description: 'Worked in and not yet worked out at the time of the call; on a break counts as on duty' }
+        inSession: { type: boolean, description: 'Already an accepted member of another open session today (accepting an invitation would give ALREADY_IN_SESSION)' }
     CoworkMember:
       type: object
       properties: { userId: { type: string }, name: { type: string }, status: { type: string, enum: [invited, accepted, rejected, left] }, invitedBy: { type: string }, invitedAt: { type: string, format: date-time }, respondedAt: { type: [string, 'null'] }, leftAt: { type: [string, 'null'] } }

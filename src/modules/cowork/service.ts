@@ -7,7 +7,8 @@ import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { businessDate, endOfBusinessDay } from '../../core/time/index.js';
 import { branchQuery, type AuthUser } from '../../core/security/types.js';
 import { getSetting } from '../settings/index.js';
-import { getUsers } from '../users/index.js';
+import { getUsers, listStaff } from '../users/index.js';
+import { dutyStateAt, dutyWindows } from '../attendance/index.js';
 import { coWorkVisitCounts } from '../visits/index.js';
 import { occupied, participantsAt, shouldEnd, visitCredit, type Member } from './domain/session.js';
 import { CoworkSessionModel } from './models/cowork.model.js';
@@ -152,6 +153,26 @@ export async function endPastSessions(): Promise<number> {
     await changed(next);
   }
   return rows.length;
+}
+
+/**
+ * Whom the caller may invite: active field staff of their branch, without the caller. `onDutyToday`
+ * (worked in and not out; a break counts) and `inSession` (accepted in another open group today)
+ * let the app grey out people who could not join now.
+ */
+export async function colleagues(user: AuthUser) {
+  const branchId = user.branchIds[0];
+  if (!branchId) return [];
+  const now = ctx().clock.now();
+  const staff = (await listStaff(branchId)).filter((u) => u.id !== user.id);
+  const busy = (await CoworkSessionModel.find({ status: 'open', businessDate: businessDate(now), members: { $elemMatch: { userId: { $in: staff.map((u) => u.id) }, status: 'accepted' } } }).select({ members: 1 }).lean()) as Lean[];
+  const inSession = new Set(busy.flatMap((x) => membersOf(x).filter((m) => m.status === 'accepted').map((m) => m.userId)));
+  const out = [];
+  for (const u of staff) {
+    const onDutyToday = dutyStateAt(await dutyWindows(u.id, now, now), now) !== 'off_duty';
+    out.push({ id: u.id, name: u.name.en || u.name.bn, employeeCode: u.employeeCode, onDutyToday, inSession: inSession.has(u.id) });
+  }
+  return out;
 }
 
 export async function mine(user: AuthUser) {

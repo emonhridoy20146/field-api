@@ -35,6 +35,18 @@ beforeAll(async () => {
 afterAll(async () => t.close());
 
 describe('co-work requests (FR-CW-001)', () => {
+  it('lists whom the caller may invite: own branch field staff, without the caller', async () => {
+    const two = await as(t, '01700000004');
+    expect((await two.post('/attendance/events', { clientId: randomUUID(), type: 'work_in', at: '2026-11-15T03:00:00Z', geo: { lat: 22.7, lng: 90.37, accuracyM: 8 } })).status).toBe(201);
+    const r = await (await as(t, '01700000003')).get('/cowork/colleagues');
+    expect(r.status).toBe(200);
+    expectConforms('GET', '/cowork/colleagues', 200, r.body);
+    expect(r.body.map((c: { employeeCode: string }) => c.employeeCode)).toEqual(['FS015', 'FS016']);
+    expect(r.body[0]).toEqual({ id: s.fs2.id, name: 'Sumon Mia', employeeCode: 'FS015', onDutyToday: true, inSession: false });
+    expect(r.body[1].onDutyToday).toBe(false);
+    expect((await (await as(t, '01700000002')).get('/cowork/colleagues')).status).toBe(403);
+  });
+
   it('invites colleagues of the same branch, idempotently, and refuses everyone else', async () => {
     const fs1 = await as(t, '01700000003');
     const body = { clientId: randomUUID(), toUserIds: [s.fs2.id, fs3.id], note: 'Market area' };
@@ -111,6 +123,9 @@ describe('co-work requests (FR-CW-001)', () => {
     expect((await (await as(t, '01700000005')).post(`/cowork/sessions/${sessionId}/respond`, { decision: 'accept' })).status).toBe(404);
     expect((await fs2.post('/cowork/sessions/not-an-id/leave')).status).toBe(404);
 
+    const seen = (await three.get('/cowork/colleagues')).body as { id: string; inSession: boolean }[];
+    expect(seen.find((c) => c.id === s.fs2.id)?.inSession).toBe(true);
+    expect(seen.find((c) => c.id === s.fs1.id)?.inSession).toBe(true);
     // fs3 starts a group of their own and invites fs2, who is already working with fs1.
     const second = await three.post('/cowork/requests', { clientId: randomUUID(), toUserIds: [s.fs2.id] });
     expect(second.status).toBe(201);

@@ -57,7 +57,7 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 | `GET /location-proposals` · `POST /location-proposals/{id}/decision` | `customer.location.approve` | FR-CUS-008 |
 | `GET /attendance/events` (raw events of a staff member's day, with photo ids) | `attendance.view` | FR-ATT-001/004 |
 | `GET /location-proposals/mine` (own proposals and their status; also sync entity `location_proposal`) | `customer.location.propose` | FR-CUS-008 |
-| `POST /cowork/requests` · `GET /cowork/sessions/mine` · `POST /cowork/sessions/{id}/respond` · `POST /cowork/sessions/{id}/leave` | `cowork.use` | FR-CW-001/002 |
+| `GET /cowork/colleagues` · `POST /cowork/requests` · `GET /cowork/sessions/mine` · `POST /cowork/sessions/{id}/respond` · `POST /cowork/sessions/{id}/leave` | `cowork.use` | FR-CW-001/002 |
 | `GET /cowork/sessions` · `GET /cowork/sessions/{id}` | `cowork.view` | FR-CW-004 |
 | `PUT /customers/{id}/tag` | `tag.set` | FR-TAG-003 |
 | `GET /customers/{id}/tag-history` | `tag.view` | FR-TAG-006 |
