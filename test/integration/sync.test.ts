@@ -166,3 +166,29 @@ describe('sync health (FR-SYNC-005)', () => {
     expect((await (await as(t, '01700000002')).get('/system/sync-health')).status).toBe(403);
   });
 });
+
+describe('bootstrap of a reinstalled app (FR-SYNC-006)', () => {
+  it("brings today's attendance, today's visits and the caller's open promises, not only customers", async () => {
+    const fs = await as(t, '01700000003');
+    const items: { entity: string; id: string; data: Record<string, unknown> }[] = [];
+    let cursor: string | null = null;
+    do {
+      const url: string = `/sync/bootstrap?limit=2${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+      const r: { status: number; body: { items: typeof items; nextCursor: string | null } } = await fs.get(url);
+      expect(r.status).toBe(200);
+      expectConforms('GET', '/sync/bootstrap', 200, r.body);
+      items.push(...r.body.items);
+      cursor = r.body.nextCursor;
+    } while (cursor);
+    const of = (e: string) => items.filter((i) => i.entity === e);
+    expect(of('attendance_day')).toHaveLength(1);
+    expect(of('attendance_day')[0]!.id).toBe(`${s.fs1.id}:2026-11-15`);
+    expect(of('attendance_day')[0]!.data.firstIn).toBeTruthy();
+    expect(of('visit').map((i) => i.data.clientId)).toContain(visitClientId);
+    expect(of('promise').length).toBeGreaterThan(0);
+    expect(of('promise').every((i) => i.data.status === 'open' && i.data.ownerId === s.fs1.id)).toBe(true);
+    // Another staff member's work never leaks into this snapshot.
+    const other = await (await as(t, '01700000004')).get('/sync/bootstrap?limit=200');
+    expect(other.body.items.filter((i: { entity: string }) => i.entity === 'visit' || i.entity === 'promise')).toEqual([]);
+  });
+});
