@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { as, createTestApp, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
 import { expectConforms } from '../helpers/openapi.js';
 import { autoClose, finalize, isOnDuty } from '../../src/modules/attendance/service.js';
+import { setSystem } from '../../src/modules/settings/index.js';
+import { storage, type MemoryStorage } from '../../src/core/storage/index.js';
 
 let t: TestApp;
 let s: Seeded;
@@ -59,6 +61,73 @@ describe('attendance events (FR-ATT-001..003)', () => {
     const fs2 = await as(t, '01700000004');
     expect((await fs2.post('/attendance/events', shared)).status).toBe(201);
     expect((await fs.post('/attendance/events', shared)).status).toBeGreaterThanOrEqual(400);
+  });
+});
+
+describe('photo at every attendance event (FR-ATT-001, OD-12)', () => {
+  const upload = async (c: Awaited<ReturnType<typeof as>>, n: number) =>
+    (await c.post('/media/upload-url', { kind: 'selfie', contentType: 'image/jpeg', sizeBytes: 40_000 + n, sha256: String(n).padStart(64, 'a'), capturedAt: '2026-11-15T03:59:00Z' })).body.mediaId as string;
+
+  it('all four events expect a photo by default; a missing or foreign photo is flagged, never rejected', async () => {
+    t.clock.set('2026-11-16T04:00:00Z'); // Monday, a fresh day for this block
+    const fsB = await as(t, '01700000005');
+    const cfg = await fsB.get('/sync/pull?cursor=s_0'); // app-facing settings travel with sync
+    expect(cfg.body.settings['attendance.selfieRequired']).toBe(true);
+    expect(cfg.body.settings['attendance.selfieEvents']).toEqual(['work_in', 'break_start', 'break_end', 'work_out']);
+
+    const photo = await upload(fsB, 1);
+    const withPhoto = await fsB.post('/attendance/events', ev('work_in', '2026-11-16T03:00:00Z', { selfieMediaId: photo }));
+    expect(withPhoto.status).toBe(201);
+    expect(withPhoto.body.flags).not.toContain('no_selfie');
+    const noPhoto = await fsB.post('/attendance/events', ev('break_start', '2026-11-16T03:30:00Z'));
+    expect(noPhoto.status).toBe(201); // attendance is never lost over a photo
+    expect(noPhoto.body.status).toBe('on_break');
+    expect(noPhoto.body.flags).toContain('no_selfie');
+    const foreign = await upload(await as(t, '01700000004'), 2); // somebody else's upload
+    const stolen = await fsB.post('/attendance/events', ev('break_end', '2026-11-16T03:40:00Z', { selfieMediaId: foreign }));
+    expect(stolen.status).toBe(201);
+
+    const sa = await as(t, '01700000001');
+    const list = await sa.get(`/attendance/events?userId=${s.fsB.id}&date=2026-11-16`);
+    expect(list.status).toBe(200);
+    expectConforms('GET', '/attendance/events', 200, list.body);
+    expect(list.body.map((e: { type: string; selfieMediaId: string | null; flags: string[] }) => [e.type, e.selfieMediaId, e.flags.includes('no_selfie')])).toEqual([
+      ['work_in', photo, false],
+      ['break_start', null, true],
+      ['break_end', null, true],
+    ]);
+    // Once the upload is confirmed, the manager side can open the photo.
+    (storage() as MemoryStorage).markUploaded(`selfie/${s.fsB.id}/${'1'.padStart(64, 'a')}.jpg`);
+    expect((await fsB.post(`/media/${photo}/confirm`)).status).toBe(200);
+    expect((await sa.get(`/media/${photo}/url`)).status).toBe(200);
+    expect((await (await as(t, '01700000004')).get(`/media/${photo}/url`)).status).toBe(404); // not other staff
+  });
+
+  it('the setting narrows which events need a photo, per branch; the master switch turns it off', async () => {
+    await setSystem('attendance.selfieEvents', ['work_in', 'work_out', 'lunch'], s.branchB); // unknown value ignored
+    const fsB = await as(t, '01700000005');
+    const again = await fsB.post('/attendance/events', ev('break_start', '2026-11-16T03:45:00Z'));
+    expect(again.body.flags.filter((f: string) => f === 'no_selfie')).toHaveLength(1); // only the earlier events
+    const sa = await as(t, '01700000001');
+    const events = (await sa.get(`/attendance/events?userId=${s.fsB.id}&date=2026-11-16`)).body;
+    expect(events[events.length - 1]).toMatchObject({ type: 'break_start', flags: [] });
+    await setSystem('attendance.selfieRequired', false, s.branchB);
+    await fsB.post('/attendance/events', ev('break_end', '2026-11-16T03:50:00Z'));
+    const out = await fsB.post('/attendance/events', ev('work_out', '2026-11-16T03:55:00Z'));
+    expect(out.body.status).toBe('off_duty');
+    const after = (await sa.get(`/attendance/events?userId=${s.fsB.id}&date=2026-11-16`)).body;
+    expect(after.slice(-2).map((e: { flags: string[] }) => e.flags)).toEqual([[], []]);
+  });
+
+  it('events list: scope, validation, permissions', async () => {
+    const bm = await as(t, '01700000002');
+    expect((await bm.get(`/attendance/events?userId=${s.fsB.id}&date=2026-11-16`)).status).toBe(404); // other branch
+    expect((await bm.get(`/attendance/events?userId=${s.fs1.id}&date=16-11-2026`)).status).toBe(400);
+    expect((await bm.get('/attendance/events?date=2026-11-16')).status).toBe(400);
+    expect((await bm.get(`/attendance/events?userId=${s.fs1.id}&date=2026-11-15`)).status).toBe(200);
+    expect((await (await as(t, '01700000003')).get(`/attendance/events?userId=${s.fs1.id}&date=2026-11-15`)).status).toBe(403);
+    expect((await t.app.inject({ method: 'GET', url: `/api/v1/attendance/events?userId=${s.fs1.id}&date=2026-11-15` })).statusCode).toBe(401);
+    t.clock.set('2026-11-15T04:00:00Z');
   });
 });
 

@@ -150,7 +150,7 @@ Staff performance, collection trends and reconciliation are computed from the so
 | OD-09 | Retention: collections/money audit 8 y, other audit 3 y, photos 3 y, notifications 90 d | as stated | Jobs/TTL |
 | OD-10 | One active device per field staff | Yes, manager approves new device | Devices module |
 | OD-11 | Tag approval mode for staff-set tags | OFF (staff tags apply immediately) | Setting |
-| OD-12 | Selfie at work-in | OFF by default, per branch setting | Setting |
+| OD-12 | Photo at attendance events | **Decided by the owner 2026-11-16:** front-camera photo required at work-in, break start, break end and work-out. Settings `attendance.selfieRequired` (default true) and `attendance.selfieEvents` (default all four), per branch | Setting |
 | OD-13 | "Far from pin" radius | 300 m | Setting |
 | OD-14 | Default shift and weekly off | 09:00–18:00, Friday off, late grace 15 min, max break 60 min | Settings |
 | OD-15 | Staff leaderboard visible to staff | OFF | Setting |

@@ -9,12 +9,15 @@ import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { getSetting, isHoliday, resolveShift, type ShiftView } from '../settings/index.js';
 import { getUser, getUsers, listByRole, type UserView } from '../users/index.js';
+import { isUploadedBy } from '../media/index.js';
 import { autoCloseAt, deriveDay, dutyIntervals, dutyStateAt, type DayEvent, type DayKind, type DutyIntervals, type EventType } from './domain/day.js';
 import { AttendanceDayModel, AttendanceEventModel, LeaveModel } from './models/attendance.model.js';
 import { weekday } from '../../core/time/index.js';
 
 type Lean = LeanDoc;
 const today = () => businessDate(ctx().clock.now());
+
+export const SELFIE_EVENT_TYPES = ['work_in', 'break_start', 'break_end', 'work_out'] as const;
 
 export const eventSchema = z.object({
   clientId: z.string().uuid(),
@@ -105,7 +108,9 @@ export async function recordEvent(user: AuthUser, input: z.infer<typeof eventSch
   if (input.deviceTime && Math.abs(new Date(input.deviceTime).getTime() - at.getTime()) > 5 * 60_000) flags.push('clock_skew');
   if (at.getTime() - now.getTime() > 5 * 60_000) flags.push('clock_skew');
   if (now.getTime() - at.getTime() > 12 * 3_600_000) flags.push('late_sync');
-  if (input.type === 'work_in' && !input.selfieMediaId && (await getSetting<boolean>('attendance.selfieRequired', u.branchIds[0] ?? null))) flags.push('no_selfie');
+  // Only a photo this user uploaded counts; an id that is not theirs is treated as no photo at all.
+  const selfieMediaId = input.selfieMediaId && (await isUploadedBy(input.selfieMediaId, user.id)) ? input.selfieMediaId : null;
+  if (!selfieMediaId && (await photoEvents(u.branchIds[0] ?? null)).has(input.type)) flags.push('no_selfie');
   try {
     await AttendanceEventModel.create({
       clientId: input.clientId,
@@ -118,7 +123,7 @@ export async function recordEvent(user: AuthUser, input: z.infer<typeof eventSch
       receivedAt: now,
       geo: input.geo ? { lat: input.geo.lat, lng: input.geo.lng, accuracyM: input.geo.accuracyM, mock: input.geo.mock } : null,
       geoUnavailableReason: input.geo ? null : (input.geoUnavailableReason ?? 'no_fix'),
-      selfieMediaId: input.selfieMediaId ?? null,
+      selfieMediaId,
       flags: [...new Set(flags)],
     });
   } catch (e) {
@@ -129,6 +134,33 @@ export async function recordEvent(user: AuthUser, input: z.infer<typeof eventSch
   await recordChange({ entity: 'attendance_day', entityId: `${user.id}:${date}`, userIds: [user.id], branchId: u.branchIds[0] ?? null });
   await ctx().bus.emit('attendance.event', { userId: user.id, branchId: u.branchIds[0] ?? null, businessDate: date, type: input.type, at, status: day.status, flags: day.flags });
   return { statusCode: 201 as const, body: day };
+}
+
+/** Event types that need a photo in this branch (FR-ATT-001). Unknown values in the setting are ignored. */
+export async function photoEvents(branchId: string | null): Promise<Set<string>> {
+  if (!(await getSetting<boolean>('attendance.selfieRequired', branchId))) return new Set();
+  const v = await getSetting<unknown>('attendance.selfieEvents', branchId);
+  return new Set((Array.isArray(v) ? v : SELFIE_EVENT_TYPES).filter((t): t is string => (SELFIE_EVENT_TYPES as readonly unknown[]).includes(t)));
+}
+
+/**
+ * One staff member's raw events of a day for managers (photo, place and flags per event). Corrected
+ * events stay in the list, marked `replaced`, so the original is always visible.
+ */
+export async function eventsOfDay(user: AuthUser, q: { userId: string; date: string }) {
+  if (!isIsoDate(q.date)) throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'date', message: 'YYYY-MM-DD' }] });
+  if (!(await staffInScope(user, undefined, q.userId)).length) throw notFound('user');
+  const rows = (await AttendanceEventModel.find({ userId: q.userId, businessDate: q.date }).sort({ at: 1 }).lean()) as Lean[];
+  return rows.map((e) => ({
+    id: e._id.toHexString(),
+    type: e.type as string,
+    at: (e.at as Date).toISOString(),
+    geo: e.geo ? { lat: e.geo.lat, lng: e.geo.lng, accuracyM: e.geo.accuracyM, mock: !!e.geo.mock } : null,
+    selfieMediaId: (e.selfieMediaId ?? null) as string | null,
+    flags: (e.flags ?? []) as string[],
+    source: (e.source ?? 'app') as string,
+    replaced: !!e.replacedBy,
+  }));
 }
 
 export async function myToday(user: AuthUser) {
