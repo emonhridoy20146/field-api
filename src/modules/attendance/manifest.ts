@@ -10,7 +10,7 @@ export const manifest: ModuleManifest = {
   version: '1.0.0',
   description: 'Work-in/out, breaks, derived days, corrections, auto-close and leave (FR-ATT-001..008)',
   featureFlag: { key: 'module.attendance', default: false, description: 'Attendance', owner: 'field-api' },
-  dependsOn: ['audit', 'settings', 'users'],
+  dependsOn: ['audit', 'settings', 'users', 'media'],
   permissions: [
     { key: 'attendance.record', description: { en: 'Own work-in/out and breaks', bn: 'নিজের হাজিরা' }, defaults: { field_staff: true } },
     { key: 'attendance.view', description: { en: 'View attendance of others in scope', bn: 'হাজিরা দেখা' }, defaults: { super_admin: true, branch_manager: true, viewer: true } },
@@ -19,7 +19,10 @@ export const manifest: ModuleManifest = {
   ],
   routes: attendanceRoutes,
   events: { emits: ['attendance.event', 'attendance.corrected', 'attendance.auto_closed', 'attendance.absent', 'leave.requested', 'leave.decided'], consumes: [] },
-  settings: [{ key: 'attendance.selfieRequired', type: 'bool', default: false, branchOverridable: true, exposeToApp: true, description: 'FR-ATT-001 require a selfie at work-in (missing selfie is flagged, not rejected)' }],
+  settings: [
+    { key: 'attendance.selfieRequired', type: 'bool', default: true, branchOverridable: true, exposeToApp: true, description: 'FR-ATT-001 master switch: a front-camera photo is required at the events listed in attendance.selfieEvents (a missing photo is flagged, not rejected)' },
+    { key: 'attendance.selfieEvents', type: 'json', default: [...s.SELFIE_EVENT_TYPES], branchOverridable: true, exposeToApp: true, description: 'FR-ATT-001 which attendance events need a photo: any of work_in, break_start, break_end, work_out' },
+  ],
   jobs: [
     { name: 'attendance.auto-close', schedule: '*/15 * * * *', handler: async () => void (await s.autoClose()) },
     { name: 'attendance.finalize', schedule: '15 0 * * *', handler: async () => void (await s.finalize()) },

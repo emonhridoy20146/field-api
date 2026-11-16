@@ -12,6 +12,7 @@ export const attendanceRoutes = defineRoutes((r) => {
     reply.code(res.statusCode);
     return res.body;
   });
+  r.get('/attendance/events', { access: perm('attendance.view') }, async (req) => s.eventsOfDay(requireUser(req), parse(z.object({ userId: z.string().max(64), date }), req.query)));
   r.get('/attendance/me/today', { access: perm('attendance.record') }, async (req) => s.myToday(requireUser(req)));
   r.get('/attendance/days', { access: perm('attendance.view') }, async (req) =>
     s.days(requireUser(req), parse(z.object({ branchId, userId: z.string().max(64).optional(), from: date, to: date }), req.query)),
