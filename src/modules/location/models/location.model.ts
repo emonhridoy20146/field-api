@@ -79,6 +79,7 @@ const stopSchema = new Schema(
     customerId: { type: String, default: null },
     customerName: { type: String, default: null },
     distanceToPinM: { type: Number, default: null },
+    visitId: { type: String, default: null },
     pointsCount: { type: Number, default: 0 },
   },
   { collection: 'location_stops', versionKey: false },

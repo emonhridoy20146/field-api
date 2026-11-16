@@ -644,3 +644,27 @@ export async function collectionRows(user: AuthUser, branchId: string | undefine
     erpReceiptNo: c.erp?.receiptNo ?? null,
   }));
 }
+
+/** One collector's counted collections of a business date, oldest first (route-history overlay). */
+export async function collectionsOfUserDay(userId: string, date: string) {
+  const rows = (await CollectionModel.find({ collectorId: userId, businessDate: date, status: { $in: CASH_COUNTED_STATUSES } }).sort({ recordedAt: 1 }).lean()) as Lean[];
+  return rows.map((c) => ({
+    id: c._id.toHexString() as string,
+    customerId: c.customerId as string,
+    recordedAt: c.recordedAt as Date,
+    amountPoisha: c.amountPoisha as number,
+    method: c.method as string,
+    receiptNo: c.receiptNo as string,
+    lat: (c.geo?.point?.coordinates?.[1] ?? null) as number | null,
+    lng: (c.geo?.point?.coordinates?.[0] ?? null) as number | null,
+  }));
+}
+
+/** Total collected on a business date per collector (live-map marker). FOS activity, not a balance. */
+export async function collectedOfDay(userIds: string[], date: string): Promise<Map<string, number>> {
+  const rows = await CollectionModel.aggregate<{ _id: string; s: number }>([
+    { $match: { collectorId: { $in: userIds }, businessDate: date, status: { $in: CASH_COUNTED_STATUSES } } },
+    { $group: { _id: '$collectorId', s: { $sum: '$amountPoisha' } } },
+  ]);
+  return new Map(rows.map((r) => [r._id, r.s]));
+}

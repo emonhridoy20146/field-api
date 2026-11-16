@@ -1,15 +1,16 @@
 import { z } from 'zod';
 import { DateTime } from 'luxon';
 import { ctx } from '../../core/context/index.js';
-import { AppError, businessRule, notFound } from '../../core/errors/index.js';
+import { AppError, businessRule, forbidden, notFound } from '../../core/errors/index.js';
 import { isOid, withTransaction, type LeanDoc } from '../../core/db/index.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import { storage } from '../../core/storage/index.js';
-import { BUSINESS_TZ, businessDate } from '../../core/time/index.js';
+import { BUSINESS_TZ, businessDate, endOfBusinessDay, startOfBusinessDay } from '../../core/time/index.js';
 import { poishaToDecimal } from '../../core/money/index.js';
 import { branchQuery, type AuthUser } from '../../core/security/types.js';
 import * as audit from '../audit/index.js';
 import { getUsers, loadAuthUser } from '../users/index.js';
+import { can } from '../rbac/index.js';
 import { getBranches } from '../branches/index.js';
 import { getCustomerRefs, overdueRows, scopeFilter as customerScope } from '../customers/index.js';
 import { collectionRows } from '../collections/index.js';
@@ -58,7 +59,7 @@ function checkRange(p: { from: string; to: string }, maxDays: number) {
 }
 
 /** Each dataset validates its own params (also at request time, so a bad request never becomes a failed job). */
-const DATASETS: Partial<Record<ExportType, { check(user: AuthUser, params: unknown): void; build(user: AuthUser, params: unknown, l: L): Promise<Table> }>> = {
+const DATASETS: Record<ExportType, { permission?: string; check(user: AuthUser, params: unknown): void; build(user: AuthUser, params: unknown, l: L): Promise<Table> }> = {
   staff_performance: {
     check(user, params) {
       const p = parseParams(performanceQuery, params);
@@ -137,16 +138,34 @@ const DATASETS: Partial<Record<ExportType, { check(user: AuthUser, params: unkno
       };
     },
   },
+  audit: {
+    // The log itself needs its own permission on top of report.export.
+    permission: 'audit.view',
+    check(user, params) {
+      const p = parseParams(rangeParams, params);
+      checkRange(p, 31);
+      branchInScope(user, p.branchId);
+    },
+    async build(user, params, l) {
+      const p = parseParams(rangeParams, params);
+      const rows = await audit.auditReportRows(user, { branchId: branchInScope(user, p.branchId), from: startOfBusinessDay(p.from), to: endOfBusinessDay(p.to) }, MAX_ROWS);
+      const branches = await getBranches([...new Set(rows.map((r) => r.branchId).filter(Boolean))]);
+      return {
+        header: h(l, [['সময়', 'Time'], ['কে', 'Actor'], ['ভূমিকা', 'Role'], ['কাজ', 'Action'], ['বিষয়', 'Entity'], ['বিষয় আইডি', 'Entity id'], ['শাখা', 'Branch'], ['কারণ', 'Reason'], ['অনুরোধ আইডি', 'Request id']]),
+        rows: rows.map((r) => [dhaka(r.at, 'yyyy-MM-dd HH:mm:ss'), r.actorName, r.actorRole, r.action, r.entity, r.entityId, branches.get(r.branchId)?.code ?? '', r.reason, r.requestId]),
+      };
+    },
+  },
 };
 
 const MIME = { csv: 'text/csv; charset=utf-8', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } as const;
 
 /** FR-REP-004: queue an export. The request is audited in the same transaction that stores it. */
 export async function createExport(user: AuthUser, input: z.infer<typeof exportSchema>, meta: RequestMeta) {
-  // PDF needs a Bangla shaping engine (OD-26); the audit dataset waits for its own review of what may leave the system.
+  // PDF needs a Bangla shaping engine (OD-26).
   if (input.format === 'pdf') throw businessRule('export_format_unavailable', { format: 'pdf' });
   const ds = DATASETS[input.type];
-  if (!ds) throw businessRule('export_type_unavailable', { type: input.type });
+  if (ds.permission && !(await can(user, ds.permission))) throw forbidden(ds.permission);
   ds.check(user, input.params);
   const at = now();
   const id = await withTransaction(async (session) => {
@@ -179,6 +198,7 @@ export async function processExports(max = 5): Promise<number> {
       const user = await loadAuthUser(e.requestedBy, 'export', 'web', null);
       const ds = DATASETS[e.type as ExportType];
       if (!user || !ds) throw new Error('requester or dataset no longer available');
+      if (ds.permission && !(await can(user, ds.permission))) throw new Error('requester no longer has the permission for this dataset');
       const l: L = e.locale === 'en' ? 'en' : 'bn';
       const table = await ds.build(user, e.params ?? {}, l); // an empty params object is not stored
       const format = e.format as keyof typeof MIME;

@@ -171,7 +171,7 @@ Secondary index: `{ 'meta.userId': 1, recordedAt: 1 }`.
 `{ userId, at, battery, charging, gpsEnabled, permission: 'always'|'while_in_use'|'denied', bgRestricted, appVersion, pendingPoints, pendingMutations, trackingProvider, trackingProviderFallback }` · `{ userId:1, at:-1 }`, TTL 30 days on `at`.
 
 ### location_stops
-Written by the nightly `location.summarize` job (re-runnable; replaces the day). `{ userId, branchId, businessDate, start, end, dwellMin, lat, lng, customerId?, customerName?, distanceToPinM?, pointsCount }` · `{ userId:1, businessDate:1 }`, TTL 365 days on `end`.
+Written by the nightly `location.summarize` job (re-runnable; replaces the day). `{ userId, branchId, businessDate, start, end, dwellMin, lat, lng, customerId?, customerName?, distanceToPinM?, visitId?, pointsCount }` · `{ userId:1, businessDate:1 }`, TTL 365 days on `end`.
 
 ### location_daily_summaries
 `{ userId, branchId, businessDate, day, distanceKm, movingMin, stoppedMin, stopsCount, customerStops, firstPointAt, lastPointAt, gapsMin, mockPoints }` · `{ userId:1, businessDate:1 } unique` · TTL 730 days on `day`.

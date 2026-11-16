@@ -227,7 +227,7 @@ describe('exports (FR-REP-003/004)', () => {
     const pdf = await bm.post('/reports/exports', { type: 'collections', format: 'pdf', params: { from: '2026-11-01', to: '2026-11-15' } });
     expect(pdf.status).toBe(422);
     expect(pdf.body.details ?? pdf.body).toMatchObject({ rule: 'export_format_unavailable' });
-    expect((await bm.post('/reports/exports', { type: 'audit', format: 'csv' })).status).toBe(422);
+    expect((await bm.post('/reports/exports', { type: 'audit', format: 'csv', params: { from: '2026-11-15', to: '2026-11-15' } })).status).toBe(403); // a manager has no audit.view
     expect((await bm.post('/reports/exports', { type: 'collections', format: 'csv', params: { from: '2026-01-01', to: '2026-11-15' } })).status).toBe(400);
     expect((await bm.post('/reports/exports', { type: 'collections', format: 'csv', params: {} })).status).toBe(400);
     expect((await bm.post('/reports/exports', { type: 'payroll', format: 'csv' })).status).toBe(400);
@@ -236,6 +236,21 @@ describe('exports (FR-REP-003/004)', () => {
     expect((await (await as(t, '01700000006')).post('/reports/exports', { type: 'cash_positions', format: 'csv' })).status).toBe(403); // viewer reads, does not export
     expect(await ExportModel.countDocuments({ status: 'queued' })).toBe(0); // nothing refused was stored
     expect(await processExports()).toBe(0);
+  });
+
+  it('audit log export: needs audit.view, leaves snapshots and IPs out', async () => {
+    const sa = await as(t, '01700000001');
+    expect((await sa.post('/reports/exports', { type: 'audit', format: 'csv', params: { from: '2026-10-01', to: '2026-11-15' } })).status).toBe(400); // over 31 days
+    const r = await sa.post('/reports/exports', { type: 'audit', format: 'csv', params: { from: '2026-11-15', to: '2026-11-15' }, locale: 'en' });
+    expect(r.status).toBe(202);
+    expect(await processExports()).toBe(1);
+    const doc = await ExportModel.findById(r.body.id).lean();
+    expect([doc!.status, doc!.error]).toEqual(['ready', null]);
+    const lines = text(doc!.storageKey!).slice(1).trim().split('\r\n');
+    expect(lines[0]).toBe('Time,Actor,Role,Action,Entity,Entity id,Branch,Reason,Request id');
+    expect(lines.some((l) => l.includes(',report.export.requested,export,'))).toBe(true);
+    expect(lines.some((l) => l.includes(',auth.login') || l.includes('login'))).toBe(true);
+    expect(lines.length - 1).toBe(doc!.rows);
   });
 
   it('an export is gone after 7 days', async () => {

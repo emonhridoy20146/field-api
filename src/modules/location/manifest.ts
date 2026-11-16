@@ -18,7 +18,7 @@ export const manifest: ModuleManifest = {
   version: '1.0.0',
   description: 'Duty-hours location: ingest with filters, heartbeat, latest map, route history, stops, daily summary (FR-LOC-001..012)',
   featureFlag: { key: 'module.location', default: false, description: 'Duty-hours location tracking', owner: 'field-api' },
-  dependsOn: ['settings', 'users', 'attendance', 'customers'],
+  dependsOn: ['settings', 'users', 'rbac', 'attendance', 'customers', 'visits', 'collections'],
   permissions: [
     { key: 'location.view', description: { en: 'Latest location map', bn: 'সর্বশেষ অবস্থানের ম্যাপ' }, defaults: { super_admin: true, branch_manager: true } },
     { key: 'location.history.view', description: { en: 'Route history and stops', bn: 'রুটের ইতিহাস ও বিরতি' }, defaults: { super_admin: true, branch_manager: true } },

@@ -142,3 +142,27 @@ export async function list(user: AuthUser, q: AuditQuery) {
     nextCursor: rows.length > q.limit ? encodeCursor({ seq: page[page.length - 1]!.seq }) : null,
   };
 }
+
+export interface AuditReportRow {
+  at: Date;
+  actorName: string;
+  actorRole: string;
+  action: string;
+  entity: string;
+  entityId: string;
+  branchId: string;
+  reason: string;
+  requestId: string;
+}
+
+/**
+ * Audit entries of a period in the caller's scope, oldest first (export). Before/after snapshots, IPs
+ * and device ids stay out: they can hold personal data and are for the on-screen log only.
+ */
+export async function reportRows(user: AuthUser, q: { branchId?: string | undefined; from: Date; to: Date }, limit: number): Promise<AuditReportRow[]> {
+  const filter: Record<string, unknown> = { at: { $gte: q.from, $lte: q.to } };
+  if (user.role !== 'super_admin') Object.assign(filter, branchQuery(user, q.branchId));
+  else if (q.branchId) filter.branchId = q.branchId;
+  const rows = await AuditLogModel.find(filter).sort({ seq: 1 }).limit(limit).lean();
+  return rows.map((r) => ({ at: r.at, actorName: r.actorName ?? '', actorRole: r.actorRole ?? '', action: r.action, entity: r.entity, entityId: r.entityId ?? '', branchId: r.branchId ?? '', reason: r.reason ?? '', requestId: r.requestId ?? '' }));
+}

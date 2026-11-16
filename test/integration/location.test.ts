@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { as, createTestApp, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
 import { expectConforms } from '../helpers/openapi.js';
 import { deltaSync } from '../../src/modules/erp-gateway/index.js';
-import { getByErpId } from '../../src/modules/customers/index.js';
+import { applyAssignments, getByErpId } from '../../src/modules/customers/index.js';
 import { setSystem } from '../../src/modules/settings/index.js';
 import { summarizeDay, watchdog } from '../../src/modules/location/service.js';
 import { LocationPointModel, StopModel, DailySummaryModel } from '../../src/modules/location/models/location.model.js';
@@ -11,6 +11,7 @@ import { LocationPointModel, StopModel, DailySummaryModel } from '../../src/modu
 let t: TestApp;
 let s: Seeded;
 let customerId = '';
+let visitId = '';
 const FS1 = '01700000003';
 const DEV = `dev-${FS1}`;
 const pin = { lat: 22.7105, lng: 90.3702 }; // customer 100245 in the ERP fixture
@@ -35,6 +36,15 @@ beforeAll(async () => {
   customerId = (await getByErpId('100245'))!.id;
   const fs = await as(t, FS1);
   await fs.post('/attendance/events', att('work_in', at('03:00')));
+  // A visit recorded while standing at the customer's door, and a collection from a second customer.
+  const other = (await getByErpId('100246'))!.id;
+  await applyAssignments([
+    { customerId, assigneeId: s.fs1.id },
+    { customerId: other, assigneeId: s.fs1.id },
+  ]);
+  const v = await fs.post('/visits', { clientId: randomUUID(), customerId, checkInAt: at('03:18'), outcome: 'partial_paid', geo });
+  visitId = v.body.id;
+  await fs.post('/collections', { clientId: randomUUID(), customerId: other, amountPoisha: 150000, method: 'cash', recordedAt: at('03:22'), receiptNo: 'BRL01-FS014-261115-0001', geo }, { 'idempotency-key': randomUUID() });
 });
 afterAll(async () => t.close());
 
@@ -119,7 +129,7 @@ describe('heartbeat and latest map (FR-LOC-006/010)', () => {
     expect(r.status).toBe(200);
     expectConforms('GET', '/location/latest', 200, r.body);
     expect(r.body).toHaveLength(1);
-    expect(r.body[0]).toMatchObject({ userId: s.fs1.id, name: 'Rakib Hasan', freshness: 'stale', onBreak: false, mock: false, battery: 0.64, trackingProvider: 'free', trackingProviderFallback: true });
+    expect(r.body[0]).toMatchObject({ userId: s.fs1.id, name: 'Rakib Hasan', freshness: 'stale', onBreak: false, mock: false, battery: 0.64, trackingProvider: 'free', trackingProviderFallback: true, todayVisits: 1, todayCollectedPoisha: 150000 });
     expect(r.body[0].recordedAt).toBe('2026-11-15T03:46:00.000Z'); // an older point uploaded later does not rewind the marker
     expect(r.body[0].lat).toBeCloseTo(22.7187);
 
@@ -162,7 +172,11 @@ describe('history, stops, summary (FR-LOC-007/008/012)', () => {
     expect(r.body.polyline.length).toBeGreaterThan(10);
     expect(r.body.stops).toHaveLength(2);
     expect(r.body.stops[1]).toMatchObject({ start: '2026-11-15T03:31:00.000Z', end: '2026-11-15T03:51:00.000Z', customerId: null, customerName: null, distanceToPinM: null }); // ~900 m from any pin
-    expect(r.body.stops[0]).toMatchObject({ start: '2026-11-15T03:15:00.000Z', end: '2026-11-15T03:25:00.000Z', dwellMin: 10, customerId, visitId: null });
+    expect(r.body.stops[0]).toMatchObject({ start: '2026-11-15T03:15:00.000Z', end: '2026-11-15T03:25:00.000Z', dwellMin: 10, customerId, visitId }); // the stop is explained by the visit recorded during it
+    expect(r.body.events.map((e: { kind: string; at: string }) => [e.kind, e.at])).toEqual([['visit', '2026-11-15T03:18:00.000Z'], ['collection', '2026-11-15T03:22:00.000Z']]);
+    expect(r.body.events[0]).toMatchObject({ refId: visitId, actor: { id: s.fs1.id }, data: { customerId, outcome: 'partial_paid' } });
+    expect(r.body.events[1].data).toMatchObject({ amountPoisha: 150000, method: 'cash' });
+    expect(r.body.events[1].summary.en).toContain('Collected ৳1,500');
     expect(r.body.stops[0].distanceToPinM).toBeLessThan(5);
     expect(r.body.segments.map((x: { kind: string }) => x.kind)).toEqual(['moving', 'gap', 'moving']); // 03:31 → 03:43 is a gap
     expect(r.body.summary).toMatchObject({ stopsCount: 2, customerStops: 1, stoppedMin: 30, gapsMin: 12, mockPoints: 2 });
@@ -175,6 +189,19 @@ describe('history, stops, summary (FR-LOC-007/008/012)', () => {
 
     const empty = await bm.get(`/location/history?userId=${s.fs1.id}&date=2026-11-14`);
     expect(empty.body).toMatchObject({ polyline: '', stops: [], segments: [] });
+  });
+
+  it('money and visit details follow their own permissions, not the map permission', async () => {
+    const sa = await as(t, '01700000001');
+    await sa.put(`/rbac/overrides/branch/${s.branchA}`, { role: 'branch_manager', changes: [{ key: 'collection.view', effect: 'deny' }], reason: 'Test: map without money' });
+    const bm = await as(t, '01700000002');
+    const h = await bm.get(`/location/history?userId=${s.fs1.id}&date=2026-11-15`);
+    expect(h.body.events.map((e: { kind: string }) => e.kind)).toEqual(['visit']);
+    const l = await bm.get('/location/latest');
+    expect(l.body[0].todayVisits).toBe(1);
+    expect(l.body[0]).not.toHaveProperty('todayCollectedPoisha');
+    await sa.put(`/rbac/overrides/branch/${s.branchA}`, { role: 'branch_manager', changes: [{ key: 'collection.view', effect: 'inherit' }], reason: 'Test: restore' });
+    expect((await (await as(t, '01700000002')).get(`/location/history?userId=${s.fs1.id}&date=2026-11-15`)).body.events).toHaveLength(2);
   });
 
   it('scope and input checks', async () => {
@@ -202,7 +229,8 @@ describe('history, stops, summary (FR-LOC-007/008/012)', () => {
     expectConforms('GET', '/location/history', 200, r.body);
     expect(r.body.polyline).toBe('');
     expect(r.body.stops).toHaveLength(2);
-    expect(r.body.stops[0].customerId).toBe(customerId);
+    expect(r.body.stops[0]).toMatchObject({ customerId, visitId });
+    expect(r.body.events).toHaveLength(2); // visits and collections outlive the raw points
     expect(r.body.summary.stopsCount).toBe(2);
     expect((await bm.get(`/location/stops?userId=${s.fs1.id}&date=2026-11-15`)).body).toHaveLength(2);
   });
