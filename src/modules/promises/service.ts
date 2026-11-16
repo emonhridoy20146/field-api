@@ -137,6 +137,14 @@ export async function list(user: AuthUser, q: { branchId?: string | undefined; o
   return { items: await withRefs(items), nextCursor: rows.length > q.limit ? encodeCursor({ id: items[items.length - 1]!._id.toHexString() }) : null };
 }
 
+/** Bootstrap for a fresh device: the caller's own open promises, paged by id. */
+export async function syncSnapshot(user: AuthUser, cursor: string | null, limit: number) {
+  const c = decodeCursor<{ id: string }>(cursor ?? undefined);
+  const rows = (await PromiseModel.find({ ownerId: user.id, status: 'open', ...(c ? { _id: { $gt: c.id } } : {}) }).sort({ _id: 1 }).limit(limit + 1).lean()) as Lean[];
+  const page = rows.slice(0, limit);
+  return { items: page.map(view), nextCursor: rows.length > limit ? encodeCursor({ id: page[page.length - 1]!._id.toHexString() }) : null };
+}
+
 export async function get(user: AuthUser, id: string) {
   if (!isOid(id)) throw notFound('promise');
   const p = (await PromiseModel.findOne({ _id: id, ...scopeFilter(user) }).lean()) as Lean | null;

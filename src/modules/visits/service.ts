@@ -5,6 +5,7 @@ import { isDuplicateKey, isOid, type LeanDoc } from '../../core/db/index.js';
 import { recordChange } from '../../core/changefeed/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { haversineM } from '../../core/geo/index.js';
+import { businessDate } from '../../core/time/index.js';
 import { branchQuery, canSeeBranch, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
 import { getSetting } from '../settings/index.js';
 import { getUsers } from '../users/index.js';
@@ -169,6 +170,15 @@ export async function get(user: AuthUser, id: string) {
   const v = (await VisitModel.findOne({ _id: id, ...scopeFilter(user) }).lean()) as Lean | null;
   if (!v) throw notFound('visit');
   return view(v);
+}
+
+/** Bootstrap for a fresh device: today's visits the caller recorded or took part in, paged by id. */
+export async function syncSnapshot(user: AuthUser, cursor: string | null, limit: number) {
+  const c = decodeCursor<{ id: string }>(cursor ?? undefined);
+  const date = businessDate(ctx().clock.now());
+  const rows = (await VisitModel.find({ $or: [{ userId: user.id }, { 'coWork.participantIds': user.id }], checkInAt: range(date, date), ...(c ? { _id: { $gt: c.id } } : {}) }).sort({ _id: 1 }).limit(limit + 1).lean()) as Lean[];
+  const page = rows.slice(0, limit);
+  return { items: page.map(view), nextCursor: rows.length > limit ? encodeCursor({ id: page[page.length - 1]!._id.toHexString() }) : null };
 }
 
 export async function lastVisits(customerIds: string[]): Promise<Map<string, Date>> {

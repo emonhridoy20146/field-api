@@ -35,6 +35,7 @@ export const manifest: ModuleManifest = {
         for (const id of ids) await s.get(user, id).then((v) => out.set(id, v), () => undefined);
         return out;
       },
+      snapshot: s.syncSnapshot,
     },
   ],
   syncMutations,

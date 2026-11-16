@@ -24,7 +24,7 @@ export const manifest: ModuleManifest = {
   ],
   jobs: [{ name: 'cowork.end-day', schedule: '5 0 * * *', handler: async () => void (await s.endPastSessions()) }],
   notificationTypes: [{ type: 'cowork.requested' }, { type: 'cowork.responded' }],
-  syncEntities: [{ entity: 'cowork_session', load: s.syncLoad }],
+  syncEntities: [{ entity: 'cowork_session', load: s.syncLoad, snapshot: async (user) => ({ items: await s.mine(user), nextCursor: null }) }],
   migrations: [
     indexMigration('20261116-0001-cowork-indexes', [
       { collection: 'cowork_sessions', key: { 'members.userId': 1, businessDate: -1 } },

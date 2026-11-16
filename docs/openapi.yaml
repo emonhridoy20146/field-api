@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.9.0
+  version: 1.9.1
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -1181,7 +1181,7 @@ paths:
       operationId: syncBootstrap
       parameters: [ { $ref: '#/components/parameters/Cursor' }, { name: limit, in: query, schema: { type: integer, default: 100, minimum: 1, maximum: 200 } } ]
       responses:
-        '200': { description: 'Paged snapshot of the whole scope; the final page has nextCursor null and returns pullCursor (schema declared in 1.5.0)', content: { application/json: { schema: { $ref: '#/components/schemas/SyncBootstrapResponse' } } } }
+        '200': { description: "Paged snapshot for a fresh device; the final page has nextCursor null and returns pullCursor (schema declared in 1.5.0). Entities, in this order (1.9.1): attendance_day (today, id userId:date), cowork_session (today's), customer (whole scope), location_proposal (own pending), promise (own open), visit (today's, own and joint). Older history is not included; it is read online.", content: { application/json: { schema: { $ref: '#/components/schemas/SyncBootstrapResponse' } } } }
   /sync/pull:
     get:
       tags: [sync]

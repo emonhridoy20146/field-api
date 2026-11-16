@@ -33,7 +33,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Notes, promises, reminders, nightly evaluation | FR-NOTE-001, FR-PRM-001..003 | ✅ API |
 | Tags + suggestion + review | FR-TAG-* | ✅ API |
 | Attendance + shifts + holidays + corrections | FR-ATT-001..007, FR-SET-002/003 | ✅ API (FR-ATT-007 geofence not built; leave FR-ATT-008 built early) |
-| Sync push/pull/bootstrap + sync center | FR-SYNC-* | ✅ API (API; bootstrap snapshots customers only, other entities arrive by pull) |
+| Sync push/pull/bootstrap + sync center | FR-SYNC-* | ✅ API (bootstrap snapshots customers plus today's working state: attendance day, visits, co-work sessions, open promises, pending pin proposals; later changes arrive by pull) |
 | Notifications (FCM + center) | FR-NOT-001..004 | ✅ API (push goes through a port; the real FCM sender needs credentials at deploy time; broadcasts FR-NOT-005 built early) |
 | Inbox, dashboard, global search | FR-INB-001, FR-DSH-001, FR-SRCH-001 | ✅ API (inbox items for mock GPS / tracking stopped come with the location module; daily target is 0 until phase 3) |
 | Pin corrections | FR-CUS-008 | ✅ API |

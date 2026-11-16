@@ -2,7 +2,7 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
-## [Unreleased] — contract 1.9.0
+## [Unreleased] — contract 1.9.1
 ### Added
 - Phase 0 implementation: core (config, errors bn/en problem+json, Dhaka time, money, geo, Mongo + migrations, event bus, outbox, Mongo-leased jobs, idempotency, change feed), module loader with manifest validation, auth (EdDSA JWT, refresh rotation with reuse detection, lockout), users, rbac (catalog, overrides, explain), branches, settings (holidays, shifts), flags (locked microfinance flag), audit (hash chain), devices (binding/approval), system (health, app-config), erp-gateway (Laravel client, circuit breaker, mappers, MockErpClient, delta sync, reconcile, posting outbox handler).
 - Phase 1 modules: customers (read model + FOS overlay, status derivation, bad suggestion, list/detail/map/timeline, refresh, pin corrections), tags (tag/untag, history, approval mode, balance-cleared review), assignments (areas, primary assignee, bulk, history), handovers (receiver acceptance, 72 h expiry, temporary cover revert), collections (idempotent record, receipt blocks, anomaly flags, ERP posting with timeout-after-store recovery, conflicts, void, resolve, ERP reversal reflection).
@@ -35,6 +35,7 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 - Co-work visits: `POST /visits` and the `visit` sync mutation accept `coWorkSessionId`. The server stores `coWork { sessionId, participantIds }` with the members accepted at `checkInAt` (so a visit that syncs hours later is still right), shows the visit to the partners (list, detail, pull) and flags an unconfirmed claim `cowork_invalid` while keeping the visit. `GET /visits` gains `coWork=true|false` and `coWorkSessionId`; `userId` now also matches joint visits the person took part in; list rows carry `coWork.participants` names.
 - Staff performance (and its export) gains `soloVisits`, `coWorkVisits` and `visitCredit` (= single + co-work × `cowork.visitCredit`). Every participant is credited for a joint visit; one stop recorded by two members counts once. Collections and cash are never shared: they count only for the person who recorded them.
 - Contract 1.9.0 (additive): the seven `/cowork/*` operations, `CoworkSession`, `CoworkMember`, `CoworkColleague`, `VisitCoWork`, `VisitCreate.coWorkSessionId`, `Visit.coWork`, `GET /visits` filters, `SyncChange.entity` value `cowork_session`, `StaffPerformanceRow.soloVisits/coWorkVisits/visitCredit`.
+- Contract 1.9.1: `GET /sync/bootstrap` now also snapshots today's `attendance_day`, today's `cowork_session`s, the caller's pending `location_proposal`s, open `promise`s and today's `visit`s (own and joint), so a reinstalled app starts from the current working day instead of customers only. Same item shape as pull; no schema change.
 ### Fixed
 - `GET /location-proposals` now returns the plain array the contract has declared since 1.4.0 (it was wrapped in `{ items }`); a conformance test covers it.
 ### Notes

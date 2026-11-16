@@ -41,6 +41,11 @@ export const manifest: ModuleManifest = {
         }
         return out;
       },
+      // A fresh device starts from today's state (work-in done? on a break?).
+      snapshot: async (user: AuthUser) => {
+        const day = await s.myToday(user);
+        return { items: [{ ...day, id: `${user.id}:${day.businessDate}` }], nextCursor: null };
+      },
     },
   ],
   syncMutations,
