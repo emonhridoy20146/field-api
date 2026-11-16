@@ -132,7 +132,12 @@ Retention: permanent (≥ 8 years, OD-09).
 `{ userId, businessDate, cashCollectedPoisha, mobileCollectedPoisha, depositedPoisha, onHandPoisha, confirmedAt, note }` · `{ userId:1, businessDate:1 } unique`.
 
 ### visits
-`{ clientId, branchId, customerId, userId, checkInAt, checkOutAt, outcome, geo {point, accuracyM, mock, distanceToPinM}, photoMediaIds[], deviceTime, receivedAt, source: 'manual'|'suggested', stopId?, flags[] }` · `{ clientId:1 } unique`, `{ customerId:1, checkInAt:-1 }`, `{ userId:1, checkInAt:-1 }`, `{ branchId:1, checkInAt:-1 }`.
+`{ clientId, branchId, customerId, userId, checkInAt, checkOutAt, outcome, geo {point, accuracyM, mock, distanceToPinM}, photoMediaIds[], deviceTime, receivedAt, source: 'manual'|'suggested', stopId?, flags[], coWork: { sessionId, participantIds[] } | null }` · `{ clientId:1 } unique`, `{ customerId:1, checkInAt:-1 }`, `{ userId:1, checkInAt:-1 }`, `{ branchId:1, checkInAt:-1 }`, `{ 'coWork.sessionId':1 } sparse`, `{ 'coWork.participantIds':1, checkInAt:-1 } sparse`.
+- `coWork` is set only when at least one colleague was an accepted member of the session at `checkInAt`; `participantIds` never contains the recorder (`userId`) (FR-CW-003).
+
+### cowork_sessions
+`{ branchId, businessDate, status: 'open'|'ended', createdBy, note, members: [{ userId, status: 'invited'|'accepted'|'rejected'|'left', invitedBy, invitedAt, respondedAt, leftAt }], clientIds[], createdAt, endedAt }` · `{ 'members.userId':1, businessDate:-1 }`, `{ branchId:1, businessDate:-1 }`, `{ status:1, businessDate:1 }`, `{ clientIds:1 }`.
+- One document per group and business day. Members keep their accept and leave times, so the participants of any visit can be worked out later from `checkInAt` alone. `clientIds` holds the request ids that built the session (idempotent retries).
 
 ### notes
 `{ clientId, branchId, customerId, authorId, category: 'general'|'payment'|'complaint'|'address'|'family', text, voiceMediaId?, visitClientId?, editableUntil, createdAt }` · `{ clientId:1 } unique`, `{ customerId:1, createdAt:-1 }`.

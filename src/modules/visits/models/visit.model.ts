@@ -16,6 +16,8 @@ const visitSchema = new Schema(
     photoMediaIds: { type: [String], default: [] },
     source: { type: String, enum: ['manual', 'suggested'], default: 'manual' },
     flags: { type: [String], default: [] },
+    // FR-CW-003: set only when colleagues took part; participantIds never contains the recorder.
+    coWork: { type: { sessionId: String, participantIds: [String], _id: false }, default: null },
   },
   { collection: 'visits', versionKey: false },
 );
