@@ -22,6 +22,8 @@ export {
   overdueAging,
   overdueRows,
   erpFieldPayments,
+  dataQualityScan,
 } from './service.js';
-export type { CustomerRef, AssignmentChange, ListExtras, ListEnricher, DetailContributor, TimelineItem, TimelineSource, OverdueRow, ErpFieldPayment } from './service.js';
+export { QUALITY_ISSUES, type QualityIssue } from './domain/quality.js';
+export type { CustomerRef, AssignmentChange, ListExtras, ListEnricher, DetailContributor, TimelineItem, TimelineSource, OverdueRow, ErpFieldPayment, QualityRow } from './service.js';
 export type { CustomerStatus } from './domain/status.js';

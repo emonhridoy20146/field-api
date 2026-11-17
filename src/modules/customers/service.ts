@@ -9,10 +9,11 @@ import { businessDate } from '../../core/time/index.js';
 import { branchQuery, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
-import { getByErpBranchId } from '../branches/index.js';
+import { getBranches, getByErpBranchId } from '../branches/index.js';
 import { getUsers } from '../users/index.js';
 import { refreshCustomer as erpRefresh, ErpUnavailableError, type ErpCustomer } from '../erp-gateway/index.js';
 import { badges, deriveCustomer, worstStatus, type CustomerStatus } from './domain/status.js';
+import { QUALITY_ISSUES, findIssues, sharedPhones, type Finding, type QualityInput } from './domain/quality.js';
 import { CustomerModel, LocationProposalModel } from './models/customer.model.js';
 
 type Doc = LeanDoc;
@@ -1055,4 +1056,54 @@ export async function erpFieldPayments(filter: Record<string, unknown>, date: st
     for (const p of (c.recentPayments ?? []) as LooseObject[])
       if (p.source === 'field' && p.date === date) out.push({ customerId: c._id.toHexString(), code: c.code, erpPaymentId: p.erpPaymentId, idempotencyKey: p.idempotencyKey ?? null, receiptNo: p.receiptNo ?? null, amountPoisha: p.amountPoisha, reversed: !!p.reversed, erpFetchedAt: c.erpFetchedAt });
   return out;
+}
+
+export interface QualityRow {
+  customerId: string;
+  code: string;
+  name: { bn: string; en: string };
+  branchId: string;
+  areaCode: string | null;
+  assigneeId: string | null;
+  findings: Finding[];
+}
+
+/**
+ * FR-CUS-009: every active customer matching `filter` with its data problems, ordered by id.
+ * One scan per request: plans are reduced to their schedule size in the database, so schedules
+ * never leave MongoDB.
+ */
+export async function dataQualityScan(filter: Record<string, unknown>, maxBranchKm: number): Promise<QualityRow[]> {
+  const docs = await CustomerModel.aggregate<LooseObject>([
+    { $match: { ...filter, erpStatus: 'active' } },
+    { $sort: { _id: 1 } },
+    {
+      $project: {
+        code: 1, name: 1, branchId: 1, areaCode: 1, phones: 1, locationStatus: 1, location: 1, erpLocation: 1, assigneeId: '$fos.assigneeId',
+        plans: { $map: { input: { $ifNull: ['$plans', []] }, as: 'p', in: { erpPlanId: '$$p.erpPlanId', status: '$$p.status', outstandingPoisha: { $ifNull: ['$$p.outstandingPoisha', 0] }, scheduleLines: { $size: { $ifNull: ['$$p.schedule', []] } } } } },
+      },
+    },
+  ]);
+  const branches = await getBranches([...new Set(docs.map((d) => d.branchId as string).filter(Boolean))]);
+  const inputs: QualityInput[] = docs.map((d) => ({
+    id: d._id.toHexString(),
+    code: d.code ?? '',
+    branchId: d.branchId ?? '',
+    locationStatus: d.locationStatus ?? 'missing',
+    location: d.location?.coordinates?.length === 2 ? { lat: d.location.coordinates[1], lng: d.location.coordinates[0] } : null,
+    erpLocation: d.erpLocation ?? null,
+    phones: (d.phones ?? []) as string[],
+    assigneeId: d.assigneeId ?? null,
+    plans: (d.plans ?? []) as QualityInput['plans'],
+  }));
+  const shared = sharedPhones(inputs);
+  return inputs.map((c, i) => {
+    const b = branches.get(c.branchId);
+    const findings = findIssues(c, b && b.lat !== null && b.lng !== null ? { lat: b.lat, lng: b.lng } : null, maxBranchKm);
+    const others = shared.get(c.id);
+    if (others) findings.push({ issue: 'shared_phone', detail: `Same number as ${others.slice(0, 3).join(', ')}${others.length > 3 ? ` and ${others.length - 3} more` : ''}` });
+    findings.sort((a, b) => QUALITY_ISSUES.indexOf(a.issue) - QUALITY_ISSUES.indexOf(b.issue));
+    const d = docs[i]!;
+    return { customerId: c.id, code: c.code, name: { bn: d.name?.bn ?? '', en: d.name?.en ?? '' }, branchId: c.branchId, areaCode: d.areaCode ?? null, assigneeId: c.assigneeId, findings };
+  });
 }

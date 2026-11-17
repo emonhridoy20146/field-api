@@ -36,6 +36,35 @@ async function kindOf(userId: string, date: string, shift: ShiftView, branchId: 
   return 'working';
 }
 
+/**
+ * What kind of day each date is for each person (working, weekly off, holiday, leave), with the same
+ * rules as the attendance day. Used by targets, so a target never applies to a day off. Batched:
+ * one leave query and one holiday lookup per branch and date.
+ */
+export async function dayKindsOf(people: { id: string; shiftId: string | null; branchId: string | null }[], from: string, to: string): Promise<Map<string, Map<string, DayKind>>> {
+  const leaves = (await LeaveModel.find({ userId: { $in: people.map((p) => p.id) }, status: 'approved', from: { $lte: to }, to: { $gte: from } }).lean()) as Lean[];
+  const holidays = new Map<string, boolean>();
+  const holiday = async (date: string, branchId: string | null) => {
+    const k = `${branchId ?? ''}:${date}`;
+    if (!holidays.has(k)) holidays.set(k, await isHoliday(date, branchId));
+    return holidays.get(k)!;
+  };
+  const out = new Map<string, Map<string, DayKind>>();
+  for (const p of people) {
+    const shift = await resolveShift(p.shiftId, p.branchId);
+    const mine = leaves.filter((l) => l.userId === p.id);
+    const days = new Map<string, DayKind>();
+    for (let d = from; d <= to; d = addDays(d, 1)) {
+      if (mine.some((l) => l.from <= d && l.to >= d)) days.set(d, 'leave');
+      else if (await holiday(d, p.branchId)) days.set(d, 'holiday');
+      else if (shift.weeklyOff.includes(weekday(d))) days.set(d, 'weekly_off');
+      else days.set(d, 'working');
+    }
+    out.set(p.id, days);
+  }
+  return out;
+}
+
 function dayView(userId: string, date: string, d: LooseObject) {
   const iso = (x: Date | null | undefined) => (x ? new Date(x).toISOString() : null);
   return {

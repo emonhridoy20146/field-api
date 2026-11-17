@@ -103,3 +103,19 @@ describe('export writers', () => {
     expect(files.get('xl/workbook.xml')).toContain('name="collections"');
   });
 });
+
+describe('leaderboard ranking (FR-REP-005)', () => {
+  it('shares ranks on ties, skips after them, and lists the unranked last', async () => {
+    const { rank } = await import('../domain/leaderboard.js');
+    const out = rank([
+      { userId: 'e', name: 'Eva', value: 10, eligible: true },
+      { userId: 'a', name: 'Anis', value: 30, eligible: true },
+      { userId: 'c', name: 'Chumki', value: 20, eligible: true },
+      { userId: 'b', name: 'Babu', value: 20, eligible: true },
+      { userId: 'x', name: 'Xavier', value: 99, eligible: false },
+      { userId: 'n', name: 'Nobody', value: null, eligible: true },
+    ]);
+    expect(out.map((r) => [r.userId, r.rank])).toEqual([['a', 1], ['b', 2], ['c', 2], ['e', 4], ['n', null], ['x', null]]);
+    expect(rank([])).toEqual([]);
+  });
+});

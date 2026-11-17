@@ -668,3 +668,18 @@ export async function collectedOfDay(userIds: string[], date: string): Promise<M
   ]);
   return new Map(rows.map((r) => [r._id, r.s]));
 }
+
+/** FR-REP-005 self-view: one collector's recorded money of a period, split by whether the ERP has it yet. */
+export async function postedSplitOf(userId: string, from: string, to: string): Promise<{ postedPoisha: number; pendingPoisha: number }> {
+  const rows = await CollectionModel.aggregate<{ _id: string; s: number }>([
+    { $match: { collectorId: userId, businessDate: { $gte: from, $lte: to }, status: { $in: CASH_COUNTED_STATUSES } } },
+    { $group: { _id: '$status', s: { $sum: '$amountPoisha' } } },
+  ]);
+  let postedPoisha = 0;
+  let pendingPoisha = 0;
+  for (const r of rows) {
+    if ((PENDING_STATUSES as string[]).includes(r._id)) pendingPoisha += r.s;
+    else postedPoisha += r.s;
+  }
+  return { postedPoisha, pendingPoisha };
+}
