@@ -15,7 +15,7 @@ import { achievement, targetsOf } from '../targets/index.js';
 import { promiseStatsByOwner } from '../promises/index.js';
 import { attendanceDays } from '../attendance/index.js';
 import { fieldStatsByUser } from '../location/index.js';
-import { bucketOf, buckets, reportRange, validRange, type Granularity } from './domain/period.js';
+import { bucketOf, buckets, monthEnd, reportRange, validRange, type Granularity } from './domain/period.js';
 import { reconcileDay } from './domain/reconcile.js';
 import { OverdueSnapshotModel } from './models/report.model.js';
 
@@ -62,7 +62,8 @@ export async function staffPerformance(user: AuthUser, q: z.infer<typeof perform
       att.set(d.userId, a);
     }
 
-  const targets = on['module.targets'] ? await targetsOf(staff, from, to) : new Map<string, never>();
+  // A running month's target covers the whole month; achievement compares against the part up to today.
+  const targets = on['module.targets'] ? await targetsOf(staff, from, q.period === 'monthly' ? monthEnd(q.date) : to) : new Map<string, never>();
   const credit = new Map<string, number>();
   for (const s of staff) credit.set(s.id, await visitCreditFor(split.get(s.id)?.solo ?? 0, split.get(s.id)?.coWork ?? 0, s.branchIds[0]));
 
@@ -195,4 +196,20 @@ export async function reconciliation(user: AuthUser, q: z.infer<typeof reconcili
       return { ...m, customer: cust ? { id: cust.id, name: cust.name.bn || cust.name.en, code: cust.code } : null, collector: u ? { id: u.id, name: u.name.en || u.name.bn } : null };
     }),
   };
+}
+
+/** Dashboard (FR-COL-015): the day's targets and visit credit of the field staff in scope. */
+export async function teamDay(user: AuthUser, branchId: string | undefined, date: string, on: Record<string, boolean>) {
+  const staff = await listByRole(['field_staff'], branchId ? [branchId] : isSuperAdmin(user) ? undefined : user.branchIds);
+  const out = { targetPoisha: 0, visitTarget: 0, visitCredit: 0 };
+  if (on['module.targets'])
+    for (const t of (await targetsOf(staff, date, date)).values()) {
+      out.targetPoisha += t.amountPoisha;
+      out.visitTarget += t.visits;
+    }
+  if (on['module.visits']) {
+    const split = await visitSplitByUser(user, branchId, date, date);
+    for (const s of staff) out.visitCredit += await visitCreditFor(split.get(s.id)?.solo ?? 0, split.get(s.id)?.coWork ?? 0, s.branchIds[0]);
+  }
+  return { targetPoisha: out.targetPoisha, visitTarget: Math.round(out.visitTarget * 100) / 100, visitCredit: Math.round(out.visitCredit * 100) / 100 };
 }

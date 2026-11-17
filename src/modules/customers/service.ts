@@ -1073,7 +1073,8 @@ export interface QualityRow {
  * One scan per request: plans are reduced to their schedule size in the database, so schedules
  * never leave MongoDB.
  */
-export async function dataQualityScan(filter: Record<string, unknown>, maxBranchKm: number): Promise<QualityRow[]> {
+/** `maxKmFor` gives the far_from_branch distance of a branch (a setting a branch may override). */
+export async function dataQualityScan(filter: Record<string, unknown>, maxKmFor: (branchId: string) => Promise<number>): Promise<QualityRow[]> {
   const docs = await CustomerModel.aggregate<LooseObject>([
     { $match: { ...filter, erpStatus: 'active' } },
     { $sort: { _id: 1 } },
@@ -1084,7 +1085,9 @@ export async function dataQualityScan(filter: Record<string, unknown>, maxBranch
       },
     },
   ]);
-  const branches = await getBranches([...new Set(docs.map((d) => d.branchId as string).filter(Boolean))]);
+  const branchIds = [...new Set(docs.map((d) => d.branchId as string).filter(Boolean))];
+  const branches = await getBranches(branchIds);
+  const maxKm = new Map(await Promise.all(branchIds.map(async (id) => [id, await maxKmFor(id)] as const)));
   const inputs: QualityInput[] = docs.map((d) => ({
     id: d._id.toHexString(),
     code: d.code ?? '',
@@ -1099,7 +1102,7 @@ export async function dataQualityScan(filter: Record<string, unknown>, maxBranch
   const shared = sharedPhones(inputs);
   return inputs.map((c, i) => {
     const b = branches.get(c.branchId);
-    const findings = findIssues(c, b && b.lat !== null && b.lng !== null ? { lat: b.lat, lng: b.lng } : null, maxBranchKm);
+    const findings = findIssues(c, b && b.lat !== null && b.lng !== null ? { lat: b.lat, lng: b.lng } : null, maxKm.get(c.branchId) ?? Infinity);
     const others = shared.get(c.id);
     if (others) findings.push({ issue: 'shared_phone', detail: `Same number as ${others.slice(0, 3).join(', ')}${others.length > 3 ? ` and ${others.length - 3} more` : ''}` });
     findings.sort((a, b) => QUALITY_ISSUES.indexOf(a.issue) - QUALITY_ISSUES.indexOf(b.issue));

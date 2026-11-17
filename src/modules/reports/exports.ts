@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { DateTime } from 'luxon';
 import { ctx } from '../../core/context/index.js';
-import { AppError, businessRule, forbidden, notFound } from '../../core/errors/index.js';
+import { AppError, forbidden, notFound } from '../../core/errors/index.js';
 import { isOid, withTransaction, type LeanDoc } from '../../core/db/index.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import { storage } from '../../core/storage/index.js';
@@ -19,8 +19,11 @@ import { cashPositions } from '../cash/index.js';
 import { reportRange, validRange } from './domain/period.js';
 import { toCsv, type Cell } from './export/csv.js';
 import { toXlsx } from './export/xlsx.js';
+import { toPdf } from './export/pdf.js';
 import { ExportModel } from './models/report.model.js';
 import { branchInScope, performanceQuery, staffPerformance } from './trends.js';
+import { dataQualityExportRows } from './insights.js';
+import { QUALITY_ISSUES } from '../customers/index.js';
 
 const now = () => ctx().clock.now();
 const today = () => businessDate(now());
@@ -28,7 +31,7 @@ const KEEP_DAYS = 7; // FR-REP-004
 export const MAX_ROWS = 50_000;
 
 export const exportSchema = z.object({
-  type: z.enum(['staff_performance', 'collections', 'attendance', 'overdue_customers', 'cash_positions', 'audit']),
+  type: z.enum(['staff_performance', 'collections', 'attendance', 'overdue_customers', 'cash_positions', 'audit', 'data_quality']),
   format: z.enum(['csv', 'xlsx', 'pdf']),
   params: z.record(z.unknown()).default({}),
   locale: z.enum(['bn', 'en']).optional(),
@@ -48,6 +51,18 @@ const nm = (n: { bn?: string; en?: string } | undefined, l: L) => (n ? (l === 'b
 
 const rangeParams = z.object({ branchId: z.string().max(64).optional(), from: z.string().max(10), to: z.string().max(10) });
 const branchParams = z.object({ branchId: z.string().max(64).optional() });
+const qualityParams = z.object({ branchId: z.string().max(64).optional(), issue: z.enum(QUALITY_ISSUES).optional() });
+const ISSUE_BN: Record<string, string> = {
+  no_location: 'লোকেশন নেই',
+  invalid_location: 'ভুল লোকেশন',
+  suspect_swapped: 'অক্ষাংশ-দ্রাঘিমাংশ উল্টো',
+  far_from_branch: 'শাখা থেকে অনেক দূরে',
+  missing_phone: 'ফোন নম্বর নেই',
+  invalid_phone: 'ভুল ফোন নম্বর',
+  shared_phone: 'একই নম্বর অন্য গ্রাহকের',
+  plan_without_schedule: 'কিস্তির তালিকা ছাড়া প্ল্যান',
+  unassigned: 'কর্মী নির্ধারিত নেই',
+};
 
 function parseParams<T extends z.ZodTypeAny>(schema: T, params: unknown): z.infer<T> {
   const r = schema.safeParse(params);
@@ -71,8 +86,8 @@ const DATASETS: Record<ExportType, { permission?: string; check(user: AuthUser, 
       const sum = (r: (typeof rows)[number], ms: string[]) => ms.reduce((s, m) => s + (r.collectedPoisha[m] ?? 0), 0);
       const total = (r: (typeof rows)[number]) => Object.values(r.collectedPoisha).reduce((s, v) => s + v, 0);
       return {
-        header: h(l, [['কর্মী', 'Staff'], ['সময়কাল', 'Period'], ['ভিজিট', 'Visits'], ['একক ভিজিট', 'Single visits'], ['যৌথ ভিজিট', 'Co-work visits'], ['ভিজিট ক্রেডিট', 'Visit credit'], ['গ্রাহক', 'Customers visited'], ['কালেকশন সংখ্যা', 'Collections'], ['মোট আদায় (টাকা)', 'Collected (BDT)'], ['নগদ (টাকা)', 'Cash (BDT)'], ['মোবাইল ব্যাংকিং (টাকা)', 'Mobile banking (BDT)'], ['প্রতিশ্রুতি (নির্ধারিত)', 'Promises due'], ['প্রতিশ্রুতি (রক্ষিত)', 'Promises kept'], ['রক্ষার হার', 'Fulfilment rate'], ['উপস্থিত দিন', 'Present days'], ['দেরির দিন', 'Late days'], ['দেরি (মিনিট)', 'Late (min)'], ['বিরতি (মিনিট)', 'Break (min)'], ['মাঠে সময় (মিনিট)', 'Field time (min)'], ['দূরত্ব (কিমি)', 'Distance (km)']]),
-        rows: rows.map((r) => [r.name, r.period, r.visits, r.soloVisits, r.coWorkVisits, r.visitCredit, r.uniqueCustomers, r.collectionsCount, taka(total(r)), taka(sum(r, ['cash'])), taka(sum(r, ['bkash', 'nagad', 'rocket', 'other_mobile'])), r.promisesDue, r.promisesKept, r.promiseFulfilmentRate, r.presentDays, r.lateDays, r.lateMin, r.breakMin, r.fieldMin, r.distanceKm]),
+        header: h(l, [['কর্মী', 'Staff'], ['সময়কাল', 'Period'], ['ভিজিট', 'Visits'], ['একক ভিজিট', 'Single visits'], ['যৌথ ভিজিট', 'Co-work visits'], ['ভিজিট ক্রেডিট', 'Visit credit'], ['গ্রাহক', 'Customers visited'], ['কালেকশন সংখ্যা', 'Collections'], ['মোট আদায় (টাকা)', 'Collected (BDT)'], ['নগদ (টাকা)', 'Cash (BDT)'], ['মোবাইল ব্যাংকিং (টাকা)', 'Mobile banking (BDT)'], ['টার্গেট (টাকা)', 'Target (BDT)'], ['টার্গেট অর্জন (টাকা)', 'Amount achieved'], ['ভিজিট টার্গেট', 'Visit target'], ['টার্গেট অর্জন (ভিজিট)', 'Visits achieved'], ['প্রতিশ্রুতি (নির্ধারিত)', 'Promises due'], ['প্রতিশ্রুতি (রক্ষিত)', 'Promises kept'], ['রক্ষার হার', 'Fulfilment rate'], ['উপস্থিত দিন', 'Present days'], ['দেরির দিন', 'Late days'], ['দেরি (মিনিট)', 'Late (min)'], ['বিরতি (মিনিট)', 'Break (min)'], ['মাঠে সময় (মিনিট)', 'Field time (min)'], ['দূরত্ব (কিমি)', 'Distance (km)']]),
+        rows: rows.map((r) => [r.name, r.period, r.visits, r.soloVisits, r.coWorkVisits, r.visitCredit, r.uniqueCustomers, r.collectionsCount, taka(total(r)), taka(sum(r, ['cash'])), taka(sum(r, ['bkash', 'nagad', 'rocket', 'other_mobile'])), taka(r.targetPoisha), r.amountAchievement, r.visitTarget, r.visitAchievement, r.promisesDue, r.promisesKept, r.promiseFulfilmentRate, r.presentDays, r.lateDays, r.lateMin, r.breakMin, r.fieldMin, r.distanceKm]),
       };
     },
   },
@@ -156,14 +171,60 @@ const DATASETS: Record<ExportType, { permission?: string; check(user: AuthUser, 
       };
     },
   },
+  data_quality: {
+    check(user, params) {
+      branchInScope(user, parseParams(qualityParams, params).branchId);
+    },
+    async build(user, params, l) {
+      const p = parseParams(qualityParams, params);
+      const rows = await dataQualityExportRows(user, p.branchId, p.issue);
+      const branches = await getBranches([...new Set(rows.map((r) => r.branchId))]);
+      return {
+        header: h(l, [['সমস্যা', 'Issue'], ['গ্রাহক কোড', 'Customer code'], ['গ্রাহক', 'Customer'], ['শাখা', 'Branch'], ['এলাকা', 'Area'], ['দায়িত্বপ্রাপ্ত', 'Assigned to'], ['বিস্তারিত', 'Detail']]),
+        rows: rows.slice(0, MAX_ROWS).map((r) => [l === 'bn' ? ISSUE_BN[r.issue] ?? r.issue : r.issue.replace(/_/g, ' '), r.code, nm(r.name, l), branches.get(r.branchId)?.code ?? '', r.areaCode, r.assignee?.name ?? '', r.detail]),
+      };
+    },
+  },
 };
 
-const MIME = { csv: 'text/csv; charset=utf-8', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } as const;
+const MIME = { csv: 'text/csv; charset=utf-8', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', pdf: 'application/pdf' } as const;
+/** A PDF is for reading and printing; past this many rows the XLSX is the useful file (FR-REP acceptance: 10k rows < 60 s). */
+export const MAX_PDF_ROWS = 10_000;
+
+const TITLES: Record<ExportType, [string, string]> = {
+  staff_performance: ['স্টাফ পারফরম্যান্স', 'Staff performance'],
+  collections: ['কালেকশন', 'Collections'],
+  attendance: ['হাজিরা', 'Attendance'],
+  overdue_customers: ['বকেয়া গ্রাহক', 'Overdue customers'],
+  cash_positions: ['হাতে নগদ', 'Cash positions'],
+  audit: ['অডিট লগ', 'Audit log'],
+  data_quality: ['ডেটার মান', 'Data quality'],
+};
+
+async function pdfOf(type: ExportType, params: Record<string, unknown>, table: Table, l: L): Promise<Uint8Array> {
+  const branchId = typeof params.branchId === 'string' ? params.branchId : null;
+  const branch = branchId ? (await getBranches([branchId])).get(branchId) : undefined;
+  const parts = Object.entries(params)
+    .filter(([k, v]) => k !== 'branchId' && (typeof v === 'string' || typeof v === 'number'))
+    .map(([k, v]) => `${k}: ${String(v)}`);
+  const generated = dhaka(now());
+  const shown = table.rows.slice(0, MAX_PDF_ROWS);
+  const sub = [
+    ...(branch ? [`${l === 'bn' ? 'শাখা' : 'Branch'}: ${nm(branch.name, l)} (${branch.code})`] : []),
+    ...parts,
+    `${l === 'bn' ? 'তৈরি' : 'Generated'}: ${generated} (${l === 'bn' ? 'ঢাকা' : 'Dhaka'})`,
+    shown.length < table.rows.length
+      ? l === 'bn'
+        ? `${table.rows.length} সারির প্রথম ${shown.length}টি; সব সারির জন্য XLSX নিন`
+        : `First ${shown.length} of ${table.rows.length} rows; use XLSX for all rows`
+      : `${l === 'bn' ? 'সারি' : 'Rows'}: ${table.rows.length}`,
+  ].join(' · ');
+  const title = TITLES[type][l === 'bn' ? 0 : 1];
+  return toPdf({ title, subtitle: sub, header: table.header, rows: shown, footer: (p, n) => `${title} · ${l === 'bn' ? 'পৃষ্ঠা' : 'Page'} ${p} / ${n} · Howlader FOS` });
+}
 
 /** FR-REP-004: queue an export. The request is audited in the same transaction that stores it. */
 export async function createExport(user: AuthUser, input: z.infer<typeof exportSchema>, meta: RequestMeta) {
-  // PDF needs a Bangla shaping engine (OD-26).
-  if (input.format === 'pdf') throw businessRule('export_format_unavailable', { format: 'pdf' });
   const ds = DATASETS[input.type];
   if (ds.permission && !(await can(user, ds.permission))) throw forbidden(ds.permission);
   ds.check(user, input.params);
@@ -202,7 +263,7 @@ export async function processExports(max = 5): Promise<number> {
       const l: L = e.locale === 'en' ? 'en' : 'bn';
       const table = await ds.build(user, e.params ?? {}, l); // an empty params object is not stored
       const format = e.format as keyof typeof MIME;
-      const body = format === 'xlsx' ? toXlsx(e.type, table.header, table.rows) : toCsv(table.header, table.rows);
+      const body = format === 'pdf' ? await pdfOf(e.type as ExportType, (e.params ?? {}) as Record<string, unknown>, table, l) : format === 'xlsx' ? toXlsx(e.type, table.header, table.rows) : toCsv(table.header, table.rows);
       const key = `exports/${id}/${e.type}-${today()}.${format}`;
       await storage().put(key, body, MIME[format]);
       await ExportModel.updateOne({ _id: e._id }, { $set: { status: 'ready', storageKey: key, rows: table.rows.length, finishedAt: now() } });

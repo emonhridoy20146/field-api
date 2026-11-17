@@ -134,7 +134,7 @@ export async function setBranch(user: AuthUser, branchId: string, input: z.infer
 
 export async function history(user: AuthUser, id: string) {
   const u = await staffInScope(user, id);
-  const rows = (await TargetModel.find({ userId: u.id }).sort({ setAt: -1 }).limit(200).lean()) as Lean[];
+  const rows = (await TargetModel.find({ userId: u.id }).sort({ setAt: -1, _id: -1 }).limit(200).lean()) as Lean[];
   const by = await getUsers(rows.map((r) => r.setBy));
   return rows.map((r) => {
     const b = by.get(r.setBy);

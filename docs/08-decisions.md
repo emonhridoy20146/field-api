@@ -129,6 +129,11 @@ Staff performance, collection trends and reconciliation are computed from the so
 ### ADR-029 Co-work: every participant gets visit credit, money is never shared · accepted (2026-11-16)
 The owner asked that two or more staff can work together and that statistics, targets and performance reflect it properly. A joint visit stays **one record by the person who recorded it**, with the partners stored on it (`coWork.participantIds`, decided by the server from the session members accepted at `checkInAt`). Reports show single and co-work visits separately. For targets, each participant is credited `soloVisits + coWorkVisits × cowork.visitCredit`; the weight is a setting (0 to 1, default 1, per-branch override) so the business can later decide that a shared visit is worth less than a single one without a code change. The same stop recorded by two members of one session counts once per person. **Collections and cash are not split or shared**: the person who took the money recorded it, carries it and deposits it, so cash accountability (FR-CASH-*) and the ERP posting stay with one collector. Requests are online only (an invitation needs the other person's answer); visits work offline because participants are resolved from stored accept and leave times when the visit arrives.
 
+### ADR-030 Daily targets as dated records; server-side Bangla PDF with HarfBuzz · accepted (2026-11-17, owner request)
+**Targets.** The owner asked for daily targets. A target is never edited in place: every change (branch default, personal target, "back to the branch default") is a new `staff_targets` record with an `effectiveFrom` of today or later, and the value of a day is the latest record in force on that day (on the same day the later `setAt` wins). A personal record beats the branch default; a `cleared` record hands the person back to the default. Weekly off, holidays and approved leave have no target. So a report for a past period always shows the target that applied then, managers can plan ahead (next month's default), and the history doubles as the audit trail. Achievement is measured against the target **up to today** in a running period, not against the whole month, so the middle of the month does not look like failure. Co-work visits count with `cowork.visitCredit` (ADR-029). Targets are a planning aid only; they never block or change a collection.
+
+**PDF.** Bangla needs a shaping engine for conjuncts (e.g. ক্ষ, স্ট্র, র্ক). fontkit was tried and shapes Bengali wrongly; a headless Chromium would add a 300 MB browser to the worker image. The export worker therefore shapes text with HarfBuzz compiled to WebAssembly (`harfbuzzjs`, no native build) and writes the PDF itself: Type0/CIDFontType2 fonts with Identity-H, the Noto Sans Bengali and Noto Sans subsets embedded (SIL OFL, `assets/fonts/`), each text item wrapped in `ActualText` so copy and search give the real Bangla text. A4 landscape, header repeated on every page, at most 10,000 rows. HarfBuzz is imported lazily, so the API process never loads it.
+
 ## 2. Rejected or deferred scope ideas
 | Idea | Decision | Reason |
 |---|---|---|
@@ -156,7 +161,7 @@ The owner asked that two or more staff can work together and that statistics, ta
 | OD-12 | Photo at attendance events | **Decided by the owner 2026-11-16:** front-camera photo required at work-in, break start, break end and work-out. Settings `attendance.selfieRequired` (default true) and `attendance.selfieEvents` (default all four), per branch | Setting |
 | OD-13 | "Far from pin" radius | 300 m | Setting |
 | OD-14 | Default shift and weekly off | 09:00–18:00, Friday off, late grace 15 min, max break 60 min | Settings |
-| OD-15 | Staff leaderboard visible to staff | OFF | Setting |
+| OD-15 | Staff leaderboard visible to staff | OFF. Built 2026-11-17: managers with `report.view` always see it; setting `reports.leaderboardVisibleToStaff` (per branch) lets field staff see their own branch's board and their rank | Setting |
 | OD-16 | Default language | Bangla, English toggle | — |
 | OD-17 | Tile provider | Self-hosted Protomaps PMTiles (BD extract); fallback MapTiler | Config only |
 | OD-18 | Object storage provider | Cloudflare R2 | Config only |
@@ -164,9 +169,9 @@ The owner asked that two or more staff can work together and that statistics, ta
 | OD-20 | Minimum Android version | Android 8.0 (API 26) | Device support |
 | OD-21 | Promise horizon / grace | max 60 days ahead, 1 grace day | Setting |
 | OD-22 | Domains | `api.<domain>`, `admin.<domain>` same parent domain (needed for SameSite cookie) | Deploy |
-| OD-23 | Daily targets per staff (FR-COL-015) | Proposed; set by BM monthly | Reports |
+| OD-23 | Daily targets per staff (FR-COL-015) | **Decided by the owner 2026-11-17: build it.** Branch default plus personal targets, set by SA/BM (`target.manage`), dated from today onward (ADR-030) | Reports |
 | OD-24 | Photo required for collections above an amount | Off (0) | Setting |
-| OD-26 | How Bangla PDF exports are rendered (conjuncts need a shaping engine) | Not built; `format: pdf` answers 422. Default proposal: admin-web prints the report page (the browser shapes Bangla correctly); alternative: a headless-Chromium worker | reports/exports.ts |
+| OD-26 | How Bangla PDF exports are rendered (conjuncts need a shaping engine) | **Closed 2026-11-17 (owner: build the report PDFs).** The export worker shapes with HarfBuzz and embeds Noto fonts (ADR-030); no browser needed | reports/exports.ts |
 | OD-25 | Bad-suggestion tolerance for tiny leftovers (e.g. 1 poisha after a plan ends) | No tolerance (rule as written) | Domain rule in customers/domain/status.ts |
 
 No question blocks the design: every item above has a working default and is isolated in a setting, a flag or a provider config.

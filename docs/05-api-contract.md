@@ -93,6 +93,12 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 | `GET /dashboard/overview` | `report.view` | FR-DSH-001 |
 | `GET /search` | auth (scoped) | FR-SRCH-001 |
 | `GET /reports/staff-performance` · `GET /reports/branch-trends` · `GET /reports/reconciliation` | `report.view` | FR-REP-001/002, FR-COL-014 |
+| `GET /reports/data-quality` · `GET /reports/data-quality/items` | `report.view` | FR-CUS-009 |
+| `GET /reports/leaderboard` | `report.view`; field staff only when `reports.leaderboardVisibleToStaff` is on for their branch (own branch only) | FR-REP-005, OD-15 |
+| `GET /reports/me/performance` | self (own figures only) | FR-REP-005 |
+| `GET /targets` · `GET /targets/users/{id}/history` | `target.view` | FR-COL-015 |
+| `PUT /targets/users/{id}` · `POST /targets/users/{id}/clear` · `PUT /targets/branches/{id}` | `target.manage` | FR-COL-015 |
+| `GET /targets/me` | self | FR-COL-015 |
 | `POST /reports/exports` · `GET /reports/exports/{id}` | `report.export` | FR-REP-004 |
 | `GET /audit` | `audit.view` | FR-AUD-003 |
 | `GET /system/health` · `GET /system/erp-status` · `GET /system/sync-health` | public (health) / `settings.manage` | FR-ERP-004, FR-SYNC-005 |
@@ -185,6 +191,7 @@ POST /api/v1/sync/push
   "permissions": { "version": 12, "keys": ["…"] }, "flags": { "module.location": true },
   "settings": { "cash.limitMode": "warn", "location.sampling": { "fastSec": 15, "slowSec": 45, "stillSec": 180 } },
   "cash": { "onHandPoisha": 3150000, "limitPoisha": 5000000 },
+  "target": { "businessDate": "2026-11-15", "amountPoisha": 2000000, "visits": 12, "source": "branch", "workingDay": true },
   "serverTime": "2026-11-15T05:20:03Z" }
 ```
 `410 CURSOR_EXPIRED` → client calls `GET /sync/bootstrap` (full scope snapshot, paged).
@@ -213,6 +220,22 @@ Content-Encoding: gzip
 ```
 → `200 { "accepted": 118, "rejected": [ { "index": 7, "reason": "LOW_ACCURACY" } ], "nextSampling": { "fastSec": 15, "slowSec": 45, "stillSec": 180 } }`
 
+### 3.9 Daily target and leaderboard
+```http
+PUT /api/v1/targets/users/6740aa…
+{ "amountPoisha": 2500000, "visits": 15, "effectiveFrom": "2026-12-01", "reason": "Larger area from December" }
+```
+→ `200` the staff row as it applies on 2026-12-01 (`source: "personal"`). An `effectiveFrom` before today → `422 BUSINESS_RULE` with `details.rule = TARGET_IN_PAST` (past days keep their target). `POST /targets/users/{id}/clear` hands the person back to the branch default from a date.
+
+`GET /api/v1/reports/leaderboard?period=month&date=2026-11&metric=target_achievement`
+```json
+{ "branchId": null, "period": "month", "date": "2026-11", "metric": "target_achievement", "minPresentDays": 1,
+  "items": [ { "rank": 1, "userId": "6740aa…", "name": "Rakib Hasan", "employeeCode": "FS014", "value": 1.08, "collectedPoisha": 21600000,
+               "visitCredit": 118, "promisesKept": 9, "amountAchievement": 1.08, "presentDays": 12, "eligible": true, "me": false } ],
+  "me": null }
+```
+Achievement values are fractions with two decimals (1.08 = 108 %) against the target up to today.
+
 ## 4. Error codes
 
 | HTTP | code | Meaning / client behaviour |
@@ -233,7 +256,7 @@ Content-Encoding: gzip
 | 412 | `PRECONDITION_FAILED` | Reload and retry edit. |
 | 413 | `PAYLOAD_TOO_LARGE` | Split batch. |
 | 422 | `OFF_DUTY` | Location outside duty; drop points. |
-| 422 | `BUSINESS_RULE` | `details.rule` (e.g. `PROMISE_DATE_RANGE`, `REASON_REQUIRED`, `LAST_SUPER_ADMIN`, `COWORK_INVALID_INVITEE`, `COWORK_TOO_MANY`). |
+| 422 | `BUSINESS_RULE` | `details.rule` (e.g. `PROMISE_DATE_RANGE`, `REASON_REQUIRED`, `LAST_SUPER_ADMIN`, `COWORK_INVALID_INVITEE`, `COWORK_TOO_MANY`, `TARGET_IN_PAST`). |
 | 423 | `ACCOUNT_LOCKED` | `details.until`. |
 | 426 | `UPGRADE_REQUIRED` | `details.minVersion`, `details.storeUrl`. |
 | 429 | `RATE_LIMITED` | Honour `Retry-After`. |

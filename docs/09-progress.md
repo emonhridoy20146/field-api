@@ -66,8 +66,8 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 |---|---|---|
 | daily_metrics + overdue_snapshots jobs | FR-REP-001/002 | ◐ overdue snapshots ✅; daily_metrics not needed yet (ADR-028, reports aggregate live) |
 | Staff performance (daily/monthly), branch trends, promise fulfilment | FR-REP-001/002, FR-PRM-004 | ✅ |
-| Exports CSV/XLSX/PDF (Bangla) | FR-REP-003/004 | ◐ CSV + XLSX ✅ (async, 7 days, signed link, audited, bn/en headers); PDF waits for OD-26 |
-| Reconciliation report, data-quality report, targets, leaderboard | FR-COL-014/015, FR-CUS-009, FR-REP-005 | ◐ reconciliation ✅; data-quality, targets, leaderboard are still `proposed` |
+| Exports CSV/XLSX/PDF (Bangla) | FR-REP-003/004 | ✅ CSV + XLSX + PDF (async, 7 days, signed link, audited, bn/en headers; PDF shaped with HarfBuzz and embedded Noto fonts, ADR-030); data-quality export added |
+| Reconciliation report, data-quality report, targets, leaderboard | FR-COL-014/015, FR-CUS-009, FR-REP-005 | ✅ API (contract 1.10.0, owner approval 2026-11-17): reconciliation; daily targets with branch defaults and history; target achievement in performance and dashboard; leaderboard (staff view behind a setting); own performance for the app; data-quality summary, items and export. Screens in admin-web and staff-app |
 
 **Acceptance:** report numbers equal raw-query numbers for a sampled month; Bangla PDF renders conjuncts correctly; export of 10k rows < 60 s.
 
