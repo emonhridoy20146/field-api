@@ -49,7 +49,7 @@ Indexes: `{ deviceId: 1 } unique`, `{ userId: 1, unboundAt: 1 }`.
 `{ _id: 'module.collections', defaultEnabled: false, branchOverrides: [{branchId, enabled}], description, owner, reviewBy, updatedBy, updatedAt }`.
 
 ### holidays · shifts
-`holidays { date: 'YYYY-MM-DD', name {bn,en}, branchIds: [] (empty = all), type: 'national'|'branch' }` · index `{ date:1 }`.
+`holidays { date: 'YYYY-MM-DD', name {bn,en}, branchIds: [] (empty = all), type: 'national'|'branch', createdBy }` · index `{ date:1 }`. A `branch` holiday names its branches, a `national` one none; one day per overlapping set of branches (1.12.0). Deleting is a hard delete with an audit record (`holiday.deleted`) holding the old value.
 `shifts { name, start: '09:00', end: '18:00', weeklyOff: [5] (0=Sun … 5=Fri), lateGraceMin, maxBreakMin }`.
 
 ## 3. ERP read model (cache, never truth)
@@ -143,6 +143,9 @@ Retention: permanent (≥ 8 years, OD-09).
 ### notes
 `{ clientId, branchId, customerId, authorId, category: 'general'|'payment'|'complaint'|'address'|'family', text, voiceMediaId?, visitClientId?, editableUntil, createdAt }` · `{ clientId:1 } unique`, `{ customerId:1, createdAt:-1 }`.
 
+### contact_attempts
+`{ clientId, branchId, customerId, userId, channel: 'call'|'sms'|'whatsapp', target: 'customer'|'guarantor' (1.12.0, default customer), phoneIndex | null, at, durationSec | null, outcome | null, note | null, receivedAt }` · `{ clientId:1 } unique`, `{ customerId:1, at:-1 }`. Phone numbers are never stored here (index into the customer's phones; the guarantor has one phone).
+
 ### promises
 `{ clientId, branchId, customerId, erpPlanId, ownerId, createdBy, promisedDate, promisedAmountPoisha, note, status: 'open'|'kept'|'partially_kept'|'broken'|'superseded'|'cancelled', evaluatedAt, paidTowardsPoisha, supersededBy }` · `{ clientId:1 } unique`, `{ ownerId:1, promisedDate:1, status:1 }`, `{ customerId:1, status:1 }`, `{ branchId:1, promisedDate:1 }`.
 
@@ -156,7 +159,7 @@ Retention: permanent (≥ 8 years, OD-09).
 Derived, rebuildable from events. `{ userId, branchId, businessDate, status: 'not_started'|'on_duty'|'on_break'|'off_duty'|'present'|'late'|'absent'|'leave'|'holiday'|'weekly_off', state, firstIn, lastOut, lateMin, breakMin, overBreakMin, breaks: [{start,end}], dutyMin, autoClosed, corrected, closed, flags[], shift: {start,end} }` · `{ userId:1, businessDate:1 } unique`, `{ branchId:1, businessDate:1 }`, `{ closed:1, state:1 }`.
 
 ### leave_requests [ADDED]
-`{ userId, branchId, type: 'casual'|'sick'|'other', from, to, reason, status: 'pending'|'approved'|'rejected', decidedBy, decidedAt, decisionReason, createdAt }` · `{ userId:1, from:1 }`, `{ branchId:1, status:1, createdAt:-1 }`.
+`{ userId, branchId, type: 'casual'|'sick'|'other', from, to, reason, status: 'pending'|'approved'|'rejected'|'cancelled', decidedBy, decidedAt, decisionReason, cancelledAt, createdAt }` (`cancelled`/`cancelledAt` since 1.12.0; only the requester cancels, only while pending) · `{ userId:1, from:1 }`, `{ branchId:1, status:1, createdAt:-1 }`.
 
 ### staff_targets [ADDED]
 `{ branchId, userId | null, kind: 'set'|'cleared', amountPoisha | null, visits | null, effectiveFrom: 'YYYY-MM-DD', reason, setBy, setAt }` · `{ userId:1, effectiveFrom:1 }`, `{ branchId:1, userId:1, effectiveFrom:1 }`.
@@ -190,8 +193,7 @@ Written by the nightly `location.summarize` job (re-runnable; replaces the day).
 
 - `notifications { userId, type, title {bn,en}, body {bn,en}, data, readAt, createdAt }` · `{ userId:1, createdAt:-1 }` · TTL 90 days.
 - `push_tokens` → stored on `devices.fcmToken` (one per device).
-- `broadcasts [ADDED] { scope: {branchIds, roles}, title, body, requireAck, acks: [{userId, at}], createdBy }`.
-- `broadcasts [ADDED] { title {bn,en}, body {bn,en}, branchIds[], roles[], requireAck, createdBy, createdAt, recipientIds[], ackedBy[] }` · `{ recipientIds:1, _id:-1 }`.
+- `broadcasts [ADDED] { title {bn,en}, body {bn,en}, branchIds[], roles[], requireAck, createdBy, createdAt, recipientIds[], ackedBy[], acks: [{userId, at}] }` · `{ recipientIds:1, _id:-1 }`. `ackedBy` is the membership list; `acks` (1.12.0) keeps when each recipient read it (the phone's tap time for offline reads, kept between sending and receipt). Broadcasts sent before 1.12.0 have no times.
 - `inbox_items [ADDED] { key (dedupe, e.g. 'collection.conflict:6750…'), type, severity: 'low'|'medium'|'high'|'critical', branchId, entity, entityId, summary {bn,en}, status: 'open'|'snoozed'|'resolved', snoozedUntil, resolvedBy, resolvedAt, createdAt }` · `{ key:1 } unique`, `{ branchId:1, status:1, severity:-1, createdAt:-1 }`.
 - `sync_changes { seq (int64 from counters), userIds: [] (audience), branchId, entity, entityId, op: 'upsert'|'delete', at }` · `{ userIds:1, seq:1 }` · TTL 30 days (devices older than 30 days get a full resync: `410 CURSOR_EXPIRED`).
 - `device_sync_state { deviceId, userId, branchId, lastPullSeq, lastPullAt, lastPushAt, pendingReported, lastError, appVersion }` · `{ deviceId:1, userId:1 } unique`, `{ branchId:1, lastPullAt:-1 }`.

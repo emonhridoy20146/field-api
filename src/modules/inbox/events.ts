@@ -61,6 +61,7 @@ const RESOLVE: [string, string, (p: P) => string][] = [
   ['tag.review_decided', 'tag.review', (p) => str(p.eventId)],
   ['customer.location.decided', 'location.proposal', (p) => str(p.proposalId)],
   ['leave.decided', 'leave.requested', (p) => str(p.leaveId)],
+  ['leave.cancelled', 'leave.requested', (p) => str(p.leaveId)],
 ];
 
 export const CONSUMED_EVENTS = [...new Set([...RAISE.map((r) => r.event), ...RESOLVE.map((r) => r[0])])];

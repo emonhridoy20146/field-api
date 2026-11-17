@@ -405,14 +405,25 @@ const leaveView = (l: Lean, name?: string) => ({
   id: l._id.toHexString(),
   userId: l.userId,
   ...(name !== undefined ? { userName: name } : {}),
+  branchId: l.branchId ?? null,
   type: l.type,
   from: l.from,
   to: l.to,
+  days: daysBetween(l.from, l.to),
   reason: l.reason ?? '',
   status: l.status,
   ...(l.decidedBy ? { decidedBy: l.decidedBy, decidedAt: (l.decidedAt as Date).toISOString() } : {}),
+  ...(l.decisionReason ? { decisionReason: l.decisionReason } : {}),
+  ...(l.cancelledAt ? { cancelledAt: (l.cancelledAt as Date).toISOString() } : {}),
   createdAt: (l.createdAt as Date).toISOString(),
 });
+
+/** Calendar days from `from` to `to`, both included. */
+function daysBetween(from: string, to: string): number {
+  let n = 1;
+  for (let d = from; d < to && n <= 62; d = addDays(d, 1)) n++;
+  return n;
+}
 
 export async function requestLeave(user: AuthUser, input: z.infer<typeof leaveSchema>) {
   if (input.to > addDays(input.from, 30)) throw businessRule('LEAVE_TOO_LONG', { maxDays: 31 });
@@ -422,12 +433,45 @@ export async function requestLeave(user: AuthUser, input: z.infer<typeof leaveSc
   return leaveView(l.toObject() as Lean);
 }
 
-export async function listLeave(user: AuthUser, canManage: boolean, q: { status?: string | undefined; branchId?: string | undefined }) {
+export const leaveListSchema = z
+  .object({
+    branchId: z.string().max(64).optional(),
+    userId: z.string().max(64).optional(),
+    status: z.enum(['pending', 'approved', 'rejected', 'cancelled']).optional(),
+    // Requests overlapping this window (1.12.0), e.g. "who is on leave this month".
+    from: z.string().refine(isIsoDate).optional(),
+    to: z.string().refine(isIsoDate).optional(),
+  })
+  .refine((q) => !q.from || !q.to || q.to >= q.from, { message: 'to before from', path: ['to'] });
+
+export async function listLeave(user: AuthUser, canManage: boolean, q: z.infer<typeof leaveListSchema>) {
   const f: Record<string, unknown> = canManage ? branchQuery(user, q.branchId) : { userId: user.id };
+  if (canManage && q.userId) f.userId = q.userId;
   if (q.status) f.status = q.status;
+  if (q.to) f.from = { $lte: q.to };
+  if (q.from) f.to = { $gte: q.from };
   const rows = (await LeaveModel.find(f).sort({ createdAt: -1 }).limit(300).lean()) as Lean[];
   const names = await getUsers(rows.map((r) => r.userId));
   return { items: rows.map((l) => leaveView(l, names.get(l.userId)?.name.en ?? '')) };
+}
+
+/** The requester withdraws a request nobody has decided yet (1.12.0), e.g. to fix the dates. */
+export async function cancelLeave(user: AuthUser, id: string) {
+  if (!isOid(id)) throw notFound('leave_request');
+  const l = (await LeaveModel.findOne({ _id: id, userId: user.id }).lean()) as Lean | null;
+  if (!l) throw notFound('leave_request');
+  if (l.status === 'cancelled') return leaveView(l);
+  const r = await LeaveModel.updateOne({ _id: id, status: 'pending' }, { $set: { status: 'cancelled', cancelledAt: ctx().clock.now() } });
+  if (r.modifiedCount !== 1) throw new AppError('INVALID_STATE', { reason: 'ALREADY_DECIDED' });
+  await ctx().bus.emit('leave.cancelled', { leaveId: id, userId: user.id, branchId: l.branchId ?? null });
+  return leaveView((await LeaveModel.findById(id).lean()) as Lean);
+}
+
+/** The caller's own shift: personal shift, else the branch default (1.12.0). */
+export async function myShift(user: AuthUser) {
+  const u = await getUser(user.id);
+  if (!u) throw notFound('user');
+  return resolveShift(u.shiftId, u.branchIds[0] ?? null);
 }
 
 export async function decideLeave(actor: AuthUser, id: string, input: { decision: 'approve' | 'reject'; reason?: string | undefined }, meta: RequestMeta) {

@@ -28,6 +28,8 @@ const broadcastSchema = new Schema(
     createdAt: { type: Date, required: true },
     recipientIds: { type: [String], default: [] },
     ackedBy: { type: [String], default: [] },
+    // When each recipient tapped "read" (1.12.0); `ackedBy` stays the fast membership list.
+    acks: { type: [{ userId: String, at: Date, _id: false }], default: [] },
   },
   { collection: 'broadcasts', versionKey: false },
 );

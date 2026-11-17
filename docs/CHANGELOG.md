@@ -2,7 +2,18 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
-## [Unreleased] — contract 1.11.0
+## [Unreleased] — contract 1.12.0
+### Added
+- Leave, holidays, shifts and notices ready for the app and admin screens (owner request 2026-11-17, ADR-032). `POST /leave-requests/{id}/cancel`: the requester withdraws a pending request (status `cancelled`, inbox item resolved through the new event `leave.cancelled`). `GET /leave-requests` gains `from`/`to` (requests overlapping the window) and `userId` (managers); `LeaveRequest` gains `branchId`, `days`, `decisionReason`, `cancelledAt`.
+- `DELETE /calendar/holidays/{id}` (`settings.manage`, audited `holiday.deleted`); `Holiday.id`; `GET /calendar/holidays?branchId=` keeps national holidays and that branch's own; `HolidayCreate` declared, the create answers the `Holiday`.
+- `GET /attendance/me/shift`: the caller's shift or the branch default.
+- `GET /broadcasts/{id}/recipients` (`notification.broadcast`, sender scope): who got a notice, who read it and when, not read first. `Broadcast.ackedAt` for the caller. Sync mutation `broadcast_ack` `{ broadcastId, at? }` so "read" works offline; a read is pushed back to the reader's phone through pull.
+- Contact attempts take `target: customer | guarantor` (default `customer`); the timeline says when the guarantor was called.
+- Contract 1.12.0 also declares the `POST /leave-requests` and decision responses, the `409`/`422` answers of leave and holiday creation, and `limit`/`cursor` on `GET /broadcasts`.
+### Changed
+- Creating a holiday refuses a second one on the same day for an overlapping set of branches (`409 INVALID_STATE` `HOLIDAY_EXISTS`) and a scope that does not match the type (`400`).
+
+## [1.11.0] — contract 1.11.0 (PR #8)
 ### Added
 - Map pins (FR-CUS-011, owner request 2026-11-17, ADR-031). `POST /customers/{id}/location`: a manager (`customer.location.approve`) sets a customer's pin directly, e.g. by dropping it on a map; idempotent by `clientId`, audited as `customer.location.set`, kept in the pin history as an approved item with `direct: true`, sent to the assignee's phone. Staff pin proposals accept `method: map` (a point picked on the map; the GPS accuracy and mock rules apply to `method: gps` only) and `deviceGeo` (where the phone was). A staff pin for a customer without a usable pin is applied at once (owner decision) unless the new per-branch setting `customers.staffPinApproval` (`when_missing` default | `always`, sent to the app) asks for review; a mock phone position never applies at once; moving an existing pin always waits for a manager.
 - Contract 1.11.0 (additive): `setCustomerLocation`, `SetLocationResult`, `PinResult` (the existing `{id, status}` answer, now declared), `method`/`deviceGeo` on the proposal body, `LocationProposal.method/deviceDistanceM/deviceMock/autoApplied/direct/decider/decidedAt`, `OwnLocationProposal.method/autoApplied`, `CustomerListItem.branchId` (so a client can offer staff of the customer's branch when assigning).

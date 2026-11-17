@@ -139,8 +139,8 @@ Rules:
 | FR-SET-001 | Org settings (key/value, typed, audited): duty hours, late threshold, break max, cash limits, geofence radius, stop dwell, retention days, min app version, receipt prefix, SMS on/off. | active | P0 | A W | U I |
 | FR-FLAG-001 | Feature flags per module: global default OFF, per-branch override; registry lists owner, description, created, review-by date. | active | P0 | A W | U I |
 | FR-FLAG-002 | Disabled module: routes return `403 FEATURE_DISABLED`, mobile hides entry points, admin hides menu. | active | P0 | A W M | I E |
-| FR-SET-002 **[ADDED]** | Holiday calendar (national + branch-specific) and weekly off days per branch; used by attendance and due-date logic display. | proposed | P1 | A W | I |
-| FR-SET-003 **[ADDED]** | Shifts: named duty windows (e.g. 09:00–18:00) assignable per branch/user. | proposed | P1 | A W | I |
+| FR-SET-002 **[ADDED]** | Holiday calendar (national + branch-specific) and weekly off days per branch; used by attendance and due-date logic display. 1.12.0: holidays carry an `id`, can be deleted (audited), a duplicate day for overlapping branches is refused, and the list filters by branch. | active | P1 | A W | I |
+| FR-SET-003 **[ADDED]** | Shifts: named duty windows (e.g. 09:00–18:00) assignable per branch/user. 1.12.0: `GET /attendance/me/shift` gives the staff member their own shift or the branch default. | active | P1 | A W | I |
 
 ### 4.4 ERP gateway & customer read model (modules `erp-gateway`, `customers`)
 
@@ -266,7 +266,7 @@ Rules:
 | FR-ATT-005 | Auto work-out: if no work_out by shift end + 3 h, system closes the day with `auto_closed` flag and stops tracking. | active | P1 | A M | U I |
 | FR-ATT-006 | Corrections by `attendance.manage` with reason; original kept; audited. | active | P1 | A W | I E |
 | FR-ATT-007 **[ADDED]** | Work-in geofence: optional requirement to be within X m of branch or first assigned area (setting, default off). | proposed | P1 | A M | U |
-| FR-ATT-008 **[ADDED]** | Leave requests (type, dates, reason) → manager approval → counted in absence logic. | proposed | P4 | A W M | I E |
+| FR-ATT-008 **[ADDED]** | Leave requests (type, dates, reason) → manager approval → counted in absence logic. 1.12.0: the requester can withdraw a pending request (`cancelled`); the decision reason is shown to the requester; managers filter by period and person. | active | P4 | A W M | I E |
 
 ### 4.11 Location tracking (modules `location`, `stops`)
 
@@ -293,7 +293,7 @@ Rules:
 | FR-NOT-002 | Notification types: promise reminder, handover pending/accepted/rejected, collection conflict, conflict resolved, deposit verified/rejected, cash limit, tag review, permission changed, announcement, app update. | active | P1 | A M W | I D |
 | FR-NOT-003 | In-app notification center (app and admin bell) with read state; stored 90 days. | active | P1 | A M W | I E |
 | FR-NOT-004 | Quiet hours (no push 21:00–08:00 except critical). | active | P1 | A | U |
-| FR-NOT-005 **[ADDED]** | Broadcast announcements to a branch/role with optional "must acknowledge". | proposed | P4 | A W M | I E |
+| FR-NOT-005 **[ADDED]** | Broadcast announcements to a branch/role with optional "must acknowledge". 1.12.0: the sender sees who read it and when (`GET /broadcasts/{id}/recipients`); staff can tap "read" offline (sync mutation `broadcast_ack`). | active | P4 | A W M | I E |
 
 ### 4.13 Inbox, dashboard, search **[ADDED]** (module `inbox`, `dashboard`)
 

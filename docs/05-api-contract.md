@@ -47,7 +47,8 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 | `GET /branches` | `branch.view` | FR-BR-001 |
 | `GET /settings` · `PATCH /settings` | `settings.manage` (read subset: auth) | FR-SET-001 |
 | `GET /feature-flags` · `PUT /feature-flags/{key}` | `flag.manage` | FR-FLAG-001 |
-| `GET/POST /calendar/holidays` · `GET/POST/PATCH /shifts` | `settings.manage` | FR-SET-002/003 |
+| `GET/POST /calendar/holidays` · `DELETE /calendar/holidays/{id}` (1.12.0) · `GET/POST/PATCH /shifts` | `settings.manage` (both GETs: any signed-in user) | FR-SET-002/003 |
+| `GET /attendance/me/shift` (own shift or the branch default, 1.12.0) | `attendance.record` | FR-SET-003 |
 | `GET /customers` | `customer.view` | FR-CUS-001/002 |
 | `GET /customers/map` | `customer.view` | FR-CUS-005 |
 | `GET /customers/{id}` | `customer.view` | FR-CUS-003 |
@@ -83,13 +84,13 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 | `GET /promises` · `POST /promises` · `POST /promises/{id}/cancel` | `promise.view` / `promise.create` | FR-PRM-001 |
 | `POST /attendance/events` · `GET /attendance/me/today` | `attendance.record` | FR-ATT-001 |
 | `GET /attendance/days` · `GET /attendance/summary` · `POST /attendance/corrections` | `attendance.view` / `attendance.manage` | FR-ATT-004/006 |
-| `POST /leave-requests` · `GET /leave-requests` · `POST /leave-requests/{id}/decision` | `leave.request` / `attendance.manage` | FR-ATT-008 |
+| `POST /leave-requests` · `GET /leave-requests` · `POST /leave-requests/{id}/decision` · `POST /leave-requests/{id}/cancel` (own pending, 1.12.0) | `leave.request` / `attendance.manage` | FR-ATT-008 |
 | `POST /location/points` · `POST /location/heartbeat` | auth (staff on duty) | FR-LOC-001..004/010 |
 | `GET /location/latest` | `location.view` | FR-LOC-006 |
 | `GET /location/history` · `GET /location/stops` | `location.history.view` | FR-LOC-007/008 |
 | `GET /sync/pull` · `POST /sync/push` · `GET /sync/bootstrap` | auth (scope) | FR-SYNC-* |
 | `GET /notifications` · `POST /notifications/{id}/read` · `POST /notifications/read-all` | auth | FR-NOT-003 |
-| `POST /broadcasts` · `GET /broadcasts` · `POST /broadcasts/{id}/ack` | `notification.broadcast` / auth | FR-NOT-005 |
+| `POST /broadcasts` · `GET /broadcasts` · `POST /broadcasts/{id}/ack` · `GET /broadcasts/{id}/recipients` (1.12.0) | `notification.broadcast` / auth | FR-NOT-005 |
 | `GET /inbox` · `POST /inbox/{id}/resolve` · `POST /inbox/{id}/snooze` | `inbox.view` | FR-INB-001 |
 | `GET /dashboard/overview` | `report.view` | FR-DSH-001 |
 | `GET /search` | auth (scoped) | FR-SRCH-001 |
@@ -252,6 +253,25 @@ POST /api/v1/customers/6731…/location-proposals
   "deviceGeo": { "lat": 22.7128, "lng": 90.3712, "accuracyM": 14 }, "note": "Blue gate behind the mosque" }
 ```
 → `201 { "id": "6742…", "status": "approved" }` when the customer had no usable pin and `customers.staffPinApproval` is `when_missing` (default); otherwise `"status": "pending"` until a manager decides. The same body goes through `/sync/push` as mutation `location_proposal` (+ `customerId`).
+
+### 3.11 Leave, holidays, shifts, notices, guarantor calls (1.12.0)
+A staff member withdraws a request with wrong dates, then asks again:
+```http
+POST /api/v1/leave-requests/6750…/cancel
+```
+→ `200 { "id": "6750…", "status": "cancelled", "cancelledAt": "2026-11-17T12:40:00.000Z", "from": "2026-11-24", "to": "2026-11-26", "days": 3, … }`; a decided request → `409 INVALID_STATE` `ALREADY_DECIDED`.
+
+A manager looks at who is on leave this month: `GET /leave-requests?from=2026-11-01&to=2026-11-30&status=approved` (requests overlapping the window). A rejected request carries `decisionReason` for the staff member.
+
+The phone shows the staff member's own shift: `GET /attendance/me/shift` → `200 { "id": "default", "name": "Default", "start": "09:00", "end": "18:00", "weeklyOff": [5], "lateGraceMin": 15, "maxBreakMin": 60 }`; holidays that apply to them: `GET /calendar/holidays?year=2026&branchId=…`. An admin deletes a holiday entered by mistake: `DELETE /calendar/holidays/6760…` → `204`.
+
+A staff member taps "পড়েছি" on a notice while offline; on the next sync:
+```json
+{ "mutationId": "01936f2a-…", "entity": "broadcast_ack", "op": "create", "payload": { "broadcastId": "6770…", "at": "2026-11-17T04:05:00Z" } }
+```
+The sender sees it: `GET /broadcasts/6770…/recipients` → `{ "recipientCount": 12, "ackCount": 9, "items": [ { "userId": "…", "name": { "bn": "সুমন মিয়া", "en": "Sumon Mia" }, "employeeCode": "FS015", "acked": false }, …, { …, "acked": true, "ackedAt": "2026-11-17T04:05:00.000Z" } ] }` (not read first).
+
+A call to the guarantor is logged like any contact attempt with `"target": "guarantor"` (REST or sync `contact_attempt`); the customer timeline says "জামিনদারকে কল".
 
 ## 4. Error codes
 

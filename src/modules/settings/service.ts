@@ -126,23 +126,47 @@ export async function setSystem(key: string, value: unknown, branchId?: string):
 
 // ---------- holidays & shifts (FR-SET-002/003) ----------
 
-export const holidaySchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  name: z.object({ bn: z.string().min(1), en: z.string().min(1) }),
-  branchIds: z.array(z.string()).default([]),
-  type: z.enum(['national', 'branch']).default('national'),
+export const holidaySchema = z
+  .object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    name: z.object({ bn: z.string().trim().min(1).max(100), en: z.string().trim().min(1).max(100) }),
+    branchIds: z.array(z.string().max(64)).max(100).default([]),
+    type: z.enum(['national', 'branch']).default('national'),
+  })
+  // A branch holiday names its branches; a national one applies everywhere (1.12.0).
+  .refine((h) => (h.type === 'branch') === h.branchIds.length > 0, { message: 'branch holidays need branchIds; national ones none', path: ['branchIds'] });
+
+const holidayView = (h: { _id: { toHexString(): string }; date: string; name?: { bn?: string | null; en?: string | null } | null; branchIds: string[]; type?: string | null }) => ({
+  id: h._id.toHexString(),
+  date: h.date,
+  name: { bn: h.name?.bn ?? '', en: h.name?.en ?? '' },
+  branchIds: h.branchIds,
+  type: (h.type ?? 'national') as 'national' | 'branch',
 });
 
-export async function listHolidays(year?: number) {
-  const filter = year ? { date: { $gte: `${year}-01-01`, $lte: `${year}-12-31` } } : {};
+/** Holidays of a year (or all). `branchId` keeps national holidays and that branch's own (1.12.0). */
+export async function listHolidays(year?: number, branchId?: string) {
+  const filter: Record<string, unknown> = year ? { date: { $gte: `${year}-01-01`, $lte: `${year}-12-31` } } : {};
+  if (branchId) filter.$or = [{ branchIds: { $size: 0 } }, { branchIds: branchId }];
   const rows = await HolidayModel.find(filter).sort({ date: 1 }).lean();
-  return rows.map((h) => ({ date: h.date, name: { bn: h.name?.bn ?? '', en: h.name?.en ?? '' }, branchIds: h.branchIds, type: h.type }));
+  return rows.map(holidayView);
 }
 
 export async function createHoliday(user: AuthUser, input: z.infer<typeof holidaySchema>, meta: RequestMeta) {
+  // The same day twice for an overlapping set of branches is a mistake, not two holidays.
+  const clash = await HolidayModel.exists({ date: input.date, $or: [{ branchIds: { $size: 0 } }, ...(input.branchIds.length ? [{ branchIds: { $in: input.branchIds } }] : [{}])] });
+  if (clash) throw new AppError('INVALID_STATE', { reason: 'HOLIDAY_EXISTS', date: input.date });
   const doc = await HolidayModel.create({ ...input, createdBy: user.id });
   await audit.record({ actor: user, action: 'holiday.created', entity: 'holiday', entityId: doc._id.toHexString(), after: input, meta });
-  return { id: doc._id.toHexString(), ...input };
+  return holidayView(doc);
+}
+
+/** Remove a holiday entered by mistake (1.12.0). Days already finalised are not re-derived. */
+export async function deleteHoliday(user: AuthUser, id: string, meta: RequestMeta): Promise<void> {
+  if (!isOid(id)) throw notFound('holiday');
+  const before = await HolidayModel.findByIdAndDelete(id).lean();
+  if (!before) throw notFound('holiday');
+  await audit.record({ actor: user, action: 'holiday.deleted', entity: 'holiday', entityId: id, before: holidayView(before), meta });
 }
 
 export async function isHoliday(date: string, branchId: string | null): Promise<boolean> {
