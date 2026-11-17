@@ -281,3 +281,25 @@ export async function coWorkVisitCounts(sessionIds: string[]): Promise<Map<strin
   ]);
   return new Map(rows.map((r) => [r._id, r.n]));
 }
+
+/** FR-REP-005 self-view: one person's single and joint visits per Dhaka day (joint = one per session and customer). */
+export async function visitSplitByDay(userId: string, from: string, to: string): Promise<Map<string, { recorded: number; solo: number; coWork: number }>> {
+  const day = { $dateToString: { format: '%Y-%m-%d', date: '$checkInAt', timezone: 'Asia/Dhaka' } };
+  const out = new Map<string, { recorded: number; solo: number; coWork: number }>();
+  const row = (d: string) => out.get(d) ?? out.set(d, { recorded: 0, solo: 0, coWork: 0 }).get(d)!;
+  const own = await VisitModel.aggregate<{ _id: { d: string; joint: boolean }; n: number }>([
+    { $match: { userId, checkInAt: range(from, to) } },
+    { $group: { _id: { d: day, joint: { $ne: [{ $ifNull: ['$coWork.sessionId', null] }, null] } }, n: { $sum: 1 } } },
+  ]);
+  for (const r of own) {
+    row(r._id.d).recorded += r.n;
+    if (!r._id.joint) row(r._id.d).solo += r.n;
+  }
+  const joint = await VisitModel.aggregate<{ _id: string; n: number }>([
+    { $match: { $or: [{ userId }, { 'coWork.participantIds': userId }], 'coWork.sessionId': { $ne: null }, checkInAt: range(from, to) } },
+    { $group: { _id: { d: day, s: '$coWork.sessionId', c: '$customerId' } } },
+    { $group: { _id: '$_id.d', n: { $sum: 1 } } },
+  ]);
+  for (const r of joint) row(r._id).coWork = r.n;
+  return out;
+}

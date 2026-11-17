@@ -86,7 +86,7 @@ describe('dashboard (FR-DSH-001)', () => {
     expect(r.status).toBe(200);
     expectConforms('GET', '/dashboard/overview', 200, r.body);
     expect(r.body.collected).toMatchObject({ totalPoisha: 200000, cashPoisha: 150000, mobilePoisha: 50000, count: 2 });
-    expect(r.body.visits).toEqual({ count: 1, uniqueCustomers: 1 });
+    expect(r.body.visits).toEqual({ count: 1, uniqueCustomers: 1, credit: 1, target: 0 }); // no target set in this test
     expect(r.body.promises.dueToday).toBe(1);
     expect(r.body.trend7d).toHaveLength(7);
     expect(r.body.trend7d[6]).toEqual({ date: '2026-11-15', collectedPoisha: 200000, visits: 1 });

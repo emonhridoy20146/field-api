@@ -11,6 +11,7 @@ import { can, effectivePermissions, permissionsVersion } from '../rbac/index.js'
 import { flagsFor, isEnabledForUser } from '../flags/index.js';
 import { appSettings } from '../settings/index.js';
 import { cashPositionOf } from '../cash/index.js';
+import { myTarget } from '../targets/index.js';
 import { getUsers } from '../users/index.js';
 import { DeviceSyncStateModel } from './models/sync.model.js';
 
@@ -40,11 +41,14 @@ async function touchState(user: AuthUser, set: Record<string, unknown>) {
 async function envelope(user: AuthUser) {
   const flags = await flagsFor(user);
   const cash = user.role === 'field_staff' && flags['module.cash'] ? await cashPositionOf(user.id).catch(() => undefined) : undefined;
+  // FR-COL-015: the Today card works offline from this; progress is counted on the device.
+  const target = user.role === 'field_staff' && flags['module.targets'] ? await myTarget(user).catch(() => undefined) : undefined;
   return {
     permissions: { version: await permissionsVersion(), keys: [...(await effectivePermissions(user))].sort() },
     flags,
     settings: await appSettings(user.branchIds[0] ?? null),
     ...(cash ? { cash } : {}),
+    ...(target ? { target } : {}),
     serverTime: now().toISOString(),
   };
 }

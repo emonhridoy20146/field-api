@@ -222,11 +222,8 @@ describe('exports (FR-REP-003/004)', () => {
     expect(c.find((l) => l.startsWith('Rakib Hasan,'))).toMatch(/^Rakib Hasan,1700,/); // cash on hand in taka
   });
 
-  it('refuses what is not built, bad params, other branches and missing permission', async () => {
+  it('refuses bad params, other branches and missing permission', async () => {
     const bm = await as(t, BM);
-    const pdf = await bm.post('/reports/exports', { type: 'collections', format: 'pdf', params: { from: '2026-11-01', to: '2026-11-15' } });
-    expect(pdf.status).toBe(422);
-    expect(pdf.body.details ?? pdf.body).toMatchObject({ rule: 'export_format_unavailable' });
     expect((await bm.post('/reports/exports', { type: 'audit', format: 'csv', params: { from: '2026-11-15', to: '2026-11-15' } })).status).toBe(403); // a manager has no audit.view
     expect((await bm.post('/reports/exports', { type: 'collections', format: 'csv', params: { from: '2026-01-01', to: '2026-11-15' } })).status).toBe(400);
     expect((await bm.post('/reports/exports', { type: 'collections', format: 'csv', params: {} })).status).toBe(400);

@@ -11,6 +11,7 @@ import { promiseDayCounts } from '../promises/index.js';
 import { attendanceCounts } from '../attendance/index.js';
 import { cashOverview } from '../cash/index.js';
 import { inboxOpenCounts } from '../inbox/index.js';
+import { teamDay } from './trends.js';
 
 const ZERO = { totalPoisha: 0, cashPoisha: 0, mobilePoisha: 0, count: 0 };
 
@@ -30,14 +31,14 @@ export async function overview(user: AuthUser, q: { branchId?: string | undefine
 
   const collected = on['module.collections'] ? await collectedByDay(user, branchId, from, date) : new Map<string, typeof ZERO>();
   const visits = on['module.visits'] ? await visitsByDay(user, branchId, from, date) : new Map<string, { count: number; uniqueCustomers: number }>();
+  const team = await teamDay(user, branchId, date, on);
   const trend7d = [];
   for (let d = from; d <= date; d = addDays(d, 1)) trend7d.push({ date: d, collectedPoisha: collected.get(d)?.totalPoisha ?? 0, visits: visits.get(d)?.count ?? 0 });
 
   return {
     date,
-    // targetPoisha stays 0 until daily targets (FR-COL-015, phase 3) exist.
-    collected: { ...(collected.get(date) ?? ZERO), targetPoisha: 0 },
-    visits: visits.get(date) ?? { count: 0, uniqueCustomers: 0 },
+    collected: { ...(collected.get(date) ?? ZERO), targetPoisha: team.targetPoisha },
+    visits: { ...(visits.get(date) ?? { count: 0, uniqueCustomers: 0 }), credit: team.visitCredit, target: team.visitTarget },
     promises: on['module.promises'] ? await promiseDayCounts(user, branchId, date) : { dueToday: 0, keptToday: 0, brokenYesterday: 0 },
     // Attendance and cash are "now" figures; they are only meaningful for today.
     attendance: on['module.attendance'] && date === today ? await attendanceCounts(user, branchId) : { present: 0, late: 0, absent: 0, onDutyNow: 0 },

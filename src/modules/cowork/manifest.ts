@@ -19,7 +19,7 @@ export const manifest: ModuleManifest = {
   routes: coworkRoutes,
   events: { emits: ['cowork.requested', 'cowork.responded'], consumes: ['attendance.event', 'attendance.auto_closed'] },
   settings: [
-    { key: 'cowork.visitCredit', type: 'number', default: 1, branchOverridable: true, description: 'FR-CW-005 how much a joint visit counts for each participant in visit targets (0 to 1). Money is never shared.' },
+    { key: 'cowork.visitCredit', type: 'number', default: 1, branchOverridable: true, exposeToApp: true, description: 'FR-CW-005 how much a joint visit counts for each participant in visit targets (0 to 1). Money is never shared.' },
     { key: 'cowork.maxMembers', type: 'int', default: 5, branchOverridable: true, exposeToApp: true, description: 'FR-CW-001 largest group that can work together' },
   ],
   jobs: [{ name: 'cowork.end-day', schedule: '5 0 * * *', handler: async () => void (await s.endPastSessions()) }],

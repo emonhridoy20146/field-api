@@ -11,10 +11,11 @@ import { erpFieldPayments, getCustomerRefs, overdueAging, overdueSummary, scopeF
 import { collectedByDay, collectedByUser, collectionRows } from '../collections/index.js';
 import { visitsByDay, visitsByUser, visitSplitByUser } from '../visits/index.js';
 import { visitCreditFor } from '../cowork/index.js';
+import { achievement, targetsOf } from '../targets/index.js';
 import { promiseStatsByOwner } from '../promises/index.js';
 import { attendanceDays } from '../attendance/index.js';
 import { fieldStatsByUser } from '../location/index.js';
-import { bucketOf, buckets, reportRange, validRange, type Granularity } from './domain/period.js';
+import { bucketOf, buckets, monthEnd, reportRange, validRange, type Granularity } from './domain/period.js';
 import { reconcileDay } from './domain/reconcile.js';
 import { OverdueSnapshotModel } from './models/report.model.js';
 
@@ -61,11 +62,16 @@ export async function staffPerformance(user: AuthUser, q: z.infer<typeof perform
       att.set(d.userId, a);
     }
 
+  // A running month's target covers the whole month; achievement compares against the part up to today.
+  const targets = on['module.targets'] ? await targetsOf(staff, from, q.period === 'monthly' ? monthEnd(q.date) : to) : new Map<string, never>();
   const credit = new Map<string, number>();
   for (const s of staff) credit.set(s.id, await visitCreditFor(split.get(s.id)?.solo ?? 0, split.get(s.id)?.coWork ?? 0, s.branchIds[0]));
 
   return staff.map((s) => {
     const p = promises.get(s.id) ?? { due: 0, kept: 0, decided: 0 };
+    const byMethod = (collected.get(s.id)?.byMethod ?? {}) as Record<string, number>;
+    const total = Object.values(byMethod).reduce((a, b) => a + b, 0);
+    const tg = targets.get(s.id);
     return {
       userId: s.id,
       name: s.name.en || s.name.bn,
@@ -78,7 +84,14 @@ export async function staffPerformance(user: AuthUser, q: z.infer<typeof perform
       visitCredit: credit.get(s.id) ?? 0,
       collectionsCount: collected.get(s.id)?.count ?? 0,
       collectedPoisha: (collected.get(s.id)?.byMethod ?? {}) as Record<string, number>,
-      targetPoisha: 0, // daily targets are FR-COL-015 (proposed)
+      // FR-COL-015: targets summed over the period's working days; achievement is measured to date.
+      targetPoisha: tg?.amountPoisha ?? 0,
+      visitTarget: tg?.visits ?? 0,
+      targetToDatePoisha: tg?.amountToDatePoisha ?? 0,
+      visitTargetToDate: tg?.visitsToDate ?? 0,
+      amountAchievement: achievement(total, tg?.amountToDatePoisha ?? 0),
+      visitAchievement: achievement(credit.get(s.id) ?? 0, tg?.visitsToDate ?? 0),
+      targetDays: tg?.days ?? 0,
       promisesDue: p.due,
       promisesKept: p.kept,
       // Share of promises already decided (kept, partly kept, broken) that were fully kept.
@@ -183,4 +196,20 @@ export async function reconciliation(user: AuthUser, q: z.infer<typeof reconcili
       return { ...m, customer: cust ? { id: cust.id, name: cust.name.bn || cust.name.en, code: cust.code } : null, collector: u ? { id: u.id, name: u.name.en || u.name.bn } : null };
     }),
   };
+}
+
+/** Dashboard (FR-COL-015): the day's targets and visit credit of the field staff in scope. */
+export async function teamDay(user: AuthUser, branchId: string | undefined, date: string, on: Record<string, boolean>) {
+  const staff = await listByRole(['field_staff'], branchId ? [branchId] : isSuperAdmin(user) ? undefined : user.branchIds);
+  const out = { targetPoisha: 0, visitTarget: 0, visitCredit: 0 };
+  if (on['module.targets'])
+    for (const t of (await targetsOf(staff, date, date)).values()) {
+      out.targetPoisha += t.amountPoisha;
+      out.visitTarget += t.visits;
+    }
+  if (on['module.visits']) {
+    const split = await visitSplitByUser(user, branchId, date, date);
+    for (const s of staff) out.visitCredit += await visitCreditFor(split.get(s.id)?.solo ?? 0, split.get(s.id)?.coWork ?? 0, s.branchIds[0]);
+  }
+  return { targetPoisha: out.targetPoisha, visitTarget: Math.round(out.visitTarget * 100) / 100, visitCredit: Math.round(out.visitCredit * 100) / 100 };
 }

@@ -157,6 +157,10 @@ Derived, rebuildable from events. `{ userId, branchId, businessDate, status: 'no
 ### leave_requests [ADDED]
 `{ userId, branchId, type: 'casual'|'sick'|'other', from, to, reason, status: 'pending'|'approved'|'rejected', decidedBy, decidedAt, decisionReason, createdAt }` · `{ userId:1, from:1 }`, `{ branchId:1, status:1, createdAt:-1 }`.
 
+### staff_targets [ADDED]
+`{ branchId, userId | null, kind: 'set'|'cleared', amountPoisha | null, visits | null, effectiveFrom: 'YYYY-MM-DD', reason, setBy, setAt }` · `{ userId:1, effectiveFrom:1 }`, `{ branchId:1, userId:1, effectiveFrom:1 }`.
+- Append-only (ADR-030). `userId: null` is the branch default. The value for a person on a day is the latest personal record with `effectiveFrom ≤ day` (same day: later `setAt`), unless it is `cleared` or missing, in which case the latest branch default applies; no record means 0. `visits` may be fractional (co-work credit). Days that are not working days for the person (weekly off, holiday, approved leave) have no target. Planning values only: never money truth.
+
 ## 5. Location
 
 ### location_points (time-series collection)
