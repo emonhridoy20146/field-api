@@ -11,6 +11,7 @@ import { erpFieldPayments, getCustomerRefs, overdueAging, overdueSummary, scopeF
 import { collectedByDay, collectedByUser, collectionRows } from '../collections/index.js';
 import { visitsByDay, visitsByUser, visitSplitByUser } from '../visits/index.js';
 import { visitCreditFor } from '../cowork/index.js';
+import { achievement, targetsOf } from '../targets/index.js';
 import { promiseStatsByOwner } from '../promises/index.js';
 import { attendanceDays } from '../attendance/index.js';
 import { fieldStatsByUser } from '../location/index.js';
@@ -61,11 +62,15 @@ export async function staffPerformance(user: AuthUser, q: z.infer<typeof perform
       att.set(d.userId, a);
     }
 
+  const targets = on['module.targets'] ? await targetsOf(staff, from, to) : new Map<string, never>();
   const credit = new Map<string, number>();
   for (const s of staff) credit.set(s.id, await visitCreditFor(split.get(s.id)?.solo ?? 0, split.get(s.id)?.coWork ?? 0, s.branchIds[0]));
 
   return staff.map((s) => {
     const p = promises.get(s.id) ?? { due: 0, kept: 0, decided: 0 };
+    const byMethod = (collected.get(s.id)?.byMethod ?? {}) as Record<string, number>;
+    const total = Object.values(byMethod).reduce((a, b) => a + b, 0);
+    const tg = targets.get(s.id);
     return {
       userId: s.id,
       name: s.name.en || s.name.bn,
@@ -78,7 +83,14 @@ export async function staffPerformance(user: AuthUser, q: z.infer<typeof perform
       visitCredit: credit.get(s.id) ?? 0,
       collectionsCount: collected.get(s.id)?.count ?? 0,
       collectedPoisha: (collected.get(s.id)?.byMethod ?? {}) as Record<string, number>,
-      targetPoisha: 0, // daily targets are FR-COL-015 (proposed)
+      // FR-COL-015: targets summed over the period's working days; achievement is measured to date.
+      targetPoisha: tg?.amountPoisha ?? 0,
+      visitTarget: tg?.visits ?? 0,
+      targetToDatePoisha: tg?.amountToDatePoisha ?? 0,
+      visitTargetToDate: tg?.visitsToDate ?? 0,
+      amountAchievement: achievement(total, tg?.amountToDatePoisha ?? 0),
+      visitAchievement: achievement(credit.get(s.id) ?? 0, tg?.visitsToDate ?? 0),
+      targetDays: tg?.days ?? 0,
       promisesDue: p.due,
       promisesKept: p.kept,
       // Share of promises already decided (kept, partly kept, broken) that were fully kept.

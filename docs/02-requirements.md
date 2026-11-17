@@ -80,6 +80,8 @@ Defaults: SA = super_admin, BM = branch_manager, FS = field_staff, VW = viewer. 
 | `audit.view` | View audit log in scope | ● | ○ | ○ | ● | audit |
 | `cowork.use` **[ADDED]** | Ask colleagues to work together, accept, leave | ○ | ○ | ● | ○ | cowork |
 | `cowork.view` **[ADDED]** | See co-work sessions in scope | ● | ● | ○ | ● | cowork |
+| `target.view` **[ADDED]** | See daily targets in scope | ● | ● | ○ | ● | targets |
+| `target.manage` **[ADDED]** | Set daily targets for staff and branch defaults | ● | ● | ○ | ○ | targets |
 | `inbox.view` **[ADDED]** | "Needs attention" exceptions inbox | ● | ● | ○ | ○ | inbox |
 | `leave.request` **[ADDED]** | Request leave | ○ | ○ | ● | ○ | attendance |
 | `microfinance.view` | **RESERVED** — not grantable until MF-001 unblocked | — | — | — | — | microfinance |
@@ -157,7 +159,7 @@ Rules:
 | FR-CUS-006 | Pin popup/sheet shows name, status, outstanding, last 3 notes, last visit, open promise, and links to full timeline. | active | P1 | W M | E D |
 | FR-CUS-007 | Customer timeline: merged chronological feed of payments (ERP), collections (field), visits, notes, promises, tags, handovers, location corrections. | active | P1 | A W M | I E |
 | FR-CUS-008 **[ADDED]** | Pin correction: staff proposes a new pin captured from current GPS (accuracy ≤ 30 m required) with photo; manager approves/rejects; approved overlay overrides ERP coords in FOS; full history. | proposed | P1 | A W M | I E D |
-| FR-CUS-009 **[ADDED]** | Data-quality report: customers with missing/invalid coords, missing phone, plan with no schedule, per branch. | proposed | P3 | A W | I |
+| FR-CUS-009 **[ADDED]** | Data-quality report: customers with missing/invalid coords, missing phone, plan with no schedule, per branch. Approved by the owner 2026-11-17; issues also cover swapped coords, pin far from the branch, invalid and shared phones, unassigned. | active | P3 | A W | I |
 | FR-CUS-010 **[ADDED]** | "As of" freshness: every balance shown with `erpFetchedAt`; app warns when > 24 h old. | proposed | P1 | A W M | U D |
 
 **Overdue definitions** (rule module `customers/domain/status.ts`, plan length never hardcoded):
@@ -197,7 +199,7 @@ Rules:
 | FR-COL-012 **[ADDED]** | SMS receipt to customer's registered phone on `received` (and on `posted` if different amount): "৳X received by {staff}, receipt {no}. Hotline …". Behind flag `module.sms`. | proposed | P4 | A | I |
 | FR-COL-013 **[ADDED]** | Anomaly flags on each collection: `far_from_pin` (> geofence radius, default 300 m), `mock_location`, `clock_skew` (> 5 min), `late_sync` (> 12 h after recording), `duplicate_txn_ref` (same mobile txn ID seen before). Flags never block, they feed the inbox. | proposed | P1 | A W | U I |
 | FR-COL-014 **[ADDED]** | Daily reconciliation report: FOS posted totals vs. Laravel payments with source=field per branch/day; mismatches listed. | proposed | P3 | A W | I C |
-| FR-COL-015 **[ADDED]** | Daily target per staff (amount and visits), shown as progress on app home and manager dashboard. | proposed | P3 | A W M | I |
+| FR-COL-015 **[ADDED]** | Daily target per staff (amount and visits), shown as progress on app home and manager dashboard. Approved by the owner 2026-11-17: dated personal targets and branch defaults (module `targets`); visits are measured as visit credit; no target on weekly off, holiday or approved leave. | active | P3 | A W M | I |
 
 ### 4.7 Cash on hand and deposits (module `cash`)
 
@@ -306,9 +308,9 @@ Rules:
 |---|---|---|---|---|---|
 | FR-REP-001 | Staff performance daily and monthly: visits, unique customers visited, collections (count, amount by method), promise fulfilment rate, attendance (present, late, break), time in field, distance. | active | P3 | A W | U I E |
 | FR-REP-002 | Branch overdue trend (daily snapshot of overdue count/amount, aging buckets 1–30, 31–60, 61–90, 90+) and collection trend. | active | P3 | A W | U I |
-| FR-REP-003 | Bangla UI and reports, Asia/Dhaka time, Bangla digits optional; Bangla PDF with embedded font. | active | P3 | A W | E D |
+| FR-REP-003 | Bangla UI and reports, Asia/Dhaka time, Bangla digits optional; Bangla PDF with embedded font (owner approved building it 2026-11-17, OD-26 closed). | active | P3 | A W | E D |
 | FR-REP-004 | Exports CSV/XLSX/PDF as async job, stored in object storage 7 days, download via signed URL, audited. | active | P3 | A W | I E |
-| FR-REP-005 **[ADDED]** | Leaderboard (opt-in setting) and staff self-view of own monthly performance in app. | proposed | P3 | A M W | I |
+| FR-REP-005 **[ADDED]** | Leaderboard (opt-in setting) and staff self-view of own monthly performance in app. Approved by the owner 2026-11-17; managers always see it, staff only when `reports.leaderboardVisibleToStaff` is on (OD-15). | active | P3 | A M W | I |
 | FR-REP-006 **[ADDED]** | Scheduled email/push digest for managers (daily 20:00 summary). | proposed | P4 | A | I |
 
 ### 4.15 Audit (module `audit`)
