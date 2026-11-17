@@ -11,6 +11,7 @@ import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { getBranches, getByErpBranchId } from '../branches/index.js';
 import { getUsers } from '../users/index.js';
+import { getSetting } from '../settings/index.js';
 import { refreshCustomer as erpRefresh, ErpUnavailableError, type ErpCustomer } from '../erp-gateway/index.js';
 import { badges, deriveCustomer, worstStatus, type CustomerStatus } from './domain/status.js';
 import { QUALITY_ISSUES, findIssues, sharedPhones, type Finding, type QualityInput } from './domain/quality.js';
@@ -428,6 +429,7 @@ async function listItems(rows: Doc[], user: AuthUser, near: LatLng | null) {
       installmentPoisha: c.derived?.nextInstallmentPoisha ?? null,
       overduePoisha: c.derived?.overdueAmountPoisha ?? 0,
       areaName: x.areaName ?? null,
+      branchId: c.branchId ?? null,
       ...(a ? { assignee: { id: a.id, name: a.name.en || a.name.bn } } : {}),
       erpFetchedAt: (c.erpFetchedAt as Date).toISOString(),
     };
@@ -656,13 +658,23 @@ export async function timeline(user: AuthUser, id: string, limit: number, cursor
     .sort({ decidedAt: -1 })
     .limit(limit)
     .lean();
-  for (const p of proposals)
+  const pinPeople = await getUsers(proposals.map((p) => (p.direct ? p.decidedBy : p.proposedBy) ?? '').filter(Boolean));
+  for (const p of proposals) {
+    const who = (p.direct ? p.decidedBy : p.proposedBy) ?? '';
+    const u = pinPeople.get(who);
     items.push({
       kind: 'location_correction',
       at: p.decidedAt!.toISOString(),
-      summary: { en: 'Map pin corrected', bn: 'ম্যাপ পিন সংশোধন' },
+      ...(u ? { actor: { id: u.id, name: u.name.en || u.name.bn } } : {}),
+      summary: p.direct
+        ? { en: 'Map pin set by a manager', bn: 'ম্যানেজার ম্যাপ পিন বসিয়েছেন' }
+        : p.autoApplied
+          ? { en: 'Map pin added from the field', bn: 'মাঠ থেকে ম্যাপ পিন যোগ হয়েছে' }
+          : { en: 'Map pin corrected', bn: 'ম্যাপ পিন সংশোধন' },
       refId: p._id.toHexString(),
+      data: { method: p.method ?? 'gps', direct: !!p.direct, autoApplied: !!p.autoApplied },
     });
+  }
   for (const src of timelineSources) items.push(...(await src(id, user, beforeDate, limit)));
   items.sort((a, b) => b.at.localeCompare(a.at));
   const page = items.slice(0, limit);
@@ -747,14 +759,48 @@ export async function refresh(user: AuthUser, id: string) {
   return detail(user, id);
 }
 
-// ---------------- pin corrections (FR-CUS-008) ----------------
+// ---------------- pin corrections (FR-CUS-008) and map pins (FR-CUS-011) ----------------
+
+const hasUsablePin = (c: Doc) => c.locationStatus === 'ok' || c.locationStatus === 'overridden';
+
+/**
+ * Make `point` the customer's official FOS pin (overlay over the ERP coordinates, ADR-025) and tell
+ * everyone who depends on it: the assignee's phone (change feed) and the assignments module, because a
+ * new pin can move the customer into or out of a polygon area (`customer.placed`).
+ */
+async function applyPin(customerId: string, point: { type: 'Point'; coordinates: number[] }, override: Record<string, unknown>) {
+  const before = (await CustomerModel.findById(customerId).lean()) as Doc | null;
+  const c = (await CustomerModel.findByIdAndUpdate(
+    customerId,
+    {
+      $set: {
+        'fos.locationOverride': { point, ...override },
+        location: point,
+        locationStatus: 'overridden',
+        locationSource: 'overlay',
+      },
+      $inc: { version: 1 },
+    },
+    { new: true },
+  ).lean()) as Doc;
+  if (c.fos?.assigneeId)
+    await recordChange({ entity: 'customer', entityId: customerId, userIds: [c.fos.assigneeId], branchId: c.branchId });
+  // Before 1.11.0 an approved pin did not recompute polygon areas until the next area edit.
+  if (c.branchId)
+    await ctx().bus.emit('customer.placed', { customerId, branchId: c.branchId, areaCode: c.areaCode ?? null, isNew: false });
+  return { before, after: c };
+}
+
+type GeoInput = { lat: number; lng: number; accuracyM: number; mock?: boolean | undefined };
 
 export async function proposeLocation(
   user: AuthUser,
   customerId: string,
   input: {
     clientId: string;
-    geo: { lat: number; lng: number; accuracyM: number; mock?: boolean };
+    geo: GeoInput;
+    method?: 'gps' | 'map' | undefined;
+    deviceGeo?: GeoInput | null | undefined;
     photoMediaId?: string | undefined;
     note?: string | undefined;
   },
@@ -763,9 +809,20 @@ export async function proposeLocation(
   const c = await loadInScope(user, customerId);
   const existing = await LocationProposalModel.findOne({ clientId: input.clientId }).lean();
   if (existing) return { id: existing._id.toHexString(), status: existing.status, replayed: true };
-  if (input.geo.accuracyM > 30) throw businessRule('LOW_ACCURACY', { maxAccuracyM: 30 });
-  if (input.geo.mock) throw businessRule('MOCK_LOCATION');
+  const method = input.method ?? 'gps';
+  // A GPS pin is only as good as the fix; a map pin is chosen by eye, so these checks apply to the phone fix only.
+  if (method === 'gps') {
+    if (input.geo.accuracyM > 30) throw businessRule('LOW_ACCURACY', { maxAccuracyM: 30 });
+    if (input.geo.mock) throw businessRule('MOCK_LOCATION');
+  }
   if (classifyCoords(input.geo.lat, input.geo.lng) !== 'ok') throw businessRule('OUTSIDE_BANGLADESH');
+  const device = method === 'map' ? (input.deviceGeo ?? null) : null;
+  const deviceMock = !!device?.mock;
+  // Owner decision 2026-11-17 (ADR-031): a staff pin for a customer without a usable pin is applied at once,
+  // unless the branch asks for approval of every pin. Moving an existing pin always waits for a manager.
+  const policy = await getSetting<string>('customers.staffPinApproval', c.branchId);
+  const auto = policy === 'when_missing' && !hasUsablePin(c) && !deviceMock;
+  const now = ctx().clock.now();
   try {
     const p = await LocationProposalModel.create({
       clientId: input.clientId,
@@ -774,30 +831,105 @@ export async function proposeLocation(
       proposedBy: user.id,
       point: { type: 'Point', coordinates: [input.geo.lng, input.geo.lat] },
       accuracyM: input.geo.accuracyM,
+      method,
+      ...(device ? { devicePoint: { type: 'Point', coordinates: [device.lng, device.lat] }, deviceAccuracyM: device.accuracyM } : {}),
+      deviceMock,
       photoMediaId: input.photoMediaId ?? null,
       note: input.note ?? null,
+      ...(auto ? { status: 'approved', autoApplied: true, decidedAt: now } : {}),
     });
+    const id = p._id.toHexString();
     await audit.record({
       actor: user,
       action: 'customer.location.proposed',
       entity: 'customer',
       entityId: customerId,
       branchId: c.branchId,
-      after: { lat: input.geo.lat, lng: input.geo.lng, accuracyM: input.geo.accuracyM },
+      after: { lat: input.geo.lat, lng: input.geo.lng, accuracyM: input.geo.accuracyM, method },
       meta,
     });
-    await ctx().bus.emit('customer.location.proposed', {
-      proposalId: p._id.toHexString(),
-      customerId,
-      branchId: c.branchId,
-    });
+    if (auto) {
+      const point = { type: 'Point' as const, coordinates: [input.geo.lng, input.geo.lat] };
+      await applyPin(customerId, point, { approvedBy: null, approvedAt: now, proposalId: id, autoApplied: true });
+      await audit.record({
+        actor: user,
+        action: 'customer.location.auto_applied',
+        entity: 'customer',
+        entityId: customerId,
+        branchId: c.branchId,
+        before: { location: c.location ?? null, status: c.locationStatus },
+        after: { location: point, proposalId: id },
+        reason: 'customer had no usable pin (customers.staffPinApproval = when_missing)',
+        meta,
+      });
+      await ctx().bus.emit('customer.location.approved', { customerId, branchId: c.branchId, proposalId: id, autoApplied: true });
+    } else {
+      await ctx().bus.emit('customer.location.proposed', { proposalId: id, customerId, branchId: c.branchId });
+    }
     // The proposer follows the proposal's fate on /sync/pull (contract 1.7.0).
-    await recordChange({ entity: 'location_proposal', entityId: p._id.toHexString(), userIds: [user.id], branchId: c.branchId });
-    return { id: p._id.toHexString(), status: 'pending', replayed: false };
+    await recordChange({ entity: 'location_proposal', entityId: id, userIds: [user.id], branchId: c.branchId });
+    return { id, status: auto ? 'approved' : 'pending', replayed: false };
   } catch (e) {
     if (isDuplicateKey(e)) return proposeLocation(user, customerId, input, meta);
     throw e;
   }
+}
+
+/**
+ * FR-CUS-011: a manager drops the pin on the map and it becomes the customer's pin at once. Stored as an
+ * already-approved proposal (`direct: true`) so pin history, the timeline and the approved tab need nothing new.
+ * Idempotent by `clientId`. Pending staff proposals for the customer stay open: the manager decides them.
+ */
+export async function setLocation(
+  user: AuthUser,
+  customerId: string,
+  input: { clientId: string; lat: number; lng: number; method?: 'map' | 'gps' | undefined; note?: string | undefined },
+  meta: RequestMeta,
+) {
+  const c = await loadInScope(user, customerId);
+  const existing = await LocationProposalModel.findOne({ clientId: input.clientId }).lean();
+  if (existing) {
+    if (existing.customerId !== customerId || !existing.direct) throw new AppError('INVALID_STATE', { reason: 'CLIENT_ID_REUSED' });
+    return { id: existing._id.toHexString(), status: existing.status, replayed: true, location: locationView((await CustomerModel.findById(customerId).lean()) as Doc) };
+  }
+  if (classifyCoords(input.lat, input.lng) !== 'ok') throw businessRule('OUTSIDE_BANGLADESH');
+  const now = ctx().clock.now();
+  const point = { type: 'Point' as const, coordinates: [input.lng, input.lat] };
+  let id: string;
+  try {
+    const p = await LocationProposalModel.create({
+      clientId: input.clientId,
+      customerId,
+      branchId: c.branchId,
+      proposedBy: user.id,
+      point,
+      accuracyM: null,
+      method: input.method ?? 'map',
+      direct: true,
+      note: input.note ?? null,
+      status: 'approved',
+      decidedBy: user.id,
+      decidedAt: now,
+    });
+    id = p._id.toHexString();
+  } catch (e) {
+    if (isDuplicateKey(e)) return setLocation(user, customerId, input, meta);
+    throw e;
+  }
+  const { after } = await applyPin(customerId, point, { approvedBy: user.id, approvedAt: now, proposalId: id, direct: true });
+  await audit.record({
+    actor: user,
+    action: 'customer.location.set',
+    entity: 'customer',
+    entityId: customerId,
+    branchId: c.branchId,
+    before: { location: c.location ?? null, status: c.locationStatus },
+    after: { location: point, proposalId: id },
+    reason: input.note ?? null,
+    meta,
+  });
+  await ctx().bus.emit('customer.location.approved', { customerId, branchId: c.branchId, proposalId: id, direct: true });
+  return { id, status: 'approved', replayed: false, location: locationView(after) };
 }
 
 export async function listProposals(user: AuthUser, q: { branchId?: string; status?: string }) {
@@ -806,31 +938,42 @@ export async function listProposals(user: AuthUser, q: { branchId?: string; stat
     .limit(200)
     .lean();
   const refs = await getCustomerRefs(rows.map((r) => r.customerId));
-  const proposers = await getUsers(rows.map((r) => r.proposedBy ?? '').filter(Boolean));
+  const people = await getUsers([...rows.map((r) => r.proposedBy ?? ''), ...rows.map((r) => r.decidedBy ?? '')].filter(Boolean));
   const nameOf = (id: string) => {
-    const u = proposers.get(id);
+    const u = people.get(id);
     return u ? u.name.en || u.name.bn : '';
   };
-  return rows.map((p) => ({
-    id: p._id.toHexString(),
-    customer: refs.get(p.customerId)
-      ? {
-          id: p.customerId,
-          name: refs.get(p.customerId)!.name,
-          code: refs.get(p.customerId)!.code,
-          current: refs.get(p.customerId)!.location,
-        }
-      : { id: p.customerId },
-    lat: p.point!.coordinates[1],
-    lng: p.point!.coordinates[0],
-    accuracyM: p.accuracyM,
-    photoMediaId: p.photoMediaId,
-    note: p.note,
-    proposedBy: p.proposedBy,
-    proposer: { id: p.proposedBy ?? '', name: nameOf(p.proposedBy ?? '') },
-    status: p.status,
-    createdAt: (p as unknown as { createdAt: Date }).createdAt.toISOString(),
-  }));
+  return rows.map((p) => {
+    const at = { lat: p.point!.coordinates[1]!, lng: p.point!.coordinates[0]! };
+    const dev = p.devicePoint?.coordinates?.length === 2 ? { lat: p.devicePoint.coordinates[1]!, lng: p.devicePoint.coordinates[0]! } : null;
+    return {
+      id: p._id.toHexString(),
+      customer: refs.get(p.customerId)
+        ? {
+            id: p.customerId,
+            name: refs.get(p.customerId)!.name,
+            code: refs.get(p.customerId)!.code,
+            current: refs.get(p.customerId)!.location,
+          }
+        : { id: p.customerId },
+      lat: at.lat,
+      lng: at.lng,
+      ...(typeof p.accuracyM === 'number' ? { accuracyM: p.accuracyM } : {}),
+      photoMediaId: p.photoMediaId,
+      note: p.note,
+      proposedBy: p.proposedBy,
+      proposer: { id: p.proposedBy ?? '', name: nameOf(p.proposedBy ?? '') },
+      status: p.status,
+      method: (p.method ?? 'gps') as 'gps' | 'map',
+      deviceDistanceM: dev ? Math.round(haversineM(at, dev)) : null,
+      deviceMock: !!p.deviceMock,
+      autoApplied: !!p.autoApplied,
+      direct: !!p.direct,
+      decider: p.decidedBy ? { id: p.decidedBy, name: nameOf(p.decidedBy) } : null,
+      decidedAt: p.decidedAt ? p.decidedAt.toISOString() : null,
+      createdAt: (p as unknown as { createdAt: Date }).createdAt.toISOString(),
+    };
+  });
 }
 
 /** What the proposing staff member sees of their own proposal (sync entity `location_proposal`, contract 1.7.0). */
@@ -842,9 +985,11 @@ function ownProposalView(p: LooseObject) {
     status: p.status as string,
     lat: p.point.coordinates[1] as number,
     lng: p.point.coordinates[0] as number,
-    accuracyM: p.accuracyM as number,
+    accuracyM: (p.accuracyM ?? 0) as number,
     note: (p.note ?? null) as string | null,
     decisionReason: (p.decisionReason ?? null) as string | null,
+    method: (p.method ?? 'gps') as string,
+    autoApplied: !!p.autoApplied,
     createdAt: (p.createdAt as Date).toISOString(),
     decidedAt: p.decidedAt ? (p.decidedAt as Date).toISOString() : null,
   };
@@ -852,7 +997,7 @@ function ownProposalView(p: LooseObject) {
 
 /** Own proposals, newest first (after a reinstall the app has no sync history to learn them from). */
 export async function myProposals(user: AuthUser, status?: string) {
-  const rows = (await LocationProposalModel.find({ proposedBy: user.id, ...(status ? { status } : {}) }).sort({ createdAt: -1 }).limit(200).lean()) as LooseObject[];
+  const rows = (await LocationProposalModel.find({ proposedBy: user.id, direct: { $ne: true }, ...(status ? { status } : {}) }).sort({ createdAt: -1 }).limit(200).lean()) as LooseObject[];
   return rows.map(ownProposalView);
 }
 
@@ -887,21 +1032,7 @@ export async function decideProposal(
   );
   if (p.proposedBy) await recordChange({ entity: 'location_proposal', entityId: id, userIds: [p.proposedBy], branchId: p.branchId ?? null });
   if (input.decision === 'approve') {
-    const before = (await CustomerModel.findById(p.customerId).lean()) as Doc | null;
-    const override = { point: p.point, approvedBy: user.id, approvedAt: now, proposalId: id };
-    const c = (await CustomerModel.findByIdAndUpdate(
-      p.customerId,
-      {
-        $set: {
-          'fos.locationOverride': override,
-          location: p.point,
-          locationStatus: 'overridden',
-          locationSource: 'overlay',
-        },
-        $inc: { version: 1 },
-      },
-      { new: true },
-    ).lean()) as Doc;
+    const { before } = await applyPin(p.customerId, p.point as { type: 'Point'; coordinates: number[] }, { approvedBy: user.id, approvedAt: now, proposalId: id });
     await audit.record({
       actor: user,
       action: 'customer.location.approved',
@@ -918,13 +1049,6 @@ export async function decideProposal(
       branchId: p.branchId,
       proposalId: id,
     });
-    if (c.fos?.assigneeId)
-      await recordChange({
-        entity: 'customer',
-        entityId: p.customerId,
-        userIds: [c.fos.assigneeId],
-        branchId: c.branchId,
-      });
   } else {
     await audit.record({
       actor: user,

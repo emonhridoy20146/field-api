@@ -4,6 +4,8 @@ import { as, createTestApp, seedBasics, type Seeded, type TestApp } from '../hel
 import { expectConforms } from '../helpers/openapi.js';
 import { deltaSync, reconcile } from '../../src/modules/erp-gateway/index.js';
 import { applyAssignments, getByErpId } from '../../src/modules/customers/index.js';
+import { setSystem } from '../../src/modules/settings/index.js';
+import { AssignmentModel } from '../../src/modules/assignments/models/assignment.model.js';
 
 let t: TestApp;
 let s: Seeded;
@@ -17,12 +19,15 @@ beforeAll(async () => {
   await deltaSync();
   for (const e of ['100245', '100246', '100247', '100248', '200301']) ids[e] = (await getByErpId(e))!.id;
   // fs1 owns 100245 + 100246, fs2 owns 100247; 100248 unassigned; fsB owns 200301
-  await applyAssignments([
-    { customerId: ids['100245']!, assigneeId: s.fs1.id },
-    { customerId: ids['100246']!, assigneeId: s.fs1.id },
-    { customerId: ids['100247']!, assigneeId: s.fs2.id },
-    { customerId: ids['200301']!, assigneeId: s.fsB.id },
-  ]);
+  const owners: [string, string, string][] = [
+    ['100245', s.fs1.id, s.branchA],
+    ['100246', s.fs1.id, s.branchA],
+    ['100247', s.fs2.id, s.branchA],
+    ['200301', s.fsB.id, s.branchB],
+  ];
+  await applyAssignments(owners.map(([e, u]) => ({ customerId: ids[e]!, assigneeId: u })));
+  // The assignment records behind them (made long ago), so a recompute after a pin change keeps the owner (1.11.0).
+  await AssignmentModel.insertMany(owners.map(([e, u, b]) => ({ branchId: b, userId: u, type: 'customer', customerId: ids[e]!, effectiveFrom: new Date('2026-01-01T00:00:00Z'), source: 'manual' })));
 });
 afterAll(async () => t.close());
 
@@ -183,6 +188,10 @@ describe('pin corrections (FR-CUS-008)', () => {
   let proposalId = '';
   const clientId = randomUUID();
   const body = { clientId, geo: { lat: 22.7053, lng: 90.3651, accuracyM: 12 }, note: 'Gate is on the east side' };
+  // The manager-approval path for a customer without a pin needs the "approve every pin" policy (1.11.0, ADR-031);
+  // the default (`when_missing`) is covered by the map pin tests below.
+  beforeAll(async () => setSystem('customers.staffPinApproval', 'always'));
+  afterAll(async () => setSystem('customers.staffPinApproval', 'when_missing'));
 
   it('field staff proposes; replay with same clientId is idempotent', async () => {
     const c = await as(t, '01700000003');
@@ -251,5 +260,136 @@ describe('pin corrections (FR-CUS-008)', () => {
     expect((await bm.get('/location-proposals/mine')).body).toEqual([]);
     expect((await (await as(t, '01700000006')).get('/location-proposals/mine')).status).toBe(403); // viewer cannot propose
     expect((await t.app.inject({ method: 'GET', url: '/api/v1/location-proposals/mine' })).statusCode).toBe(401);
+  });
+});
+
+describe('map pins (FR-CUS-011, contract 1.11.0)', () => {
+  // 100247 (fs2) and 100248 (unassigned) have no usable pin; 100246 got one above.
+  const near = { lat: 22.7112, lng: 90.3712 };
+  const phone = { lat: 22.7130, lng: 90.3712, accuracyM: 14 }; // ≈ 200 m north of the picked point
+
+  it('a staff map pin for a customer without a pin applies at once (default when_missing)', async () => {
+    const fs2 = await as(t, '01700000004');
+    const before = events.length;
+    const r = await fs2.post(`/customers/${ids['100247']}/location-proposals`, { clientId: randomUUID(), method: 'map', geo: { ...near, accuracyM: 0 }, deviceGeo: phone });
+    expect(r.status).toBe(201);
+    expectConforms('POST', '/customers/{id}/location-proposals', 201, r.body);
+    expect(r.body.status).toBe('approved');
+    const det = await fs2.get(`/customers/${ids['100247']}`);
+    expect(det.body.location).toMatchObject({ status: 'overridden', source: 'overlay' });
+    expect(det.body.location.lat).toBeCloseTo(near.lat);
+    expect(det.body.branchId).toBe(s.branchA);
+    // areas are recomputed for the newly placed customer
+    expect(events.slice(before).some((e) => e.name === 'customer.placed' && (e.payload as { customerId: string }).customerId === ids['100247'])).toBe(true);
+
+    const bm = await as(t, '01700000002');
+    expect((await bm.get('/location-proposals')).body.some((p: { id: string }) => p.id === r.body.id)).toBe(false); // nothing to approve
+    const approved = await bm.get('/location-proposals?status=approved');
+    expectConforms('GET', '/location-proposals', 200, approved.body);
+    const item = approved.body.find((p: { id: string }) => p.id === r.body.id);
+    expect(item).toMatchObject({ method: 'map', autoApplied: true, direct: false, deviceMock: false, decider: null });
+    expect(item.deviceDistanceM).toBeGreaterThan(150);
+    expect(item.deviceDistanceM).toBeLessThan(250);
+    expect(item.decidedAt).not.toBeNull();
+
+    const mine = await fs2.get('/location-proposals/mine');
+    expectConforms('GET', '/location-proposals/mine', 200, mine.body);
+    expect(mine.body[0]).toMatchObject({ id: r.body.id, status: 'approved', method: 'map', autoApplied: true });
+    const pull = await fs2.get('/sync/pull?cursor=s_0');
+    expect(pull.body.changes.some((c: { entity: string; id: string }) => c.entity === 'customer' && c.id === ids['100247'])).toBe(true);
+
+    const tl = await fs2.get(`/customers/${ids['100247']}/timeline`);
+    expect(tl.body.items.find((x: { kind: string }) => x.kind === 'location_correction')).toMatchObject({ summary: { en: 'Map pin added from the field' }, actor: { name: 'Sumon Mia' } });
+  });
+
+  it('moving an existing pin waits for a manager, also from the map; a map pin is not held to GPS accuracy', async () => {
+    const fs2 = await as(t, '01700000004');
+    const r = await fs2.post(`/customers/${ids['100247']}/location-proposals`, { clientId: randomUUID(), method: 'map', geo: { lat: 22.7116, lng: 90.3716, accuracyM: 0, mock: true }, deviceGeo: null });
+    expect(r.status).toBe(201);
+    expect(r.body.status).toBe('pending');
+    const det = await fs2.get(`/customers/${ids['100247']}`);
+    expect(det.body.location.lat).toBeCloseTo(near.lat); // unchanged until approved
+    // gps keeps its rules
+    expect((await fs2.post(`/customers/${ids['100247']}/location-proposals`, { clientId: randomUUID(), method: 'gps', geo: { ...near, accuracyM: 80 } })).body.details.rule).toBe('LOW_ACCURACY');
+    expect((await fs2.post(`/customers/${ids['100247']}/location-proposals`, { clientId: randomUUID(), method: 'map', geo: { lat: 51.5, lng: -0.12, accuracyM: 0 } })).body.details.rule).toBe('OUTSIDE_BANGLADESH');
+    expect((await fs2.post(`/customers/${ids['100247']}/location-proposals`, { clientId: randomUUID(), method: 'drawn', geo: { ...near, accuracyM: 0 } })).status).toBe(400);
+  });
+
+  it('a mock phone position never applies at once; the always policy keeps every pin for a manager', async () => {
+    const bm = await as(t, '01700000002');
+    const mock = await bm.post(`/customers/${ids['100248']}/location-proposals`, { clientId: randomUUID(), method: 'map', geo: { ...near, accuracyM: 0 }, deviceGeo: { ...phone, mock: true } });
+    expect(mock.body.status).toBe('pending');
+    expect((await bm.get('/location-proposals')).body.find((p: { id: string }) => p.id === mock.body.id)).toMatchObject({ deviceMock: true, autoApplied: false });
+    await setSystem('customers.staffPinApproval', 'always', s.branchA);
+    const held = await bm.post(`/customers/${ids['100248']}/location-proposals`, { clientId: randomUUID(), method: 'map', geo: { ...near, accuracyM: 0 } });
+    expect(held.body.status).toBe('pending');
+    await setSystem('customers.staffPinApproval', 'when_missing', s.branchA);
+    expect((await bm.get(`/customers/${ids['100248']}`)).body.location.status).toBe('missing');
+  });
+
+  it('a manager sets a pin directly: idempotent, audited, in the pin history and timeline, recomputes polygon areas', async () => {
+    const bm = await as(t, '01700000002');
+    // A polygon area around the spot, held by fs1: placing 100248 inside it must give it to fs1.
+    const square = (c: { lat: number; lng: number }, d: number) => ({ type: 'Polygon', coordinates: [[[c.lng - d, c.lat - d], [c.lng + d, c.lat - d], [c.lng + d, c.lat + d], [c.lng - d, c.lat + d], [c.lng - d, c.lat - d]]] });
+    const spot = { lat: 22.7301, lng: 90.3801 };
+    const area = await bm.post('/areas', { branchId: s.branchA, name: { bn: 'উত্তর পাড়া', en: 'North para' }, code: 'NORTH-PARA', kind: 'polygon', polygon: square(spot, 0.002) });
+    expect(area.status).toBe(201);
+    expect((await bm.post('/assignments', { userId: s.fs1.id, type: 'area', areaId: area.body.id })).status).toBe(201);
+    expect((await bm.get(`/customers/${ids['100248']}`)).body.assignee).toBeUndefined();
+
+    const clientId = randomUUID();
+    const r = await bm.post(`/customers/${ids['100248']}/location`, { clientId, ...spot, note: 'From the shop sign board' });
+    expect(r.status).toBe(201);
+    expectConforms('POST', '/customers/{id}/location', 201, r.body);
+    expect(r.body).toMatchObject({ status: 'approved', location: { status: 'overridden', source: 'overlay' } });
+    expect(r.body.location.lat).toBeCloseTo(spot.lat);
+    const again = await bm.post(`/customers/${ids['100248']}/location`, { clientId, ...spot });
+    expect(again.status).toBe(200);
+    expect(again.body.id).toBe(r.body.id);
+
+    const det = await bm.get(`/customers/${ids['100248']}`);
+    expect(det.body.assignee?.id).toBe(s.fs1.id);
+    expect(det.body.areaName).toEqual({ bn: 'উত্তর পাড়া', en: 'North para' });
+
+    const approved = (await bm.get('/location-proposals?status=approved')).body.find((p: { id: string }) => p.id === r.body.id);
+    expect(approved).toMatchObject({ direct: true, autoApplied: false, method: 'map', decider: { id: s.bm.id, name: 'Manager A' } });
+    expect(approved.accuracyM).toBeUndefined();
+    // the staff proposal from the test above is still waiting for a decision
+    expect((await bm.get('/location-proposals')).body.some((p: { customer: { id: string } }) => p.customer.id === ids['100248'])).toBe(true);
+    expect((await bm.get('/location-proposals/mine')).body.some((p: { id: string }) => p.id === r.body.id)).toBe(false);
+
+    const tl = await bm.get(`/customers/${ids['100248']}/timeline`);
+    expect(tl.body.items.find((x: { kind: string }) => x.kind === 'location_correction')).toMatchObject({ summary: { en: 'Map pin set by a manager' }, actor: { id: s.bm.id } });
+    const audit = await (await as(t, '01700000001')).get(`/audit?entity=customer&entityId=${ids['100248']}`);
+    expect(JSON.stringify(audit.body)).toContain('customer.location.set');
+  });
+
+  it('set pin: 403 for staff and viewer, 404 out of scope, 422 outside Bangladesh, 409 for a reused clientId, 400 without a clientId', async () => {
+    const body = { clientId: randomUUID(), lat: 22.7, lng: 90.37 };
+    expect((await (await as(t, '01700000003')).post(`/customers/${ids['100245']}/location`, body)).status).toBe(403);
+    expect((await (await as(t, '01700000006')).post(`/customers/${ids['100245']}/location`, body)).status).toBe(403);
+    const bm = await as(t, '01700000002');
+    expect((await bm.post(`/customers/${ids['200301']}/location`, body)).status).toBe(404);
+    const out = await bm.post(`/customers/${ids['100245']}/location`, { ...body, lat: 51.5, lng: -0.12 });
+    expect(out.status).toBe(422);
+    expect(out.body.details.rule).toBe('OUTSIDE_BANGLADESH');
+    expect((await bm.post(`/customers/${ids['100245']}/location`, { lat: 22.7, lng: 90.37 })).status).toBe(400);
+    const first = await bm.post(`/customers/${ids['100245']}/location`, body);
+    expect(first.status).toBe(201);
+    expect((await bm.post(`/customers/${ids['100246']}/location`, body)).status).toBe(409);
+    expect((await t.app.inject({ method: 'POST', url: `/api/v1/customers/${ids['100245']}/location`, payload: body })).statusCode).toBe(401);
+  });
+
+  it('the customer timeline lists direct assignments (FR-ASG-004)', async () => {
+    const bm = await as(t, '01700000002');
+    const a = await bm.post('/assignments', { userId: s.fs2.id, type: 'customer', customerId: ids['100248'], reason: 'Lives next to Sumon' });
+    expect(a.status).toBe(201);
+    expect((await bm.get(`/customers/${ids['100248']}`)).body.assignee.id).toBe(s.fs2.id); // direct beats the area
+    expect((await bm.delete(`/assignments/${a.body.id}`)).status).toBeLessThan(300);
+    expect((await bm.get(`/customers/${ids['100248']}`)).body.assignee.id).toBe(s.fs1.id); // back to the area holder
+    const tl = await bm.get(`/customers/${ids['100248']}/timeline`);
+    expectConforms('GET', '/customers/{id}/timeline', 200, tl.body);
+    const kinds = tl.body.items.filter((x: { kind: string }) => x.kind === 'assignment').map((x: { summary: { en: string } }) => x.summary.en);
+    expect(kinds).toEqual(['Assignment to Sumon Mia ended', 'Assigned to Sumon Mia']);
   });
 });

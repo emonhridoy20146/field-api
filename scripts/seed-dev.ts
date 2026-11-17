@@ -13,6 +13,7 @@ import { listBranches } from '../src/modules/branches/index.js';
 import { createSystemUser, findForLogin } from '../src/modules/users/index.js';
 import { setFlagSystem } from '../src/modules/flags/index.js';
 import { applyAssignments, getByErpId } from '../src/modules/customers/index.js';
+import { AssignmentModel } from '../src/modules/assignments/models/assignment.model.js';
 
 const config = loadConfig();
 if (config.NODE_ENV === 'production') throw new Error('seed:dev must never run in production');
@@ -77,7 +78,19 @@ try {
     ['100248', 'FS015'],
   ] as const) {
     const c = await getByErpId(erpId);
-    if (c && idOf.get(code)) assign.push({ customerId: c.id, assigneeId: idOf.get(code)! });
+    if (!c?.branchId || !idOf.get(code)) continue;
+    assign.push({ customerId: c.id, assigneeId: idOf.get(code)! });
+    // Real assignment records, so a later recompute (pin set, area edit, ERP move) keeps these owners.
+    if (!(await AssignmentModel.exists({ type: 'customer', customerId: c.id, effectiveTo: null })))
+      await AssignmentModel.create({
+        branchId: c.branchId,
+        userId: idOf.get(code)!,
+        type: 'customer',
+        customerId: c.id,
+        effectiveFrom: new Date(),
+        source: 'manual',
+        reason: 'seed:dev',
+      });
   }
   if (assign.length) await applyAssignments(assign);
   console.log(

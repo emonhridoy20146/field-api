@@ -82,7 +82,8 @@ Derived fields are recomputed on each sync **and** nightly at 00:05 Dhaka (becau
 `{ _id: erpCustomerId-mapped ObjectId (= erp_customers._id), branchId, locationOverride?: {point, approvedBy, approvedAt, proposalId}, tag?: { state: 'none'|'pending'|'tagged', severity: 'watch'|'bad'|'legal', reasonCode, reason, setBy, setAt, eventId }, assigneeId (denormalized), areaId }` · `{ branchId:1, 'tag.state':1 }`, `{ assigneeId:1 }`.
 
 ### location_proposals
-`{ customerId, branchId, proposedBy, point, accuracyM, photoMediaId, note, status: pending|approved|rejected, decidedBy, decidedAt, decisionReason }`.
+`{ clientId, customerId, branchId, proposedBy, point, accuracyM, photoMediaId, note, method: gps|map, devicePoint?, deviceAccuracyM?, deviceMock, autoApplied, direct, status: pending|approved|rejected, decidedBy, decidedAt, decisionReason }`.
+1.11.0 (ADR-031): `method`, `devicePoint`, `deviceAccuracyM`, `deviceMock`, `autoApplied` and `direct` added with defaults (`gps`, none, none, false, false, false), so older documents read unchanged and no migration is needed. A pin a manager sets on the map is a record with `direct: true`, `status: approved`, `proposedBy = decidedBy`. `locationOverride` on the customer gains `autoApplied` / `direct` flags.
 
 ### erp_sync_state
 `{ _id: 'customers:branch:6731…', cursor, lastSuccessAt, lastErrorAt, lastError, consecutiveFailures, lagSec }`.

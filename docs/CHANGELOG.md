@@ -2,7 +2,16 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
-## [Unreleased] — contract 1.10.0
+## [Unreleased] — contract 1.11.0
+### Added
+- Map pins (FR-CUS-011, owner request 2026-11-17, ADR-031). `POST /customers/{id}/location`: a manager (`customer.location.approve`) sets a customer's pin directly, e.g. by dropping it on a map; idempotent by `clientId`, audited as `customer.location.set`, kept in the pin history as an approved item with `direct: true`, sent to the assignee's phone. Staff pin proposals accept `method: map` (a point picked on the map; the GPS accuracy and mock rules apply to `method: gps` only) and `deviceGeo` (where the phone was). A staff pin for a customer without a usable pin is applied at once (owner decision) unless the new per-branch setting `customers.staffPinApproval` (`when_missing` default | `always`, sent to the app) asks for review; a mock phone position never applies at once; moving an existing pin always waits for a manager.
+- Contract 1.11.0 (additive): `setCustomerLocation`, `SetLocationResult`, `PinResult` (the existing `{id, status}` answer, now declared), `method`/`deviceGeo` on the proposal body, `LocationProposal.method/deviceDistanceM/deviceMock/autoApplied/direct/decider/decidedAt`, `OwnLocationProposal.method/autoApplied`, `CustomerListItem.branchId` (so a client can offer staff of the customer's branch when assigning).
+- Customer timeline: pin items say whether a manager set the pin, it came from the field at once, or a correction was approved, with the person; direct customer assignments appear as `assignment` items (assigned / ended, by whom) (FR-ASG-004).
+### Fixed
+- An approved pin now recomputes polygon areas and the primary assignee (`customer.placed`), like an ERP location change already did. Before, a customer who got a pin inside a polygon area stayed with the old assignee until the next area edit.
+- `pnpm seed:dev` creates real assignment records behind the sample owners, so a recompute no longer clears them.
+
+## [1.10.0] — contract 1.10.0 (main up to daa6f77, PRs #1–#7)
 ### Added
 - Phase 0 implementation: core (config, errors bn/en problem+json, Dhaka time, money, geo, Mongo + migrations, event bus, outbox, Mongo-leased jobs, idempotency, change feed), module loader with manifest validation, auth (EdDSA JWT, refresh rotation with reuse detection, lockout), users, rbac (catalog, overrides, explain), branches, settings (holidays, shifts), flags (locked microfinance flag), audit (hash chain), devices (binding/approval), system (health, app-config), erp-gateway (Laravel client, circuit breaker, mappers, MockErpClient, delta sync, reconcile, posting outbox handler).
 - Phase 1 modules: customers (read model + FOS overlay, status derivation, bad suggestion, list/detail/map/timeline, refresh, pin corrections), tags (tag/untag, history, approval mode, balance-cleared review), assignments (areas, primary assignee, bulk, history), handovers (receiver acceptance, 72 h expiry, temporary cover revert), collections (idempotent record, receipt blocks, anomaly flags, ERP posting with timeout-after-store recovery, conflicts, void, resolve, ERP reversal reflection).

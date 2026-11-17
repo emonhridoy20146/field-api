@@ -6,8 +6,8 @@ import { isOid, withTransaction, type LeanDoc } from '../../core/db/index.js';
 import { branchQuery, canSeeBranch, type AuthUser } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
-import { getUser } from '../users/index.js';
-import { applyAssignments, assignmentStateOfBranch, getCustomerRef, getCustomerRefs, idsInArea, type AssignmentChange } from '../customers/index.js';
+import { getUser, getUsers } from '../users/index.js';
+import { applyAssignments, assignmentStateOfBranch, getCustomerRef, getCustomerRefs, idsInArea, type AssignmentChange, type TimelineItem } from '../customers/index.js';
 import { computePrimary, type ActiveAssignment } from './domain/primary.js';
 import { AreaModel, AssignmentModel } from './models/assignment.model.js';
 
@@ -287,4 +287,42 @@ export async function areaNamesFor(customerIds: string[]): Promise<Map<string, {
   const out = new Map<string, { bn: string; en: string }>();
   for (const [id, r] of refs) if (r.areaId && names.has(r.areaId)) out.set(id, names.get(r.areaId)!);
   return out;
+}
+
+/**
+ * FR-ASG-004 on the customer timeline: direct assignments of this customer, when they started and ended.
+ * Area assignments are not listed per customer (they belong to the area's history).
+ */
+export async function customerTimeline(customerId: string, _user: AuthUser, before: Date | null, limit: number): Promise<TimelineItem[]> {
+  const rows = await AssignmentModel.find({ type: 'customer', customerId }).sort({ effectiveFrom: -1 }).limit(limit * 2).lean();
+  const people = await getUsers([...new Set(rows.flatMap((r) => [r.userId, r.createdBy ?? '', r.endedBy ?? ''].filter(Boolean)))]);
+  const name = (id: string | null | undefined) => {
+    const u = id ? people.get(id) : undefined;
+    return u ? u.name.en || u.name.bn : '';
+  };
+  const items: TimelineItem[] = [];
+  for (const r of rows) {
+    const who = name(r.userId);
+    const actorOf = (id: string | null | undefined) => (id && people.get(id) ? { actor: { id, name: name(id) } } : {});
+    if (r.effectiveTo && (!before || r.effectiveTo < before))
+      items.push({
+        kind: 'assignment',
+        at: r.effectiveTo.toISOString(),
+        ...actorOf(r.endedBy),
+        summary: { en: `Assignment to ${who} ended`, bn: `${who}-এর দায়িত্ব শেষ` },
+        refId: r._id.toHexString(),
+        data: { userId: r.userId, source: r.source, event: 'ended' },
+      });
+    // newest first: an end is listed before its start when both carry the same time
+    if (!before || r.effectiveFrom < before)
+      items.push({
+        kind: 'assignment',
+        at: r.effectiveFrom.toISOString(),
+        ...actorOf(r.createdBy),
+        summary: { en: `Assigned to ${who}`, bn: `${who}-কে দায়িত্ব দেওয়া হয়েছে` },
+        refId: r._id.toHexString(),
+        data: { userId: r.userId, source: r.source, event: 'started' },
+      });
+  }
+  return items.sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
 }

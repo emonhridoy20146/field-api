@@ -57,6 +57,7 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 | `GET /location-proposals` · `POST /location-proposals/{id}/decision` | `customer.location.approve` | FR-CUS-008 |
 | `GET /attendance/events` (raw events of a staff member's day, with photo ids) | `attendance.view` | FR-ATT-001/004 |
 | `GET /location-proposals/mine` (own proposals and their status; also sync entity `location_proposal`) | `customer.location.propose` | FR-CUS-008 |
+| `POST /customers/{id}/location` (manager sets the pin on the map, 1.11.0) | `customer.location.approve` | FR-CUS-011 |
 | `GET /cowork/colleagues` · `POST /cowork/requests` · `GET /cowork/sessions/mine` · `POST /cowork/sessions/{id}/respond` · `POST /cowork/sessions/{id}/leave` | `cowork.use` | FR-CW-001/002 |
 | `GET /cowork/sessions` · `GET /cowork/sessions/{id}` | `cowork.view` | FR-CW-004 |
 | `PUT /customers/{id}/tag` | `tag.set` | FR-TAG-003 |
@@ -235,6 +236,22 @@ PUT /api/v1/targets/users/6740aa…
   "me": null }
 ```
 Achievement values are fractions with two decimals (1.08 = 108 %) against the target up to today.
+
+### 3.10 Map pins (1.11.0)
+A manager drops the pin on the map:
+```http
+POST /api/v1/customers/6731…/location
+{ "clientId": "01936f0e-…", "lat": 22.73012, "lng": 90.38011, "note": "From the shop sign board" }
+```
+→ `201 { "id": "6741…", "status": "approved", "location": { "lat": 22.73012, "lng": 90.38011, "status": "overridden", "source": "overlay" } }`; the same `clientId` again → `200` with the same body.
+
+A field staff member picks the pin on the map (the phone was 180 m away):
+```http
+POST /api/v1/customers/6731…/location-proposals
+{ "clientId": "01936f0f-…", "method": "map", "geo": { "lat": 22.7112, "lng": 90.3712, "accuracyM": 0 },
+  "deviceGeo": { "lat": 22.7128, "lng": 90.3712, "accuracyM": 14 }, "note": "Blue gate behind the mosque" }
+```
+→ `201 { "id": "6742…", "status": "approved" }` when the customer had no usable pin and `customers.staffPinApproval` is `when_missing` (default); otherwise `"status": "pending"` until a manager decides. The same body goes through `/sync/push` as mutation `location_proposal` (+ `customerId`).
 
 ## 4. Error codes
 

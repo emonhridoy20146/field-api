@@ -63,6 +63,15 @@ const proposalSchema = new Schema(
     accuracyM: Number,
     photoMediaId: { type: String, default: null },
     note: { type: String, default: null },
+    // 1.11.0 (FR-CUS-011): how the point was chosen and where the proposer's phone was at the time.
+    method: { type: String, enum: ['gps', 'map'], default: 'gps' },
+    devicePoint: { type: { type: String, enum: ['Point'] }, coordinates: { type: [Number], default: undefined } },
+    deviceAccuracyM: { type: Number, default: null },
+    deviceMock: { type: Boolean, default: false },
+    /** Staff pin applied without a manager because the customer had no usable pin (setting customers.staffPinApproval). */
+    autoApplied: { type: Boolean, default: false },
+    /** Set directly by a manager on the web (POST /customers/{id}/location); never pending. */
+    direct: { type: Boolean, default: false },
     status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
     decidedBy: { type: String, default: null },
     decidedAt: { type: Date, default: null },

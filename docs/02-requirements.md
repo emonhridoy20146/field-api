@@ -47,7 +47,7 @@ Defaults: SA = super_admin, BM = branch_manager, FS = field_staff, VW = viewer. 
 | `customer.view` | View customers in scope (list, detail, plan, schedule, payments) | ● | ● | ● | ● | customers |
 | `customer.export` | Export customer lists | ● | ● | ○ | ○ | customers |
 | `customer.location.propose` | Propose a corrected pin | ● | ● | ● | ○ | customers |
-| `customer.location.approve` | Approve/reject pin corrections | ● | ● | ○ | ○ | customers |
+| `customer.location.approve` | Approve/reject pin corrections; set a pin on the map (1.11.0) | ● | ● | ○ | ○ | customers |
 | `tag.view` | See bad-customer suggestion, tag and history | ● | ● | ● | ● | tags |
 | `tag.set` | Tag/untag (reason required) | ● | ● | ● | ○ | tags |
 | `tag.approve` | Review queue: approve/revert staff-set tags, act on "balance cleared" prompts | ● | ● | ○ | ○ | tags |
@@ -161,6 +161,7 @@ Rules:
 | FR-CUS-008 **[ADDED]** | Pin correction: staff proposes a new pin captured from current GPS (accuracy ≤ 30 m required) with photo; manager approves/rejects; approved overlay overrides ERP coords in FOS; full history. | proposed | P1 | A W M | I E D |
 | FR-CUS-009 **[ADDED]** | Data-quality report: customers with missing/invalid coords, missing phone, plan with no schedule, per branch. Approved by the owner 2026-11-17; issues also cover swapped coords, pin far from the branch, invalid and shared phones, unassigned. | active | P3 | A W | I |
 | FR-CUS-010 **[ADDED]** | "As of" freshness: every balance shown with `erpFetchedAt`; app warns when > 24 h old. | proposed | P1 | A W M | U D |
+| FR-CUS-011 **[ADDED 2026-11-17, owner request]** | Map pin (Uber style): admin/manager drops or drags a pin on a map to set any in-scope customer's coordinates directly (`POST /customers/{id}/location`, permission `customer.location.approve`, audited `customer.location.set`, kept in pin history as `direct`). Field staff pick a pin on the map too (`method: map`, with the phone position for the reviewer). A staff pin for a customer **without** a usable pin is applied at once (owner decision 2026-11-17; setting `customers.staffPinApproval` = `when_missing` default \| `always`, per branch); moving an existing pin still needs a manager. Every applied pin recomputes polygon areas and the assignee. | active | P1 | A W M | I E |
 
 **Overdue definitions** (rule module `customers/domain/status.ts`, plan length never hardcoded):
 - `due_today`: any schedule line with `dueDate == today` and `lineOutstanding > 0`.
@@ -219,7 +220,7 @@ Rules:
 | FR-ASG-001 | Areas: named polygons or lists of ERP area codes / unions / villages per branch (ASSUMPTION E-11 whether Laravel has area codes). | active | P1 | A W | I E |
 | FR-ASG-002 | Assign an area or individual customers to staff; one staff can hold several areas; a customer has exactly one **primary** assignee at a time; direct assignment overrides area assignment. | active | P1 | A W | U I E |
 | FR-ASG-003 | Bulk assign (select many on table or draw on map). | active | P1 | W A | E |
-| FR-ASG-004 | Assignment history per customer and per staff (effective from/to). | active | P1 | A W | I |
+| FR-ASG-004 | Assignment history per customer and per staff (effective from/to). Since 1.11.0 the customer timeline lists direct assignments (started/ended, by whom). | active | P1 | A W | I |
 | FR-ASG-005 | Unassigned-customers report and warning on dashboard. | active | P1 | A W | I |
 | FR-HO-001 | Handover: from-staff, to-staff, scope (areas and/or customers), reason, effective date; status `pending_acceptance → accepted | rejected | cancelled | expired (72 h)`. | active | P1 | A W M | U I E |
 | FR-HO-002 | Receiver accepts/rejects in app (push notification). Until acceptance the original assignee keeps the customers. | active | P1 | A M | I D |

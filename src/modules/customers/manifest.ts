@@ -9,16 +9,27 @@ import { markMissing, recomputeAllDerived, myProposals, proposalSyncLoad, syncLo
 export const manifest: ModuleManifest = {
   name: 'customers',
   version: '1.0.0',
-  description: 'Customer read model from Laravel plus FOS overlay; status, bad suggestion, map, pin corrections (FR-CUS-*)',
+  description: 'Customer read model from Laravel plus FOS overlay; status, bad suggestion, map, pin corrections and map pins (FR-CUS-*)',
   featureFlag: { key: 'module.customers', default: false, description: 'Customer list, detail, map', owner: 'field-api' },
-  dependsOn: ['audit', 'branches', 'users', 'erp-gateway'],
+  dependsOn: ['audit', 'settings', 'branches', 'users', 'erp-gateway'],
   permissions: [
     { key: 'customer.view', description: { en: 'View customers in scope', bn: 'গ্রাহক দেখা' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
     { key: 'customer.export', description: { en: 'Export customer lists', bn: 'গ্রাহক তালিকা এক্সপোর্ট' }, defaults: { super_admin: true, branch_manager: true } },
     { key: 'customer.location.propose', description: { en: 'Propose a corrected pin', bn: 'সঠিক পিন প্রস্তাব' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
-    { key: 'customer.location.approve', description: { en: 'Approve/reject pin corrections', bn: 'পিন সংশোধন অনুমোদন' }, defaults: { super_admin: true, branch_manager: true } },
+    { key: 'customer.location.approve', description: { en: 'Approve/reject pin corrections; set a pin on the map', bn: 'পিন সংশোধন অনুমোদন; ম্যাপে পিন বসানো' }, defaults: { super_admin: true, branch_manager: true } },
   ],
   routes: customerRoutes,
+  settings: [
+    {
+      key: 'customers.staffPinApproval',
+      type: 'enum',
+      enum: ['when_missing', 'always'],
+      default: 'when_missing',
+      branchOverridable: true,
+      exposeToApp: true,
+      description: 'FR-CUS-011 / ADR-031: when_missing = a staff pin for a customer without a usable pin applies at once (moving a pin still needs approval); always = every staff pin waits for a manager',
+    },
+  ],
   events: {
     emits: ['customer.balance_cleared', 'customer.placed', 'customer.payments_synced', 'customer.location.proposed', 'customer.location.approved', 'customer.location.decided'],
     consumes: ['erp.customer.synced', 'erp.reconcile.completed'],

@@ -36,10 +36,26 @@ const mapQuery = z.object({
 
 const pageQuery = z.object({ limit: z.coerce.number().int().min(1).max(100).default(30), cursor: z.string().max(200).optional() });
 
+const geoFix = z.object({ lat: z.number(), lng: z.number(), accuracyM: z.number().min(0), mock: z.boolean().optional(), capturedAt: z.string().optional(), provider: z.string().optional() });
+
 export const proposalBody = z.object({
   clientId: z.string().uuid(),
-  geo: z.object({ lat: z.number(), lng: z.number(), accuracyM: z.number().min(0), mock: z.boolean().optional(), capturedAt: z.string().optional(), provider: z.string().optional() }),
+  /** The proposed pin. With method `gps` it is the phone's fix; with `map` it is the point picked on the map. */
+  geo: geoFix,
+  /** 1.11.0: `gps` (default, the phone's position) or `map` (picked on a map, Uber style). */
+  method: z.enum(['gps', 'map']).optional(),
+  /** 1.11.0: where the phone was when a `map` pin was picked, so the manager can see how far away the staff was. */
+  deviceGeo: geoFix.nullable().optional(),
   photoMediaId: z.string().max(64).optional(),
+  note: z.string().max(500).optional(),
+});
+
+/** 1.11.0 (FR-CUS-011): a manager sets the pin directly. */
+const setLocationBody = z.object({
+  clientId: z.string().uuid(),
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  method: z.enum(['map', 'gps']).optional(),
   note: z.string().max(500).optional(),
 });
 
@@ -67,6 +83,11 @@ export const customerRoutes = defineRoutes((r) => {
     const res = await s.proposeLocation(requireUser(req), idOf(req), parse(proposalBody, req.body), requestMeta(req));
     reply.code(res.replayed ? 200 : 201);
     return { id: res.id, status: res.status };
+  });
+  r.post('/customers/:id/location', { access: perm('customer.location.approve') }, async (req, reply) => {
+    const res = await s.setLocation(requireUser(req), idOf(req), parse(setLocationBody, req.body), requestMeta(req));
+    reply.code(res.replayed ? 200 : 201);
+    return { id: res.id, status: res.status, location: res.location };
   });
   // Plain array, as the contract has declared since 1.4.0.
   r.get('/location-proposals', { access: perm('customer.location.approve') }, async (req) => s.listProposals(requireUser(req), parse(proposalsQuery, req.query)));
