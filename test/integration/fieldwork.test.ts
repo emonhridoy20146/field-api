@@ -98,6 +98,21 @@ describe('notes and contact attempts (FR-NOTE-001, FR-M-014)', () => {
     const tl = await fs.get(`/customers/${ids['100245']}/timeline`);
     expect(tl.body.items.map((i: { kind: string }) => i.kind)).toEqual(expect.arrayContaining(['note', 'contact_attempt', 'visit']));
   });
+
+  it('logs a call to the guarantor (1.12.0) and says so on the timeline', async () => {
+    const fs = await as(t, '01700000003');
+    const r = await fs.post(`/customers/${ids['100246']}/contact-attempts`, { clientId: randomUUID(), channel: 'call', target: 'guarantor', at: '2026-11-15T04:20:00Z', outcome: 'no_answer' });
+    expect(r.status).toBe(201);
+    expectConforms('POST', '/customers/{id}/contact-attempts', 201, r.body);
+    expect(r.body.target).toBe('guarantor');
+    const plain = await fs.post(`/customers/${ids['100246']}/contact-attempts`, { clientId: randomUUID(), channel: 'call', at: '2026-11-15T04:21:00Z' });
+    expect(plain.body.target).toBe('customer');
+    expect((await fs.post(`/customers/${ids['100246']}/contact-attempts`, { clientId: randomUUID(), channel: 'call', target: 'neighbour', at: '2026-11-15T04:22:00Z' })).status).toBe(400);
+    const tl = await fs.get(`/customers/${ids['100246']}/timeline`);
+    const g = tl.body.items.find((i: { kind: string; data?: { target?: string } }) => i.kind === 'contact_attempt' && i.data?.target === 'guarantor');
+    expect(g.summary.bn).toContain('জামিনদার');
+    expect(g.summary.en).toContain('guarantor');
+  });
 });
 
 describe('promises (FR-PRM-001..003)', () => {

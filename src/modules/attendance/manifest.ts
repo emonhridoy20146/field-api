@@ -18,7 +18,7 @@ export const manifest: ModuleManifest = {
     { key: 'leave.request', description: { en: 'Request leave', bn: 'ছুটির আবেদন' }, defaults: { field_staff: true } },
   ],
   routes: attendanceRoutes,
-  events: { emits: ['attendance.event', 'attendance.corrected', 'attendance.auto_closed', 'attendance.absent', 'leave.requested', 'leave.decided'], consumes: [] },
+  events: { emits: ['attendance.event', 'attendance.corrected', 'attendance.auto_closed', 'attendance.absent', 'leave.requested', 'leave.decided', 'leave.cancelled'], consumes: [] },
   settings: [
     { key: 'attendance.selfieRequired', type: 'bool', default: true, branchOverridable: true, exposeToApp: true, description: 'FR-ATT-001 master switch: a front-camera photo is required at the events listed in attendance.selfieEvents (a missing photo is flagged, not rejected)' },
     { key: 'attendance.selfieEvents', type: 'json', default: [...s.SELFIE_EVENT_TYPES], branchOverridable: true, exposeToApp: true, description: 'FR-ATT-001 which attendance events need a photo: any of work_in, break_start, break_end, work_out' },

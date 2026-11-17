@@ -15,12 +15,16 @@ export const settingsRoutes = defineRoutes((r) => {
     return { updated: await s.update(requireUser(req), body, requestMeta(req)) };
   });
   r.get('/calendar/holidays', { access: 'self' }, async (req) => {
-    const q = parse(z.object({ year: z.coerce.number().int().optional() }), req.query);
-    return s.listHolidays(q.year);
+    const q = parse(z.object({ year: z.coerce.number().int().min(2000).max(2100).optional(), branchId: z.string().max(64).optional() }), req.query);
+    return s.listHolidays(q.year, q.branchId);
   });
   r.post('/calendar/holidays', { access: perm('settings.manage') }, async (req, reply) => {
     reply.code(201);
     return s.createHoliday(requireUser(req), parse(s.holidaySchema, req.body), requestMeta(req));
+  });
+  r.delete('/calendar/holidays/:id', { access: perm('settings.manage') }, async (req, reply) => {
+    await s.deleteHoliday(requireUser(req), (req.params as { id: string }).id, requestMeta(req));
+    reply.code(204);
   });
   r.get('/shifts', { access: 'self' }, async () => s.listShifts());
   r.post('/shifts', { access: perm('settings.manage') }, async (req, reply) => {

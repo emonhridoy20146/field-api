@@ -24,6 +24,7 @@ const contactSchema = new Schema(
     customerId: { type: String, required: true },
     userId: { type: String, required: true },
     channel: { type: String, required: true },
+    target: { type: String, enum: ['customer', 'guarantor'], default: 'customer' },
     phoneIndex: { type: Number, default: null },
     at: { type: Date, required: true },
     durationSec: { type: Number, default: null },

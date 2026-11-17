@@ -98,6 +98,8 @@ export const contactSchema = z.object({
   clientId: z.string().uuid(),
   customerId: z.string().max(64).optional(), // in the sync payload; the REST path carries it too
   channel: z.enum(['call', 'sms', 'whatsapp']),
+  // Who was contacted (1.12.0): the customer (default) or the guarantor.
+  target: z.enum(['customer', 'guarantor']).optional(),
   phoneIndex: z.number().int().min(0).max(9).optional(),
   at: z.string().datetime({ offset: true }),
   durationSec: z.number().int().min(0).max(36_000).nullable().optional(),
@@ -112,6 +114,7 @@ function contactView(a: Lean) {
     customerId: a.customerId,
     userId: a.userId,
     channel: a.channel,
+    target: a.target ?? 'customer',
     ...(a.phoneIndex !== null ? { phoneIndex: a.phoneIndex } : {}),
     at: (a.at as Date).toISOString(),
     durationSec: a.durationSec ?? null,
@@ -135,6 +138,7 @@ export async function logContact(user: AuthUser, customerId: string, input: z.in
       customerId: c.id,
       userId: user.id,
       channel: input.channel,
+      target: input.target ?? 'customer',
       phoneIndex: input.phoneIndex ?? null,
       at: new Date(input.at),
       durationSec: input.durationSec ?? null,
@@ -171,6 +175,11 @@ export async function timelineItems(customerId: string, before: Date | null, lim
   const actor = (id: string) => (users.get(id) ? { actor: { id, name: users.get(id)!.name.en || users.get(id)!.name.bn } } : {});
   return [
     ...notes.map((n) => ({ kind: 'note', at: (n.createdAt as Date).toISOString(), ...actor(n.authorId), summary: { en: n.text.slice(0, 120), bn: n.text.slice(0, 120) }, refId: n._id.toHexString(), data: { category: n.category } })),
-    ...calls.map((c) => ({ kind: 'contact_attempt', at: (c.at as Date).toISOString(), ...actor(c.userId), summary: { en: `${c.channel}${c.outcome ? `: ${c.outcome.replace(/_/g, ' ')}` : ''}`, bn: `${CHANNEL_BN[c.channel] ?? c.channel}${c.outcome ? `: ${c.outcome}` : ''}` }, refId: c._id.toHexString(), data: { durationSec: c.durationSec } })),
+    ...calls.map((c) => {
+      const g = c.target === 'guarantor';
+      const en = `${g ? 'guarantor ' : ''}${c.channel}${c.outcome ? `: ${c.outcome.replace(/_/g, ' ')}` : ''}`;
+      const bn = `${g ? 'জামিনদারকে ' : ''}${CHANNEL_BN[c.channel] ?? c.channel}${c.outcome ? `: ${c.outcome}` : ''}`;
+      return { kind: 'contact_attempt', at: (c.at as Date).toISOString(), ...actor(c.userId), summary: { en, bn }, refId: c._id.toHexString(), data: { durationSec: c.durationSec, target: c.target ?? 'customer' } };
+    }),
   ];
 }

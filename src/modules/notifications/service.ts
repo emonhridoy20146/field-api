@@ -134,7 +134,13 @@ function broadcastView(b: Lean, viewer: AuthUser, names: Map<string, { name: { e
     recipientCount: (b.recipientIds as string[]).length,
     ackCount: (b.ackedBy as string[]).length,
     acked: (b.ackedBy as string[]).includes(viewer.id),
+    ...ackedAtOf(b, viewer.id),
   };
+}
+
+function ackedAtOf(b: Lean, userId: string): { ackedAt?: string } {
+  const a = ((b.acks ?? []) as { userId: string; at: Date }[]).find((x) => x.userId === userId);
+  return a ? { ackedAt: a.at.toISOString() } : {};
 }
 
 export async function createBroadcast(actor: AuthUser, input: z.infer<typeof broadcastSchema>, meta: RequestMeta) {
@@ -171,8 +177,46 @@ export async function getBroadcastFor(user: AuthUser, id: string) {
   return broadcastView(b, user, await getUsers([b.createdBy]));
 }
 
-export async function ack(user: AuthUser, id: string): Promise<void> {
+/**
+ * The recipient read it (FR-NOT-005). Idempotent; the first time counts. `at` is when the phone
+ * recorded the tap (offline acks arrive later through sync); it is kept between sending and now.
+ */
+export async function ack(user: AuthUser, id: string, at?: Date): Promise<void> {
   if (!isOid(id)) throw notFound('broadcast');
-  const r = await BroadcastModel.updateOne({ _id: id, recipientIds: user.id }, { $addToSet: { ackedBy: user.id } });
-  if (r.matchedCount !== 1) throw notFound('broadcast');
+  const b = (await BroadcastModel.findOne({ _id: id, recipientIds: user.id }, { createdAt: 1, ackedBy: 1 }).lean()) as Lean | null;
+  if (!b) throw notFound('broadcast');
+  if ((b.ackedBy as string[]).includes(user.id)) return;
+  const nowAt = now();
+  const created = b.createdAt as Date;
+  const when = at && at.getTime() >= created.getTime() && at.getTime() <= nowAt.getTime() ? at : nowAt;
+  const r = await BroadcastModel.updateOne({ _id: id, recipientIds: user.id, ackedBy: { $ne: user.id } }, { $addToSet: { ackedBy: user.id }, $push: { acks: { userId: user.id, at: when } } });
+  // The phone's copy follows (acked = true) on its next pull.
+  if (r.modifiedCount === 1) await recordChanges([{ entity: 'broadcast', entityId: id, userIds: [user.id] }]);
+}
+
+/** Who got a broadcast and who has read it (1.12.0). Same scope as the sender's list; else 404. */
+export async function recipients(user: AuthUser, id: string) {
+  const scope = isSuperAdmin(user) ? {} : { $or: [{ createdBy: user.id }, { branchIds: { $in: user.branchIds } }] };
+  const b = isOid(id) ? ((await BroadcastModel.findOne({ _id: id, ...scope }).lean()) as Lean | null) : null;
+  if (!b) throw notFound('broadcast');
+  const ids = b.recipientIds as string[];
+  const users = await getUsers(ids);
+  const acks = new Map(((b.acks ?? []) as { userId: string; at: Date }[]).map((a) => [a.userId, a.at]));
+  const acked = new Set(b.ackedBy as string[]);
+  const items = ids.map((uid) => {
+    const u = users.get(uid);
+    const at = acks.get(uid);
+    return {
+      userId: uid,
+      name: u ? { bn: u.name.bn, en: u.name.en } : { bn: '', en: '' },
+      employeeCode: u?.employeeCode ?? '',
+      branchId: u?.branchIds[0] ?? null,
+      role: u?.role ?? 'field_staff',
+      acked: acked.has(uid),
+      ...(at ? { ackedAt: at.toISOString() } : {}),
+    };
+  });
+  // Not read first, so the manager sees whom to chase.
+  items.sort((a, b2) => Number(a.acked) - Number(b2.acked) || (a.name.en || a.name.bn).localeCompare(b2.name.en || b2.name.bn));
+  return { broadcastId: id, recipientCount: ids.length, ackCount: acked.size, items };
 }

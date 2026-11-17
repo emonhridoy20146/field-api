@@ -3,6 +3,7 @@ import { indexMigration } from '../../core/db/migrations.js';
 import type { AuthUser } from '../../core/security/types.js';
 import { CONSUMED_EVENTS, subscribe } from './events.js';
 import { notificationRoutes } from './routes.js';
+import { syncMutations } from './sync.js';
 import * as s from './service.js';
 
 const loader = (get: (u: AuthUser, id: string) => Promise<Record<string, unknown>>) => async (ids: string[], user: AuthUser) => {
@@ -26,6 +27,7 @@ export const manifest: ModuleManifest = {
     { entity: 'notification', load: loader(s.get) },
     { entity: 'broadcast', load: loader(s.getBroadcastFor) },
   ],
+  syncMutations,
   migrations: [
     indexMigration('20261115-0001-notifications-indexes', [
       { collection: 'notifications', key: { userId: 1, _id: -1 } },

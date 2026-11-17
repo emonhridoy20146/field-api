@@ -31,6 +31,7 @@ export const notificationRoutes = defineRoutes((r) => {
     reply.code(201);
     return s.createBroadcast(requireUser(req), parse(s.broadcastSchema, req.body), requestMeta(req));
   });
+  r.get('/broadcasts/:id/recipients', { access: perm('notification.broadcast') }, async (req) => s.recipients(requireUser(req), idOf(req)));
   r.post('/broadcasts/:id/ack', { access: 'self' }, async (req, reply) => {
     await s.ack(requireUser(req), idOf(req));
     reply.code(204);
