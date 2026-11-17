@@ -37,6 +37,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Notifications (FCM + center) | FR-NOT-001..004 | ✅ API (push goes through a port; the real FCM sender needs credentials at deploy time; broadcasts FR-NOT-005 built early) |
 | Inbox, dashboard, global search | FR-INB-001, FR-DSH-001, FR-SRCH-001 | ✅ API (inbox items for mock GPS / tracking stopped come with the location module; daily target is 0 until phase 3) |
 | Pin corrections | FR-CUS-008 | ✅ API |
+| Map pins: manager sets on the map, staff map pins, pinless customers applied at once (ADR-031, contract 1.11.0) | FR-CUS-011 | ✅ API |
 | Devices binding/remote logout | FR-AUTH-006..008 | ✅ API |
 
 **Acceptance (all must pass on staging with mock ERP, then with Laravel staging when available):**
