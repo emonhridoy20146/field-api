@@ -108,8 +108,9 @@ describe('branch trends (FR-REP-002)', () => {
     expect(inBuckets).toBe(live.totalOverdue.count);
     expect(live.totalOverdue.count).toBeGreaterThan(0);
 
-    expect(await snapshotOverdue('2026-11-14')).toBe(2);
-    expect(await snapshotOverdue('2026-11-14')).toBe(2); // re-run replaces
+    // One row per location: two branches and the warehouse (it can hold receivables, 1.13.0).
+    expect(await snapshotOverdue('2026-11-14')).toBe(3);
+    expect(await snapshotOverdue('2026-11-14')).toBe(3); // re-run replaces
     const w = await bm.get('/reports/branch-trends?from=2026-11-09&to=2026-11-15&granularity=week');
     expectConforms('GET', '/reports/branch-trends', 200, w.body);
     expect(w.body.collection.map((c: { period: string; totalPoisha: number }) => [c.period, c.totalPoisha])).toEqual([['2026-11-07', 0], ['2026-11-14', 220000]]);

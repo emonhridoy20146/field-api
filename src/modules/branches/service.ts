@@ -12,6 +12,8 @@ const branchSchema = new Schema(
   {
     erpBranchId: { type: String, required: true },
     code: { type: String, required: true },
+    // ERP location type (1.13.0): warehouses can hold receivables, so they are synced like branches.
+    kind: { type: String, enum: ['branch', 'warehouse'], default: 'branch' },
     name: { bn: String, en: String },
     district: String,
     address: String,
@@ -30,6 +32,7 @@ export interface BranchView {
   id: string;
   erpBranchId: string;
   code: string;
+  kind: 'branch' | 'warehouse';
   name: { bn: string; en: string };
   district: string;
   address: string;
@@ -43,6 +46,7 @@ function view(b: {
   _id: { toHexString(): string };
   erpBranchId: string;
   code: string;
+  kind?: string | null;
   name?: { bn?: string | null; en?: string | null } | null;
   district?: string | null;
   address?: string | null;
@@ -55,6 +59,7 @@ function view(b: {
     id: b._id.toHexString(),
     erpBranchId: b.erpBranchId,
     code: b.code,
+    kind: b.kind === 'warehouse' ? 'warehouse' : 'branch',
     name: { bn: b.name?.bn ?? '', en: b.name?.en ?? '' },
     district: b.district ?? '',
     address: b.address ?? '',
@@ -73,6 +78,7 @@ export async function upsertFromErp(branches: ErpBranch[]): Promise<void> {
       {
         $set: {
           code: b.code,
+          kind: b.kind ?? 'branch',
           name: b.name,
           district: b.district,
           address: b.address,

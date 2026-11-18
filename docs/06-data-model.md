@@ -40,7 +40,7 @@ Indexes: `{ deviceId: 1 } unique`, `{ userId: 1, unboundAt: 1 }`.
 ## 2. Reference data
 
 ### branches
-`{ _id, erpBranchId, code: 'BRL01', name: {bn,en}, district, address, location: Point|null, active, dutyOverride?: {shiftId}, cashLimitDefaultPoisha, erpSyncedAt }` · `{ erpBranchId:1 } unique`, `{ code:1 } unique`.
+`{ _id, erpBranchId, code: 'BRL01', kind: 'branch'|'warehouse' (1.13.0, default branch), name: {bn,en}, district, address, location: Point|null, active, dutyOverride?: {shiftId}, cashLimitDefaultPoisha, erpSyncedAt }` · `{ erpBranchId:1 } unique`, `{ code:1 } unique`. The ERP sends no coordinates; `location` is set in FOS (`PUT /branches/{id}/location`) and sync never clears it.
 
 ### settings
 `{ _id, key: 'cash.limitMode', scope: 'global'|'branch', branchId?, value, type, updatedBy, updatedAt }` · `{ key:1, scope:1, branchId:1 } unique`.

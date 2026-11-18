@@ -14,7 +14,7 @@ Legend: **I** = internal type in field-api (`erp-gateway/types.ts`), **API** = f
 | `id` | `erpBranchId` | `erpBranchId` | |
 | `code` | `code` (trimmed) | `code` | Mixed case and 1-letter codes exist (`CMu`, `H`). Receipt numbers use `receiptBranchCode()`: upper case, A–Z/0–9 only, max 10 |
 | `name` | `name.en` and `name.bn` | `name` | No Bangla name in the ERP |
-| `type` | `kind` (`branch` / `warehouse`) | — | Warehouses are synced too: 35 receivable invoices (26 customers) sit on one |
+| `type` | `kind` (`branch` / `warehouse`) | `Branch.kind` (1.13.0) | Warehouses are synced too: 35 receivable invoices (26 customers) sit on one |
 | `address` | `address` | `address` | |
 | `phone`, `manager_name` | — | — | Not used |
 | `is_active` | `active` | `active` | |

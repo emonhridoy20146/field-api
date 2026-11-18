@@ -1725,7 +1725,7 @@ components:
       properties: { erpEmployeeId: { type: string }, code: { type: string }, name: { type: string }, erpBranchIds: { type: array, items: { type: string } }, active: { type: boolean } }
     Branch:
       type: object
-      properties: { id: { type: string }, erpBranchId: { type: string }, code: { type: string }, name: { $ref: '#/components/schemas/I18nText' }, district: { type: string }, address: { type: string }, lat: { type: [number, 'null'] }, lng: { type: [number, 'null'] }, active: { type: boolean } }
+      properties: { id: { type: string }, erpBranchId: { type: string }, code: { type: string }, kind: { type: string, enum: [branch, warehouse], description: 'Added in 1.13.0. ERP location type; a warehouse can hold receivables too' }, name: { $ref: '#/components/schemas/I18nText' }, district: { type: string }, address: { type: string }, lat: { type: [number, 'null'] }, lng: { type: [number, 'null'] }, active: { type: boolean } }
     FeatureFlag:
       type: object
       properties: { key: { type: string }, defaultEnabled: { type: boolean }, branchOverrides: { type: array, items: { type: object, properties: { branchId: { type: string }, enabled: { type: boolean } } } }, description: { type: string }, owner: { type: string }, reviewBy: { type: string }, lockedReason: { type: string } }

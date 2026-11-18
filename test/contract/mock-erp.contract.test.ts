@@ -40,7 +40,7 @@ describe('LaravelErpClient ↔ mock ERP over HTTP', () => {
     expect((await client.health()).ok).toBe(true);
     const branches = await client.listBranches();
     expect(branches.map((b) => b.code)).toContain('BRL01');
-    expect(branches.every((b) => b.kind === 'branch')).toBe(true);
+    expect(branches.map((b) => [b.code, b.kind])).toEqual([['BRL01', 'branch'], ['PTK01', 'branch'], ['W', 'warehouse']]);
     const employees = await client.listEmployees();
     expect(employees.find((e) => e.erpEmployeeId === '7')).toMatchObject({
       code: 'EMP-00007',

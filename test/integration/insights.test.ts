@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { as, createTestApp, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
 import { expectConforms } from '../helpers/openapi.js';
-import { deltaSync } from '../../src/modules/erp-gateway/index.js';
+import { deltaSync, syncBranches } from '../../src/modules/erp-gateway/index.js';
 import { applyAssignments, getByErpId } from '../../src/modules/customers/index.js';
 import { dispatchOutbox } from '../../src/core/events/outbox.js';
 import { storage, type MemoryStorage } from '../../src/core/storage/index.js';
@@ -287,6 +287,12 @@ describe('data quality (FR-CUS-009)', () => {
     expect(set.status).toBe(200);
     expectConforms('PUT', '/branches/{id}/location', 200, set.body);
     expect(set.body).toMatchObject({ lat: 22.701002, lng: 90.353451 });
+    // ERP sync keeps a FOS branch point and the location kind (warehouses hold receivables too).
+    await syncBranches();
+    const locs = await sa.get('/branches');
+    expectConforms('GET', '/branches', 200, locs.body);
+    expect(locs.body.find((b: { id: string }) => b.id === s.branchA)).toMatchObject({ kind: 'branch', lat: 22.701002, lng: 90.353451 });
+    expect(locs.body.find((b: { code: string }) => b.code === 'W')).toMatchObject({ kind: 'warehouse', lat: null });
     // A tighter radius from settings makes every located customer "far".
     await setSystem('reports.dataQualityMaxBranchKm', 0.001, s.branchA);
     const near = await bm.get('/reports/data-quality');
