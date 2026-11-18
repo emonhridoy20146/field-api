@@ -5,6 +5,7 @@ import { isIsoDate, yymmdd } from '../../core/time/index.js';
 import type { AuthUser } from '../../core/security/types.js';
 import { getBranch } from '../branches/index.js';
 import { getUser } from '../users/index.js';
+import { receiptPrefix } from './domain/rules.js';
 import { Schema, model } from 'mongoose';
 import { ctx } from '../../core/context/index.js';
 
@@ -24,7 +25,7 @@ export async function allocateBlock(user: AuthUser, input: z.infer<typeof blockS
   const u = await getUser(user.id);
   const branch = u?.branchIds[0] ? await getBranch(u.branchIds[0]) : null;
   if (!u || !branch) throw notFound('branch');
-  const prefix = `${branch.code}-${u.employeeCode}`.toUpperCase();
+  const prefix = receiptPrefix(branch.code, u.employeeCode);
   const counter = `receipt:${prefix}:${yymmdd(input.businessDate)}`;
   const to = await nextSeq(counter, undefined, input.size);
   const from = to - input.size + 1;

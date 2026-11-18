@@ -127,7 +127,7 @@ Grouped by why a premium client will ask for them:
 
 | ID | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
-| R-1 | Laravel integration endpoints late, incomplete or different from assumptions. | High | High | ERP gateway behind an interface with a **mock ERP** server and recorded fixtures; contract tests; assumptions table (erp-integration-spec §9); phase-1 can run in "record-only" mode (collections stay `received`, exported for manual entry) until Laravel posting exists. |
+| R-1 | Laravel integration endpoints late, incomplete or different from assumptions. | High | High | ERP gateway behind an interface with a **mock ERP** server and recorded fixtures; contract tests; assumptions table (now resolved in erp-findings.md §3, 2026-11-18); phase-1 can run in "record-only" mode (collections stay `received`, exported for manual entry) until Laravel posting exists. |
 | R-2 | Double counting or lost money in offline sync. | Medium | Critical | Client-generated UUIDv7 idempotency key end-to-end (app → field-api → Laravel); payload hash check; outbox with retries; daily reconciliation report FOS vs. Laravel. |
 | R-3 | Coordinate data quality in Laravel (null, 0,0, swapped lat/lng, branch address used for all). | High | Medium | Validation rules (Bangladesh bbox 20.5–26.7 N, 88.0–92.7 E), "no-pin" state, correction workflow, data-quality report. |
 | R-4 | Battery drain and Android OEM background killing (Xiaomi, Oppo, Vivo, Realme, Samsung). | High | High | Foreground service with persistent notification during duty only, activity-recognition-driven adaptive sampling, OEM battery-whitelist guide screen, heartbeat gap detection, decision ADR-009 on the plugin. |
@@ -135,7 +135,7 @@ Grouped by why a premium client will ask for them:
 | R-6 | Staff fraud (fake visits, pocketed cash, mock GPS, backdated entries). | Medium | High | Camera-only photos, mock detection, clock skew, distance-to-pin, SMS receipt (proposed), cash limits and deposit verification, anomaly flags in inbox. |
 | R-7 | Low-end devices (2 GB RAM, Android 8–10) and weak 2G/3G networks. | High | Medium | Paginated lists, delta sync, gzip, image compression to ≤ 250 KB, SQLite local DB, no heavy animations, cold-start budget. |
 | R-8 | Scale to ~100 staff (location volume ~100k points/day). | Medium | Medium | Mongo time-series collection, batch ingest, TTL, aggregates; capacity numbers in 06-data-model §9. |
-| R-9 | Single maintainer on Laravel side; slow answers. | High | Medium | Maintainer checklist (erp-integration-spec §10) sent early; spec written to reconcile with their guidelines. |
+| R-9 | Single maintainer on Laravel side; slow answers. | High | Medium | ERP studied and API prototyped on a sandbox copy (erp-findings.md, erp-integration-spec v2); spec written to reconcile with their guidelines. |
 | R-10 | Tile provider limits/terms (OSM's public tiles forbid heavy app use). | High | Medium | Swappable `TileProvider`; never ship with `tile.openstreetmap.org` as production provider; cache headers respected. |
 | R-11 | Feature-flag sprawl and module coupling over time. | Medium | Medium | Manifest + boundary lint + flag registry with owner and expiry date. |
 

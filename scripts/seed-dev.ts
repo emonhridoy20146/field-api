@@ -31,7 +31,11 @@ try {
   const erp = erpClient();
   // In mock mode the in-process ERP starts empty; with ERP_MODE=live (pointing at mock-erp) data comes over HTTP.
   if (erp instanceof MockErpClient)
-    erp.seedLaravel({ branches: fixture('branches.ok.json'), customers: fixture('customers.ok.json') });
+    erp.seedLaravel({
+      branches: fixture('branches.ok.json'),
+      employees: fixture('employees.ok.json'),
+      customers: fixture('customers.ok.json'),
+    });
   await syncBranches();
   const branches = await listBranches();
   const a = branches[0]?.id;
@@ -44,16 +48,18 @@ try {
     code: string,
     branchIds: string[],
     name: string,
+    erpEmployeeId?: string,
   ][] = [
     ['super_admin', '01700000001', 'SA001', [a, b], 'Owner'],
-    ['branch_manager', '01700000002', 'BM001', [a], 'Manager A'],
-    ['field_staff', '01700000003', 'FS014', [a], 'Rakib Hasan'],
-    ['field_staff', '01700000004', 'FS015', [a], 'Sumon Mia'],
-    ['field_staff', '01700000005', 'FS101', [b], 'Babul B'],
+    ['branch_manager', '01700000002', 'BM001', [a], 'Manager A', '10'],
+    // The ERP needs a collector employee on every payment (employees.ok.json ids).
+    ['field_staff', '01700000003', 'FS014', [a], 'Rakib Hasan', '7'],
+    ['field_staff', '01700000004', 'FS015', [a], 'Sumon Mia', '8'],
+    ['field_staff', '01700000005', 'FS101', [b], 'Babul B', '9'],
     ['viewer', '01700000006', 'VW001', [a], 'Auditor'],
   ];
   const idOf = new Map<string, string>();
-  for (const [role, phone, employeeCode, branchIds, name] of users) {
+  for (const [role, phone, employeeCode, branchIds, name, erpEmployeeId] of users) {
     const existing = await findForLogin({ phone });
     const u =
       existing ??
@@ -63,6 +69,7 @@ try {
         role,
         branchIds,
         employeeCode,
+        ...(erpEmployeeId ? { erpEmployeeId } : {}),
         password,
         mustChangePassword: true,
       }));

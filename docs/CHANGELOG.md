@@ -2,7 +2,21 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
-## [Unreleased] — contract 1.12.0
+## [Unreleased] — contract 1.13.0
+### Added
+- **Real ERP shape** (owner request 2026-11-18, ADR-033). The Howlader ERP was studied (code + a copy of its data, `docs/erp-findings.md`) and its field API was written and tested on a sandbox copy without touching the production repository (`docs/erp-integration-spec.md` v2, field-by-field `docs/erp-mapping.md`). The Laravel mapper now reads that API: one FOS plan = one ERP invoice (installment or credit sale, `erpPlanId` = invoice id); schedule line amount = due + late fee, lines the ERP rolled forward are marked `rolled`; returned/cancelled invoices are `closed`/`cancelled` and not collectable or counted; payments the office removed in the ERP come back as reversed; messy ERP phone fields are normalized to `01XXXXXXXXX`; customers without a branch take the branch of their latest invoice (done by the ERP API); warehouses are synced as branches so their customers are not skipped.
+- Contract 1.13.0 (additive): `Plan.kind/invoiceNo/saleDate/frequency/customDays/items/guarantor/writtenOffPoisha`, schedule `lateFeePoisha/rolled`, `Payment.erpPlanId/methodLabel/collectorName/advance/discountPoisha`, `CustomerDetail.detailedAddress/directions/erpRisk`; `GET /system/erp-employees` (`user.manage`) to link a staff user to the ERP employee the ERP needs as collector; `PUT /branches/{id}/location` (`settings.manage`, audited `branch.location_set`) because the ERP has no branch coordinates; `Branch.kind` (`branch`/`warehouse`; warehouses are synced because they hold receivables); `UserUpdate.erpEmployeeId` (nullable) documented, the server already accepted it.
+- New collection conflict codes with bn/en texts: `PLAN_CLOSED`, `DUPLICATE_SAME_DAY` (the ERP takes one payment per installment invoice per day, OD-27), `METHOD_NOT_AVAILABLE`, `COLLECTOR_NOT_LINKED` (a collector without `erpEmployeeId` is never sent to the ERP).
+- Payment request: `sales_invoice_id`, `method_type` + `mobile_provider` (so a bKash payment never lands in a Nagad wallet), `collector_employee_id`, physical receipt number in `note`; geo stays in FOS.
+### Changed
+- `MockErpClient` applies the ERP's rules in the ERP's order (closed, inactive, settled, overpayment, back-date window OD-28, collector, method, same day); `mock-erp` serves `/api/field/v1`; fixtures re-recorded in the real shape (fake people). Test users are linked to ERP employees.
+- Receipt numbers accept one-letter branch codes and use a sanitized branch code (A–Z/0–9, max 10): two ERP branch codes are one letter and one warehouse code has a space.
+- Closed (returned) plans are ignored in totals and overdue like cancelled ones.
+### Fixed
+- Delta sync kept the **last** page's server time as the watermark; rows changed while it paged could be skipped. It now keeps the first page's time.
+- The mock ERP compared `updated_since` as text across time zones.
+
+## [1.12.0] — contract 1.12.0 (PR #9)
 ### Added
 - Leave, holidays, shifts and notices ready for the app and admin screens (owner request 2026-11-17, ADR-032). `POST /leave-requests/{id}/cancel`: the requester withdraws a pending request (status `cancelled`, inbox item resolved through the new event `leave.cancelled`). `GET /leave-requests` gains `from`/`to` (requests overlapping the window) and `userId` (managers); `LeaveRequest` gains `branchId`, `days`, `decisionReason`, `cancelledAt`.
 - `DELETE /calendar/holidays/{id}` (`settings.manage`, audited `holiday.deleted`); `Holiday.id`; `GET /calendar/holidays?branchId=` keeps national holidays and that branch's own; `HolidayCreate` declared, the create answers the `Holiday`.

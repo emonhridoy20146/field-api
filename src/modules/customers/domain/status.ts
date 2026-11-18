@@ -6,7 +6,14 @@ export interface PlanInput {
   endDate: string | null;
   outstandingPoisha: number;
   status: string;
-  schedule: { seq: number; dueDate: string; amountPoisha: number; paidPoisha: number | null }[];
+  schedule: {
+    seq: number;
+    dueDate: string;
+    amountPoisha: number;
+    paidPoisha: number | null;
+    lateFeePoisha?: number;
+    rolled?: boolean;
+  }[];
 }
 
 export type LineStatus = 'paid' | 'partial' | 'due' | 'overdue' | 'upcoming';
@@ -19,6 +26,10 @@ export interface LineDerived {
   outstandingPoisha: number;
   status: LineStatus;
   estimated: boolean;
+  /** Late fee included in amountPoisha (ERP, 1.13.0). */
+  lateFeePoisha: number;
+  /** Zeroed by the ERP roll-forward job; its balance sits on a later line. Apps hide it. */
+  rolled: boolean;
 }
 
 export interface PlanDerived {
@@ -42,7 +53,8 @@ export interface CustomerDerived {
   plans: PlanDerived[];
 }
 
-const IGNORED = new Set(['cancelled']);
+/** Not collectable: cancelled, and closed (an ERP invoice that was returned) — ADR-033. */
+const IGNORED = new Set(['cancelled', 'closed']);
 
 /**
  * FR-TAG-001: final due date = plan end date from ERP, else the max schedule due date (E-05).
@@ -75,7 +87,17 @@ export function deriveLines(p: PlanInput, today: string): LineDerived[] {
     else if (l.dueDate < today) status = 'overdue';
     else if (l.dueDate === today) status = 'due';
     else status = paid > 0 ? 'partial' : 'upcoming';
-    return { seq: l.seq, dueDate: l.dueDate, amountPoisha: l.amountPoisha, paidPoisha: paid, outstandingPoisha: out, status, estimated };
+    return {
+      seq: l.seq,
+      dueDate: l.dueDate,
+      amountPoisha: l.amountPoisha,
+      paidPoisha: paid,
+      outstandingPoisha: out,
+      status,
+      estimated,
+      lateFeePoisha: l.lateFeePoisha ?? 0,
+      rolled: !!l.rolled,
+    };
   });
 }
 
@@ -92,7 +114,8 @@ export function deriveCustomer(plans: PlanInput[], today: string): CustomerDeriv
     const fdd = finalDueDate(p);
     const lines = deriveLines(p, today);
     const isBad = !!fdd && fdd < today && p.outstandingPoisha > 0;
-    if (isBad && (!bad || fdd < bad.finalDueDate)) bad = { erpPlanId: p.erpPlanId, finalDueDate: fdd, outstandingPoisha: p.outstandingPoisha };
+    if (isBad && (!bad || fdd < bad.finalDueDate))
+      bad = { erpPlanId: p.erpPlanId, finalDueDate: fdd, outstandingPoisha: p.outstandingPoisha };
     if (p.outstandingPoisha > 0) {
       for (const l of lines) {
         if (l.outstandingPoisha <= 0) continue;
@@ -115,7 +138,9 @@ export function deriveCustomer(plans: PlanInput[], today: string): CustomerDeriv
   let nextInstallment: number | null = null;
   if (nextDue) {
     nextInstallment = 0;
-    for (const pd of planDerived) for (const l of pd.lines) if (l.dueDate === nextDue && l.outstandingPoisha > 0) nextInstallment += l.outstandingPoisha;
+    for (const pd of planDerived)
+      for (const l of pd.lines)
+        if (l.dueDate === nextDue && l.outstandingPoisha > 0) nextInstallment += l.outstandingPoisha;
   }
   return {
     totalOutstandingPoisha: active.reduce((s, p) => s + Math.max(0, p.outstandingPoisha), 0),
@@ -131,10 +156,14 @@ export function deriveCustomer(plans: PlanInput[], today: string): CustomerDeriv
   };
 }
 
-export type CustomerStatus = 'overdue' | 'due_today' | 'promised_today' | 'paid_up' | 'current' | 'bad_suggested' | 'tagged_bad';
+export type CustomerStatus =
+  'overdue' | 'due_today' | 'promised_today' | 'paid_up' | 'current' | 'bad_suggested' | 'tagged_bad';
 
 /** Badges for list items and the map colour key, worst first. */
-export function badges(d: { overdue: boolean; dueToday: boolean; badSuggested: boolean; totalOutstandingPoisha: number }, opts: { promisedToday: boolean; tagged: boolean }): CustomerStatus[] {
+export function badges(
+  d: { overdue: boolean; dueToday: boolean; badSuggested: boolean; totalOutstandingPoisha: number },
+  opts: { promisedToday: boolean; tagged: boolean },
+): CustomerStatus[] {
   const out: CustomerStatus[] = [];
   if (opts.tagged) out.push('tagged_bad');
   if (d.badSuggested) out.push('bad_suggested');
@@ -145,5 +174,13 @@ export function badges(d: { overdue: boolean; dueToday: boolean; badSuggested: b
   return out;
 }
 
-const SEVERITY: CustomerStatus[] = ['tagged_bad', 'bad_suggested', 'overdue', 'due_today', 'promised_today', 'current', 'paid_up'];
+const SEVERITY: CustomerStatus[] = [
+  'tagged_bad',
+  'bad_suggested',
+  'overdue',
+  'due_today',
+  'promised_today',
+  'current',
+  'paid_up',
+];
 export const worstStatus = (a: CustomerStatus[]): CustomerStatus => SEVERITY.find((s) => a.includes(s)) ?? 'current';

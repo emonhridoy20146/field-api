@@ -1,4 +1,22 @@
-{ "data": { "id": 10233, "receipt_no": "R-78010", "customer_id": 100245, "plan_id": 55021, "amount": "5000.00",
-            "posted_at": "2026-11-15T11:20:05+06:00", "plan_outstanding_after": "3500.00", "customer_outstanding_after": "3500.00",
-            "allocations": [ { "seq": 6, "amount": "5000.00" } ] },
-  "idempotent_replay": false }
+{
+ "data": {
+  "id": 10233,
+  "payment_number": "PAY-20261115-00031",
+  "sales_invoice_id": 55021,
+  "customer_id": 100245,
+  "amount": "5000.00",
+  "payment_date": "2026-11-15",
+  "payment_method_id": 4,
+  "payment_method_name": "Cash-03",
+  "posted_at": "2026-11-15T11:20:05+06:00",
+  "invoice_amount_due_after": "3500.00",
+  "customer_outstanding_after": "3500.00",
+  "allocations": [
+   {
+    "installment_no": 6,
+    "amount": "5000.00"
+   }
+  ]
+ },
+ "idempotent_replay": false
+}

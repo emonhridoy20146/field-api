@@ -222,6 +222,9 @@ export async function upsertFromErp(c: ErpCustomer, fetchedAt: Date): Promise<st
     phones: c.phones,
     guarantor: c.guarantor,
     address: c.address,
+    detailedAddress: c.detailedAddress ?? null,
+    directions: c.directions ?? null,
+    erpRisk: c.risk ?? null,
     areaCode: c.areaCode,
     erpLocation: c.lat !== null && c.lng !== null ? { lat: c.lat, lng: c.lng } : null,
     locationStatus: loc.locationStatus,
@@ -551,7 +554,18 @@ function planView(p: LooseObject, d: LooseObject | undefined) {
       paidPoisha: l.paidPoisha,
       status: l.status,
       estimated: l.estimated,
+      lateFeePoisha: l.lateFeePoisha ?? 0,
+      rolled: !!l.rolled,
     })),
+    // 1.13.0: what the plan is in the ERP (ADR-033). Absent on data synced before 1.13.0.
+    ...(p.kind ? { kind: p.kind } : {}),
+    ...(p.invoiceNo ? { invoiceNo: p.invoiceNo } : {}),
+    ...(p.saleDate ? { saleDate: p.saleDate } : {}),
+    ...(p.frequency ? { frequency: p.frequency } : {}),
+    ...(p.customDays != null ? { customDays: p.customDays } : {}),
+    ...(Array.isArray(p.items) ? { items: p.items } : {}),
+    ...(p.guarantor ? { guarantor: { name: p.guarantor.name, phone: p.guarantor.phone ?? '', phones: p.guarantor.phones ?? [], ...(p.guarantor.address ? { address: p.guarantor.address } : {}) } } : {}),
+    ...(p.writtenOffPoisha ? { writtenOffPoisha: p.writtenOffPoisha } : {}),
   };
 }
 
@@ -589,7 +603,15 @@ async function detailOf(c: Doc, user: AuthUser) {
       source: p.source,
       receiptNo: p.receiptNo ?? '',
       reversed: !!p.reversed,
+      ...(p.erpPlanId ? { erpPlanId: p.erpPlanId } : {}),
+      ...(p.methodLabel ? { methodLabel: p.methodLabel } : {}),
+      ...(p.collectorName ? { collectorName: p.collectorName } : {}),
+      ...(p.advance ? { advance: true } : {}),
+      ...(p.discountPoisha ? { discountPoisha: p.discountPoisha } : {}),
     })),
+    ...(c.detailedAddress ? { detailedAddress: c.detailedAddress } : {}),
+    ...(c.directions ? { directions: c.directions } : {}),
+    ...(c.erpRisk ? { erpRisk: c.erpRisk } : {}),
     badSuggestion: br
       ? {
           ...br,

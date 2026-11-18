@@ -15,6 +15,10 @@ const customerSchema = new Schema(
     phones: { type: [String], default: [] },
     guarantor: { type: Schema.Types.Mixed, default: null },
     address: String,
+    // 1.13.0 (ADR-033): ERP directions and risk snapshot, display only.
+    detailedAddress: { type: String, default: null },
+    directions: { type: String, default: null },
+    erpRisk: { type: Schema.Types.Mixed, default: null },
     areaCode: { type: String, default: null },
     erpLocation: { lat: Number, lng: Number },
     location: { type: { type: String, enum: ['Point'] }, coordinates: { type: [Number], default: undefined } },

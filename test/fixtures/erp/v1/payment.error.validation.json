@@ -1,1 +1,11 @@
-{ "message": "The given data was invalid.", "errors": { "amount": ["The amount must be at least 1."] } }
+{
+ "message": "The payment is not valid.",
+ "error": {
+  "code": "VALIDATION_FAILED",
+  "details": {
+   "amount": [
+    "The amount field format is invalid."
+   ]
+  }
+ }
+}

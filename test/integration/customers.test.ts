@@ -118,7 +118,11 @@ describe('customer detail (FR-CUS-003/005)', () => {
     expect(res.body.badSuggestion.outstandingPoisha).toBe(850000);
     expect(res.body.badSuggestion.text.en).toContain('8,500');
     expect(res.body.plans[0].finalDueDate).toBe('2026-10-10');
-    expect(res.body.payments[0].receiptNo).toBe('R-77812');
+    // 1.13.0: what the plan is in the ERP, and the ERP's directions and risk (ADR-033)
+    expect(res.body.plans[0]).toMatchObject({ kind: 'installment', invoiceNo: 'INV-55021', frequency: 'monthly', items: [{ name: 'Walton Fridge', model: 'WFC-3D8', qty: 1 }], guarantor: { name: 'Abdul Malek', phone: '01911000000' } });
+    expect(res.body.plans[0].schedule[5]).toMatchObject({ lateFeePoisha: 0, rolled: false });
+    expect(res.body).toMatchObject({ directions: 'Blue gate next to the mosque', erpRisk: { grade: 'C', level: 'Medium' } });
+    expect(res.body.payments[0]).toMatchObject({ receiptNo: 'PAY-20260912-09921', erpPlanId: '55021', methodLabel: 'Cash-03', collectorName: 'Rakib Hasan' });
   });
 
   it('a plan with null end_date takes the last schedule date (never month arithmetic)', async () => {

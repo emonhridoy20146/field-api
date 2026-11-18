@@ -40,7 +40,7 @@ Indexes: `{ deviceId: 1 } unique`, `{ userId: 1, unboundAt: 1 }`.
 ## 2. Reference data
 
 ### branches
-`{ _id, erpBranchId, code: 'BRL01', name: {bn,en}, district, address, location: Point|null, active, dutyOverride?: {shiftId}, cashLimitDefaultPoisha, erpSyncedAt }` · `{ erpBranchId:1 } unique`, `{ code:1 } unique`.
+`{ _id, erpBranchId, code: 'BRL01', kind: 'branch'|'warehouse' (1.13.0, default branch), name: {bn,en}, district, address, location: Point|null, active, dutyOverride?: {shiftId}, cashLimitDefaultPoisha, erpSyncedAt }` · `{ erpBranchId:1 } unique`, `{ code:1 } unique`. The ERP sends no coordinates; `location` is set in FOS (`PUT /branches/{id}/location`) and sync never clears it.
 
 ### settings
 `{ _id, key: 'cash.limitMode', scope: 'global'|'branch', branchId?, value, type, updatedBy, updatedAt }` · `{ key:1, scope:1, branchId:1 } unique`.
@@ -75,6 +75,11 @@ Indexes: `{ deviceId: 1 } unique`, `{ userId: 1, unboundAt: 1 }`.
   "erpStatus": "active", "erpUpdatedAt": "2026-11-14T10:22:00Z", "erpFetchedAt": "2026-11-15T00:55:00Z", "erpVersion": "…" }
 ```
 `locationStatus`: `ok | missing | invalid | suspect_swapped | overridden`. `locationSource`: `erp | overlay`.
+Since 1.13.0 (ADR-033, no migration: older documents simply lack the fields until their next sync):
+- customer: `detailedAddress`, `directions` (ERP `location_instructions`), `erpRisk { grade, level, classification, overdueCount, maxDaysLate, computedAt }`.
+- `plans[]` = one ERP invoice each: `kind` (`installment|credit`), `invoiceNo`, `erpInstallmentPlanId`, `erpBranchId`, `frequency`, `customDays`, `items[] { name, model, qty, serials[] }`, `guarantor { name, phone, phones[], address }`, `writtenOffPoisha`, `saleDate`; `status` `closed` = returned in the ERP. `schedule[]` gains `lateFeePoisha` (included in `amountPoisha`) and `rolled`.
+- `recentPayments[]` gains `methodLabel`, `collectorName`, `collectorEmployeeId`, `advance`, `discountPoisha`; payments the office removed in the ERP are kept with `reversed: true, reversedAt`.
+- `derived.plans[].lines[]` gains `lateFeePoisha`, `rolled`.
 Indexes: `{ erpCustomerId:1 } unique`, `{ branchId:1, 'derived.overdue':1, 'derived.daysOverdue':-1 }`, `{ branchId:1, 'derived.dueToday':1 }`, `{ branchId:1, 'derived.badSuggested':1 }`, `{ location: '2dsphere' }`, `{ phones:1 }`, text/Atlas Search on `name.bn, name.en, code, phones`.
 Derived fields are recomputed on each sync **and** nightly at 00:05 Dhaka (because dates move even when data does not).
 

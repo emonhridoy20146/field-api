@@ -20,7 +20,7 @@ const payment = (over: Record<string, unknown> = {}) => ({
   method: 'cash' as const,
   transactionRef: null,
   collectedAt: new Date('2026-11-15T05:20:00Z'),
-  employeeId: null,
+  employeeId: '7',
   fieldReceiptNo: 'BRL01-FS014-261115-0001',
   physicalReceiptNo: null,
   note: null,
@@ -40,12 +40,20 @@ describe('LaravelErpClient ↔ mock ERP over HTTP', () => {
     expect((await client.health()).ok).toBe(true);
     const branches = await client.listBranches();
     expect(branches.map((b) => b.code)).toContain('BRL01');
+    expect(branches.map((b) => [b.code, b.kind])).toEqual([['BRL01', 'branch'], ['PTK01', 'branch'], ['W', 'warehouse']]);
+    const employees = await client.listEmployees();
+    expect(employees.find((e) => e.erpEmployeeId === '7')).toMatchObject({
+      code: 'EMP-00007',
+      active: true,
+      erpBranchIds: ['3'],
+    });
     const page = await client.listCustomers({ pageSize: 2 });
     expect(page.items).toHaveLength(2);
     expect(page.nextCursor).toBeTruthy();
     const c = page.items[0]!;
     expect(c.erpCustomerId).toBeTruthy();
     expect(Number.isInteger(c.plans[0]!.outstandingPoisha)).toBe(true); // money is integer poisha inside field-api
+    expect(c.plans[0]).toMatchObject({ kind: 'installment', invoiceNo: 'INV-55021' });
     const next = await client.listCustomers({ pageSize: 200, cursor: page.nextCursor });
     expect(next.items.length).toBeGreaterThan(0);
     expect(await client.getCustomer('100245')).toBeTruthy();
@@ -66,6 +74,13 @@ describe('LaravelErpClient ↔ mock ERP over HTTP', () => {
     const found = await client.getPaymentByKey(p.idempotencyKey);
     expect(found?.erpPaymentId).toBe(first.erpPaymentId);
     expect(await client.getPaymentByKey(randomUUID())).toBeNull();
+  });
+
+  it('a collector without an ERP employee is a conflict and is never sent', async () => {
+    const before = erp.posted();
+    const r = await client.postPayment(payment({ employeeId: null }));
+    expect(r).toMatchObject({ kind: 'business_error', code: 'COLLECTOR_NOT_LINKED' });
+    expect(erp.posted()).toBe(before);
   });
 
   it('an unknown customer is a business rejection, not a transport failure', async () => {

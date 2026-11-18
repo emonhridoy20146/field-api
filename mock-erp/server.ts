@@ -1,5 +1,5 @@
 /**
- * HTTP mock of the Laravel integration endpoints (docs/erp-integration-spec.md §4–§5) for local
+ * HTTP mock of the Howlader ERP field API v1 (docs/erp-integration-spec.md v2 §4) for local
  * development and contract tests. It replays the recorded fixtures under test/fixtures/erp/v1 and
  * knows Laravel field names only through mock-server.json there.
  *
@@ -30,6 +30,7 @@ export async function startMockErp(
   const cfg = fixture('mock-server.json') as { prefix: string; fields: Record<string, string> };
   const f = cfg.fields;
   const branches = fixture('branches.ok.json') as { data: Json[] };
+  const employees = fixture('employees.ok.json') as { data: Json[] };
   const customers = fixture('customers.ok.json') as { data: Json[] } & Json;
   const postedTpl = fixture('payment.posted.json') as { data: Json } & Json;
   const validationError = fixture('payment.error.validation.json');
@@ -55,11 +56,20 @@ export async function startMockErp(
     const url = new URL(req.url ?? '/', 'http://mock-erp');
     if (!url.pathname.startsWith(cfg.prefix)) return send(res, 404, { message: 'Not found' });
     const path = url.pathname.slice(cfg.prefix.length) || '/';
-    if (path === '/health') return send(res, 200, { status: 'ok', time: new Date().toISOString() });
     if (opts.token && req.headers.authorization !== `Bearer ${opts.token}`)
-      return send(res, 401, { message: 'Unauthenticated.' });
-
-    if (req.method === 'GET' && path === '/branches') return send(res, 200, branches);
+      return send(res, 401, { message: 'Unauthenticated.', error: { code: 'UNAUTHENTICATED' } });
+    if (path === '/health')
+      return send(res, 200, {
+        status: 'ok',
+        time: new Date().toISOString(),
+        version: 'field-v1',
+        timezone: 'Asia/Dhaka',
+      });
+    if (req.method === 'GET' && path === '/branches') {
+      const all = url.searchParams.get(f.queryType!) === 'all';
+      return send(res, 200, { data: branches.data.filter((b) => all || (b[f.branchType!] ?? 'branch') === 'branch') });
+    }
+    if (req.method === 'GET' && path === '/employees') return send(res, 200, employees);
 
     if (req.method === 'GET' && path === '/customers') {
       const branch = url.searchParams.get(f.queryBranch!);
@@ -82,14 +92,18 @@ export async function startMockErp(
     const one = /^\/customers\/([^/]+)(\/payments)?$/.exec(path);
     if (req.method === 'GET' && one) {
       const c = customers.data.find((x) => String(x[f.id!]) === decodeURIComponent(one[1]!));
-      if (!c) return send(res, 404, { message: 'Not found' });
-      return send(res, 200, { data: one[2] ? (c[f.payments!] ?? []) : c });
+      if (!c) return send(res, 404, { message: 'Customer not found.', error: { code: 'CUSTOMER_NOT_FOUND' } });
+      return one[2]
+        ? send(res, 200, { data: c[f.payments!] ?? [], meta: { [f.nextCursor!]: null } })
+        : send(res, 200, { data: c });
     }
 
     const byKey = /^\/payments\/by-idempotency-key\/([^/]+)$/.exec(path);
     if (req.method === 'GET' && byKey) {
       const hit = payments.get(decodeURIComponent(byKey[1]!));
-      return hit ? send(res, 200, hit.body) : send(res, 404, { message: 'Not found' });
+      return hit
+        ? send(res, 200, { ...hit.body, [f.idempotentReplay!]: true })
+        : send(res, 404, { message: 'No payment for this key.', error: { code: 'NOT_FOUND' } });
     }
 
     if (req.method === 'POST' && path === '/payments') {
@@ -99,23 +113,28 @@ export async function startMockErp(
       const fingerprint = JSON.stringify([body[f.requestCustomerId!], body[f.requestPlanId!], body[f.requestAmount!]]);
       const prior = payments.get(key);
       if (prior) {
-        // Same key, different money → refuse; same key, same money → replay (spec §7).
+        // Same key, different money → refuse; same key, same money → replay (spec §4.8).
         if (prior.fingerprint !== fingerprint)
-          return send(res, 409, {
-            message: 'Idempotency key reused with a different payload',
-            error: { code: 'IDEMPOTENCY_KEY_REUSED' },
+          return send(res, 422, {
+            message: 'This Idempotency-Key was used with a different payment.',
+            error: { code: 'IDEMPOTENCY_MISMATCH' },
           });
         return send(res, 200, { ...prior.body, [f.idempotentReplay!]: true });
       }
-      if (!customers.data.some((c) => String(c[f.id!]) === String(body[f.requestCustomerId!])))
+      if (body[f.requestCollector!] === null || body[f.requestCollector!] === undefined)
         return send(res, 422, validationError);
+      if (!customers.data.some((c) => String(c[f.id!]) === String(body[f.requestCustomerId!])))
+        return send(res, 404, {
+          message: 'Invoice not found for this customer.',
+          error: { code: 'PLAN_NOT_FOUND', details: {} },
+        });
       seq += 1;
       const out: Json = {
         ...postedTpl,
         data: {
           ...postedTpl.data,
           [f.postedId!]: seq,
-          [f.postedReceiptNo!]: `R-${seq}`,
+          [f.postedReceiptNo!]: `PAY-20261115-${String(seq).padStart(5, '0')}`,
           [f.postedCustomerId!]: body[f.requestCustomerId!],
           [f.postedPlanId!]: body[f.requestPlanId!],
           [f.postedAmount!]: body[f.requestAmount!],

@@ -10,9 +10,13 @@ export const manifest: ModuleManifest = {
   version: '1.0.0',
   core: true,
   description: 'Branch mirror from Laravel plus FOS-only extras (FR-BR-001)',
-  dependsOn: ['erp-gateway'],
+  dependsOn: ['erp-gateway', 'audit'],
   permissions: [
-    { key: 'branch.view', description: { en: 'View branches', bn: 'শাখা দেখা' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
+    {
+      key: 'branch.view',
+      description: { en: 'View branches', bn: 'শাখা দেখা' },
+      defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true },
+    },
   ],
   routes: branchRoutes,
   events: { emits: ['branch.synced'], consumes: ['erp.branches.synced'] },

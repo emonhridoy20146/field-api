@@ -11,7 +11,12 @@ let client: ErpClient | null = null;
 export function createClientFromConfig(): ErpClient {
   const c = ctx().config;
   if (c.ERP_MODE === 'mock') return new MockErpClient();
-  return new LaravelErpClient({ baseUrl: c.ERP_BASE_URL!, token: c.ERP_API_TOKEN!, nextToken: c.ERP_API_TOKEN_NEXT, timeoutMs: c.ERP_TIMEOUT_MS });
+  return new LaravelErpClient({
+    baseUrl: c.ERP_BASE_URL!,
+    token: c.ERP_API_TOKEN!,
+    nextToken: c.ERP_API_TOKEN_NEXT,
+    timeoutMs: c.ERP_TIMEOUT_MS,
+  });
 }
 
 export function erpClient(): ErpClient {
@@ -40,7 +45,10 @@ async function markSuccess(id: string, cursor: string | null) {
 async function markFailure(id: string, err: unknown) {
   await ErpSyncStateModel.updateOne(
     { _id: id },
-    { $set: { lastErrorAt: ctx().clock.now(), lastError: err instanceof Error ? err.message : String(err) }, $inc: { consecutiveFailures: 1 } },
+    {
+      $set: { lastErrorAt: ctx().clock.now(), lastError: err instanceof Error ? err.message : String(err) },
+      $inc: { consecutiveFailures: 1 },
+    },
     { upsert: true },
   );
 }
@@ -79,11 +87,17 @@ export async function deltaSync(): Promise<{ customers: number; branches: number
       let cursor: string | null = null;
       let serverTime: string | null = null;
       do {
-        const page = await erpClient().listCustomers({ erpBranchId: b.erpBranchId, updatedSince: since, cursor, pageSize: 100 });
+        const page = await erpClient().listCustomers({
+          erpBranchId: b.erpBranchId,
+          updatedSince: since,
+          cursor,
+          pageSize: 100,
+        });
         for (const c of page.items) await publishCustomer(c);
         total += page.items.length;
         cursor = page.nextCursor;
-        serverTime = page.serverTime ?? serverTime;
+        // Watermark = server time of the FIRST page: rows changed while we paged are picked up next run.
+        serverTime ??= page.serverTime;
       } while (cursor);
       await markSuccess(id, serverTime ?? startedAt.toISOString());
     } catch (e) {
@@ -116,6 +130,12 @@ export async function reconcile(): Promise<number> {
   return total;
 }
 
+/** ERP employees for linking FOS staff (users.erpEmployeeId). Read-through, nothing cached. */
+export async function listErpEmployees() {
+  const rows = await erpClient().listEmployees();
+  return { items: rows.sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name)) };
+}
+
 export async function refreshCustomer(erpCustomerId: string): Promise<ErpCustomer | null> {
   const c = await erpClient().getCustomer(erpCustomerId);
   if (c) await publishCustomer(c);
@@ -137,7 +157,8 @@ export async function handlePostPayment(payload: Record<string, unknown>, attemp
     return { status: 'done' };
   }
   const c = erpClient();
-  if (c instanceof LaravelErpClient && !c.breaker.canRequest()) return { status: 'retry', error: 'circuit open', delaySec: 60 };
+  if (c instanceof LaravelErpClient && !c.breaker.canRequest())
+    return { status: 'retry', error: 'circuit open', delaySec: 60 };
   await bus.emit('erp.payment.posting', { collectionId: job.collectionId, attempt });
   try {
     // After an ambiguous failure, ask Laravel first so a stored payment is never posted twice.
@@ -161,7 +182,12 @@ export async function handlePostPayment(payload: Record<string, unknown>, attemp
       await bus.emit('erp.payment.posted', { collectionId: job.collectionId, result: res });
       return { status: 'done' };
     case 'business_error':
-      await bus.emit('erp.payment.rejected', { collectionId: job.collectionId, code: res.code, message: res.message, details: res.details });
+      await bus.emit('erp.payment.rejected', {
+        collectionId: job.collectionId,
+        code: res.code,
+        message: res.message,
+        details: res.details,
+      });
       return { status: 'done' };
     case 'transient':
       await bus.emit('erp.payment.retrying', { collectionId: job.collectionId, error: res.error, attempt });
@@ -179,7 +205,11 @@ export async function handlePostPayment(payload: Record<string, unknown>, attemp
 }
 
 export async function onPostPaymentGaveUp(payload: Record<string, unknown>, error: string): Promise<void> {
-  await ctx().bus.emit('erp.payment.failed', { collectionId: (payload as unknown as PostPaymentJob).collectionId, code: 'GAVE_UP', error });
+  await ctx().bus.emit('erp.payment.failed', {
+    collectionId: (payload as unknown as PostPaymentJob).collectionId,
+    code: 'GAVE_UP',
+    error,
+  });
 }
 
 export async function resumePosting(): Promise<void> {
@@ -188,7 +218,11 @@ export async function resumePosting(): Promise<void> {
 
 export async function status() {
   const states = await ErpSyncStateModel.find({ _id: { $regex: '^customers:branch:' } }).lean();
-  const lastSuccess = states.map((s) => s.lastSuccessAt).filter((d): d is Date => !!d).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+  const lastSuccess =
+    states
+      .map((s) => s.lastSuccessAt)
+      .filter((d): d is Date => !!d)
+      .sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
   const now = ctx().clock.now();
   const c = erpClient();
   const out = await outboxCounts('erp.post_payment');

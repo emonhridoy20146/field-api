@@ -2,7 +2,14 @@
 
 export const METHODS = ['cash', 'bkash', 'nagad', 'rocket', 'bank_transfer', 'other_mobile'] as const;
 export type Method = (typeof METHODS)[number];
-export type Flag = 'far_from_pin' | 'mock_location' | 'clock_skew' | 'late_sync' | 'duplicate_txn_ref' | 'not_in_scope_at_record_time' | 'no_location';
+export type Flag =
+  | 'far_from_pin'
+  | 'mock_location'
+  | 'clock_skew'
+  | 'late_sync'
+  | 'duplicate_txn_ref'
+  | 'not_in_scope_at_record_time'
+  | 'no_location';
 
 /** Default per-method transaction id patterns (setting `collections.txnRefPatterns` overrides). */
 export const DEFAULT_TXN_PATTERNS: Record<Exclude<Method, 'cash'>, string> = {
@@ -13,7 +20,8 @@ export const DEFAULT_TXN_PATTERNS: Record<Exclude<Method, 'cash'>, string> = {
   other_mobile: '^[A-Z0-9/-]{4,40}$',
 };
 
-export const normalizeTxnRef = (s: string | undefined | null) => (s ? s.trim().toUpperCase().replace(/\s+/g, '') : null);
+export const normalizeTxnRef = (s: string | undefined | null) =>
+  s ? s.trim().toUpperCase().replace(/\s+/g, '') : null;
 
 /** null = ok; otherwise a validation message. */
 export function checkTxnRef(method: Method, ref: string | null, patterns: Record<string, string>): string | null {
@@ -23,10 +31,18 @@ export function checkTxnRef(method: Method, ref: string | null, patterns: Record
   return new RegExp(p).test(ref) ? null : `transactionRef does not match the ${method} format`;
 }
 
-/** `{BRANCHCODE}-{STAFFCODE}-{YYMMDD}-{SEQ4}` */
-export const RECEIPT_RE = /^([A-Z0-9]{2,10})-([A-Z0-9]{2,10})-(\d{6})-(\d{4})$/;
-export const receiptPrefix = (branchCode: string, staffCode: string) => `${branchCode}-${staffCode}`.toUpperCase();
-export const formatReceipt = (prefix: string, yymmdd: string, seq: number) => `${prefix}-${yymmdd}-${String(seq).padStart(4, '0')}`;
+/** `{BRANCHCODE}-{STAFFCODE}-{YYMMDD}-{SEQ4}`. ERP branch codes can be one letter (e.g. `H`). */
+export const RECEIPT_RE = /^([A-Z0-9]{1,10})-([A-Z0-9]{2,10})-(\d{6})-(\d{4})$/;
+/** ERP location codes may be mixed case, contain spaces or be long (warehouses): keep A–Z/0–9, max 10. */
+export const receiptBranchCode = (branchCode: string) =>
+  branchCode
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, 10) || 'BR';
+export const receiptPrefix = (branchCode: string, staffCode: string) =>
+  `${receiptBranchCode(branchCode)}-${staffCode}`.toUpperCase();
+export const formatReceipt = (prefix: string, yymmdd: string, seq: number) =>
+  `${prefix}-${yymmdd}-${String(seq).padStart(4, '0')}`;
 
 export function checkReceipt(receiptNo: string, expectedPrefix: string): string | null {
   const m = RECEIPT_RE.exec(receiptNo);
@@ -62,17 +78,41 @@ export function computeFlags(f: FlagInput): Flag[] {
 }
 
 /** Plan choice: explicit, or the only active plan (FR-COL-001). */
-export function choosePlan(plans: { erpPlanId: string; status: string }[], requested: string | undefined): { ok: true; erpPlanId: string } | { ok: false; message: string } {
+export function choosePlan(
+  plans: { erpPlanId: string; status: string }[],
+  requested: string | undefined,
+): { ok: true; erpPlanId: string } | { ok: false; message: string } {
   if (requested) return { ok: true, erpPlanId: requested };
   const active = plans.filter((p) => p.status === 'active');
   if (active.length === 1) return { ok: true, erpPlanId: active[0]!.erpPlanId };
-  return { ok: false, message: active.length ? 'erpPlanId is required when the customer has more than one active plan' : 'customer has no active plan; erpPlanId is required' };
+  return {
+    ok: false,
+    message: active.length
+      ? 'erpPlanId is required when the customer has more than one active plan'
+      : 'customer has no active plan; erpPlanId is required',
+  };
 }
 
-export type Status = 'received' | 'posting' | 'posted' | 'conflict' | 'posting_failed' | 'resolved_posted' | 'resolved_refund' | 'resolved_voided' | 'voided';
+export type Status =
+  | 'received'
+  | 'posting'
+  | 'posted'
+  | 'conflict'
+  | 'posting_failed'
+  | 'resolved_posted'
+  | 'resolved_refund'
+  | 'resolved_voided'
+  | 'voided';
 export const PENDING_STATUSES: Status[] = ['received', 'posting', 'posting_failed', 'conflict'];
 /** Cash that is still in the collector's hand (FR-CASH-001). */
-export const CASH_COUNTED_STATUSES: Status[] = ['received', 'posting', 'posted', 'conflict', 'posting_failed', 'resolved_posted'];
+export const CASH_COUNTED_STATUSES: Status[] = [
+  'received',
+  'posting',
+  'posted',
+  'conflict',
+  'posting_failed',
+  'resolved_posted',
+];
 export const VOIDABLE: Status[] = ['received', 'posting_failed'];
 export const RESOLVABLE: Status[] = ['conflict', 'posting_failed'];
 
@@ -84,4 +124,21 @@ export const CONFLICT_TEXT: Record<string, { en: string; bn: string }> = {
   PERIOD_LOCKED: { en: 'Accounting period is locked', bn: 'হিসাবের সময়কাল বন্ধ' },
   ERP_VALIDATION: { en: 'ERP rejected the payment', bn: 'ইআরপি পেমেন্ট গ্রহণ করেনি' },
   GAVE_UP: { en: 'Could not post to ERP for 24 hours', bn: '২৪ ঘণ্টায় ইআরপিতে পোস্ট করা যায়নি' },
+  // 1.13.0: rules of the real ERP (ADR-033)
+  PLAN_CLOSED: {
+    en: 'This invoice is closed in ERP (returned or cancelled)',
+    bn: 'এই ইনভয়েস ইআরপিতে বন্ধ (ফেরত বা বাতিল)',
+  },
+  DUPLICATE_SAME_DAY: {
+    en: 'ERP already has a payment for this invoice on that day',
+    bn: 'ইআরপিতে এই ইনভয়েসে ওই দিনে আগেই একটি পেমেন্ট আছে',
+  },
+  METHOD_NOT_AVAILABLE: {
+    en: 'This payment method is not set up for the branch in ERP',
+    bn: 'এই পেমেন্ট মাধ্যম ইআরপিতে শাখার জন্য চালু নেই',
+  },
+  COLLECTOR_NOT_LINKED: {
+    en: 'Collector is not linked to an ERP employee',
+    bn: 'আদায়কারী ইআরপির কোনো কর্মীর সাথে যুক্ত নন',
+  },
 };
