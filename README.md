@@ -46,7 +46,7 @@ Vercel runs the API as a serverless function (`api/index.js` → `src/app/server
 2. `pnpm keys:jwt` and keep the three lines it prints.
 3. Point a local `.env` at the Atlas test database, then run `pnpm db:migrate` and `pnpm seed:dev` (mock ERP data, one user per role, password = `SEED_PASSWORD`), or `pnpm build && node dist/src/cli.js create-admin …` for an empty start.
 4. Import the repo in Vercel (root = `field-api`); `vercel.json` sets the build, the Mumbai region (`bom1`) and the routes. Environment variables:
-   `NODE_ENV=staging`, `MONGODB_URI`, `MONGODB_DB_NAME`, `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY`, `JWT_KEY_ID`, `ERP_MODE=mock` (or `record_only` + `ERP_BASE_URL`/`ERP_API_TOKEN`), `TRUST_PROXY=true`, `PUBLIC_BASE_URL=https://<project>.vercel.app`, `ADMIN_WEB_ORIGIN=<admin-web URL>`, `CRON_SECRET` (≥ 16 random characters). Without S3 settings, photos and exports are kept in MongoDB behind signed URLs (`STORAGE_DRIVER=db`, chosen automatically on Vercel, ADR-036): this counts against the Atlas quota (about 250 KB per photo; M0 has 512 MB). For longer tests set the S3 values (for example a free Cloudflare R2 bucket) and storage switches to S3.
+   `NODE_ENV=staging`, `MONGODB_URI`, `MONGODB_DB_NAME`, `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY`, `JWT_KEY_ID`, `ERP_MODE=mock` (or `record_only` + `ERP_BASE_URL`/`ERP_API_TOKEN`), `TRUST_PROXY=true`, `PUBLIC_BASE_URL=https://<project>.vercel.app`, `ADMIN_WEB_ORIGIN=<admin-web URL>`, `CRON_SECRET` (≥ 16 random characters). Without S3 settings, photos and exports are kept in MongoDB behind signed URLs (`STORAGE_DRIVER=db`, chosen automatically on Vercel, ADR-039): this counts against the Atlas quota (about 250 KB per photo; M0 has 512 MB). For longer tests set the S3 values (for example a free Cloudflare R2 bucket) and storage switches to S3.
 5. Check: `curl https://<project>.vercel.app/api/v1/system/health`.
 6. Worker: `curl -H "Authorization: Bearer $CRON_SECRET" https://<project>.vercel.app/api/cron` runs the jobs due this minute and drains the outbox; add `?job=erp.delta-sync` (or any job name) to run one job now. For a steady test, call it every minute from an external scheduler (for example cron-job.org with that header); Vercel Cron on the Pro plan works too.
 
@@ -92,7 +92,7 @@ New module: `pnpm new:module <name>`, then follow the checklist in `CLAUDE.md §
 | `S3_BUCKET_EXPORTS` | exports bucket |
 | `S3_ACCESS_KEY_ID` | key |
 | `S3_SECRET_ACCESS_KEY` | secret |
-| `STORAGE_DRIVER` | `s3`, `db` (files in MongoDB, ADR-036) or `memory`; empty = automatic |
+| `STORAGE_DRIVER` | `s3`, `db` (files in MongoDB, ADR-039) or `memory`; empty = automatic |
 | `FCM_PROJECT_ID` | Firebase project |
 | `FCM_SERVICE_ACCOUNT_JSON` | service account (base64) |
 | `SMS_PROVIDER` / `SMS_API_KEY` / `SMS_SENDER_ID` | proposed SMS module |

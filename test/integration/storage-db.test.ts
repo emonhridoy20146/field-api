@@ -5,7 +5,7 @@ import { expectConforms } from '../helpers/openapi.js';
 import { loadConfig } from '../../src/core/config/index.js';
 import { storageDriver } from '../../src/core/storage/index.js';
 
-// ADR-036: on a host without S3 (the Vercel test deployment) files are kept in MongoDB behind signed
+// ADR-039: on a host without S3 (the Vercel test deployment) files are kept in MongoDB behind signed
 // URLs. Before, the API handed out memory:// URLs: the phone could not upload the work-in photo, the
 // held work-in never reached the server, and every location point after it was refused as off duty.
 let t: TestApp;
@@ -32,7 +32,7 @@ async function uploadSelfie(c: Awaited<ReturnType<typeof as>>, body: Buffer) {
   return { mediaId: r.body.mediaId as string, put };
 }
 
-describe('files in the database when there is no S3 (ADR-036)', () => {
+describe('files in the database when there is no S3 (ADR-039)', () => {
   it('picks the driver: explicit setting, S3 when configured, database on Vercel, memory in development', () => {
     expect(storageDriver(loadConfig({ NODE_ENV: 'test', STORAGE_DRIVER: 'db' }))).toBe('db');
     expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1' }))).toBe('db');

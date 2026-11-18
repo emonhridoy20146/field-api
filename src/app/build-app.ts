@@ -158,7 +158,7 @@ export async function buildApp(opts: BuildOptions): Promise<Built> {
     },
     { prefix: '/api/v1' },
   );
-  // Signed upload/download URLs when files live in the database (ADR-036).
+  // Signed upload/download URLs when files live in the database (ADR-039).
   const store = storage();
   if (store instanceof DbStorage) await app.register(storageRoutes(store), { prefix: '/api/v1' });
 

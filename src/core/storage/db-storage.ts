@@ -5,7 +5,7 @@ import { AppError } from '../errors/index.js';
 import { URL_TTL_SEC, type ObjectStorage } from './types.js';
 
 /**
- * Object storage inside MongoDB, for hosts without S3 (the Vercel test deployment, ADR-036). The
+ * Object storage inside MongoDB, for hosts without S3 (the Vercel test deployment, ADR-039). The
  * in-memory store gave each serverless instance its own files and handed out `memory://` URLs no
  * phone can PUT to, so attendance photos never uploaded and the held work-in never reached the
  * server. Same contract as S3: the client PUTs to a signed URL that expires in 5 minutes, then

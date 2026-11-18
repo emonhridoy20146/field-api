@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.15.0
+  version: 1.18.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -1128,7 +1128,7 @@ paths:
     put:
       tags: [media]
       operationId: storagePut
-      summary: Upload target of a presigned URL when the server keeps files itself (ADR-036)
+      summary: Upload target of a presigned URL when the server keeps files itself (ADR-039)
       description: |
         Only exists when the server has no S3 (`STORAGE_DRIVER=db`, the default on Vercel test deployments).
         Clients never build this URL: they PUT to `uploadUrl` from `/media/upload-url` as for S3. No bearer
@@ -1149,7 +1149,7 @@ paths:
     get:
       tags: [media]
       operationId: storageGet
-      summary: Download target of a presigned GET URL when the server keeps files itself (ADR-036)
+      summary: Download target of a presigned GET URL when the server keeps files itself (ADR-039)
       security: []
       responses:
         '200': { description: The file, with its stored content type, content: { '*/*': { schema: { type: string, format: binary } } } }
