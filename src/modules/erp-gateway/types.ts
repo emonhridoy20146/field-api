@@ -14,6 +14,18 @@ export interface ErpBranch {
   lng: number | null;
   active: boolean;
   updatedAt: string | null;
+  /** ERP location type. Warehouses can hold receivables too, so they are synced as branches (ADR-033). */
+  kind?: 'branch' | 'warehouse';
+}
+
+/** An ERP employee: the collector id every ERP payment needs (users.erpEmployeeId). */
+export interface ErpEmployee {
+  erpEmployeeId: string;
+  code: string;
+  name: string;
+  phone: string | null;
+  erpBranchIds: string[];
+  active: boolean;
 }
 
 export interface ErpScheduleLine {
@@ -22,6 +34,38 @@ export interface ErpScheduleLine {
   amountPoisha: number;
   /** null when Laravel does not track per-line paid amounts (ASSUMPTION E-07). */
   paidPoisha: number | null;
+  /** Late fee, already included in amountPoisha (1.13.0). */
+  lateFeePoisha?: number;
+  /** The ERP roll-forward job zeroed this line and moved its balance to a later line (1.13.0). */
+  rolled?: boolean;
+}
+
+/** What one FOS plan is in the ERP: an installment invoice or a credit (pay-later) invoice (ADR-033). */
+export type ErpPlanKind = 'installment' | 'credit';
+export type ErpPlanFrequency = 'monthly' | 'weekly' | 'daily' | 'custom';
+
+export interface ErpPlanItem {
+  name: string;
+  model: string | null;
+  qty: number;
+  serials: string[];
+}
+
+export interface ErpGuarantor {
+  name: string;
+  phone: string;
+  phones?: string[];
+  address?: string | null;
+}
+
+/** ERP customer risk snapshot (read-only signal shown next to FOS tags). */
+export interface ErpRisk {
+  grade: string | null;
+  level: string | null;
+  classification: string | null;
+  overdueCount: number;
+  maxDaysLate: number;
+  computedAt: string | null;
 }
 
 export type ErpPlanStatus = 'active' | 'completed' | 'closed' | 'defaulted' | 'cancelled';
@@ -41,6 +85,19 @@ export interface ErpPlan {
   outstandingPoisha: number;
   status: ErpPlanStatus;
   schedule: ErpScheduleLine[];
+  // ---- 1.13.0, from the real ERP shape (all optional so older data still reads) ----
+  kind?: ErpPlanKind;
+  /** ERP invoice number shown to staff and on receipts (may be null for a few old invoices). */
+  invoiceNo?: string | null;
+  /** The ERP installment plan id; erpPlanId is the invoice id, which is what payments are posted against. */
+  erpInstallmentPlanId?: string | null;
+  /** Branch of the invoice (can differ from the customer's branch). */
+  erpBranchId?: string | null;
+  frequency?: ErpPlanFrequency | null;
+  customDays?: number | null;
+  items?: ErpPlanItem[];
+  guarantor?: ErpGuarantor | null;
+  writtenOffPoisha?: number;
 }
 
 export type PaymentMethod = 'cash' | 'bkash' | 'nagad' | 'rocket' | 'bank_transfer' | 'other_mobile';
@@ -56,6 +113,15 @@ export interface ErpPayment {
   idempotencyKey: string | null;
   reversed: boolean;
   reversedAt: string | null;
+  // ---- 1.13.0 ----
+  /** ERP payment method name, e.g. "Cash-03". */
+  methodLabel?: string | null;
+  collectorName?: string | null;
+  collectorEmployeeId?: string | null;
+  /** The ERP's down-payment advance. */
+  advance?: boolean;
+  /** Settlement discount given with this payment (counts as paid in the ERP). */
+  discountPoisha?: number;
 }
 
 export interface ErpCustomer {
@@ -73,6 +139,13 @@ export interface ErpCustomer {
   updatedAt: string | null;
   plans: ErpPlan[];
   recentPayments: ErpPayment[];
+  // ---- 1.13.0 ----
+  detailedAddress?: string | null;
+  /** How to find the house (ERP `location_instructions`). */
+  directions?: string | null;
+  risk?: ErpRisk | null;
+  /** Where erpBranchId came from: the customer row, or the customer's latest invoice. */
+  branchSource?: 'customer' | 'last_invoice' | null;
 }
 
 export interface CustomerPage {
@@ -104,7 +177,12 @@ export type ConflictCode =
   | 'PLAN_NOT_FOUND'
   | 'CUSTOMER_INACTIVE'
   | 'PERIOD_LOCKED'
-  | 'ERP_VALIDATION';
+  | 'ERP_VALIDATION'
+  // 1.13.0: rules of the real ERP (ADR-033)
+  | 'PLAN_CLOSED'
+  | 'DUPLICATE_SAME_DAY'
+  | 'METHOD_NOT_AVAILABLE'
+  | 'COLLECTOR_NOT_LINKED';
 
 export type PostPaymentResult =
   | {
@@ -124,11 +202,18 @@ export interface ErpClient {
   readonly mode: 'live' | 'mock';
   health(): Promise<{ ok: boolean; time: string | null }>;
   listBranches(): Promise<ErpBranch[]>;
-  listCustomers(q: { erpBranchId?: string; updatedSince?: string | null; cursor?: string | null; pageSize?: number }): Promise<CustomerPage>;
+  /** ERP employees, to link FOS staff to the collector id the ERP requires (1.13.0). */
+  listEmployees(): Promise<ErpEmployee[]>;
+  listCustomers(q: {
+    erpBranchId?: string;
+    updatedSince?: string | null;
+    cursor?: string | null;
+    pageSize?: number;
+  }): Promise<CustomerPage>;
   getCustomer(erpCustomerId: string): Promise<ErpCustomer | null>;
   listPayments(erpCustomerId: string): Promise<ErpPayment[]>;
   postPayment(input: PostPaymentInput): Promise<PostPaymentResult>;
-  /** Used after timeouts before retrying (erp-integration-spec §4.5). */
+  /** Used after timeouts before retrying (erp-integration-spec v2 §4.9). */
   getPaymentByKey(key: string): Promise<Extract<PostPaymentResult, { kind: 'posted' }> | null>;
 }
 

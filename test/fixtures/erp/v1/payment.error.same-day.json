@@ -1,0 +1,9 @@
+{
+ "message": "A payment is already recorded on this installment invoice for that day.",
+ "error": {
+  "code": "DUPLICATE_SAME_DAY",
+  "details": {
+   "payment_date": "2026-11-15"
+  }
+ }
+}

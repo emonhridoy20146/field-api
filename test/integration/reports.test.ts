@@ -22,6 +22,7 @@ const collect = (c: Awaited<ReturnType<typeof as>>, n: number, amountPoisha: num
 
 beforeAll(async () => {
   t = await createTestApp(); // Sunday 2026-11-15 10:00 Dhaka
+  t.erp.allowSameDay = true; // several collections on one invoice today (OD-27 granted in this scenario)
   s = await seedBasics(t);
   await deltaSync();
   for (const e of ['100245', '100246']) ids[e] = (await getByErpId(e))!.id;
@@ -189,7 +190,7 @@ describe('exports (FR-REP-003/004)', () => {
     const lines = csv.slice(1).trim().split('\r\n');
     expect(lines[0]).toContain('রশিদ নং');
     expect(lines[1]).toMatch(/^BRL01-FS014-261115-0001,2026-11-15,09:31,BRL01,/); // Dhaka time
-    expect(lines[1]).toContain(',1500,cash,posted,R-');
+    expect(lines[1]).toContain(',1500,cash,posted,PAY-');
     expect(lines).toHaveLength(4);
 
     const sa = await as(t, '01700000001');

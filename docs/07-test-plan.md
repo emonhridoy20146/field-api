@@ -45,7 +45,7 @@
 13. Migrations: fresh DB and re-run (idempotent).
 
 ## 4. Contract tests (Laravel)
-For every endpoint in erp-integration-spec §4–5: fixture cases `ok`, `empty`, `nulls` (coords null, end_date null, schedule.paid null), `money-as-string`, `money-as-int`, `offset-pagination`, `error-*` per §5.2. When the maintainer delivers staging, fixtures are re-recorded and the suite must still pass with only mapper changes.
+For every endpoint in erp-integration-spec v2 §4: fixture cases `ok`, `empty`, `nulls` (coords null, end_date null, schedule.paid null), `money-as-string`, `money-as-int`, `offset-pagination`, `error-*` per §6. When the maintainer delivers staging, fixtures are re-recorded and the suite must still pass with only mapper changes.
 
 ## 5. Cross-repo E2E journeys
 

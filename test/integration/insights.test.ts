@@ -28,6 +28,7 @@ const collect = (c: Awaited<ReturnType<typeof as>>, n: number, amountPoisha: num
 
 beforeAll(async () => {
   t = await createTestApp(); // Sunday 2026-11-15 10:00 Dhaka; Friday is the default weekly off
+  t.erp.allowSameDay = true; // several collections on one invoice today (OD-27 granted in this scenario)
   s = await seedBasics(t);
   await deltaSync();
   for (const e of ['100245', '100246', '100247', '100248']) ids[e] = (await getByErpId(e))!.id;
@@ -276,6 +277,16 @@ describe('data quality (FR-CUS-009)', () => {
     expect(p2.body.nextCursor).toBeNull();
     expect(new Set([p1.body.items[0].code, p2.body.items[0].code])).toEqual(new Set(['BRL01-100247', 'BRL01-100248']));
 
+    // The ERP has no branch coordinates (1.13.0): without a FOS branch point nothing can be "far".
+    await setSystem('reports.dataQualityMaxBranchKm', 0.001, s.branchA);
+    expect((await bm.get('/reports/data-quality')).body.branches[0].issues.far_from_branch).toBe(0);
+    const sa = await as(t, SA);
+    expect((await bm.put(`/branches/${s.branchA}/location`, { lat: 22.701002, lng: 90.353451 })).status).toBe(403);
+    expect((await sa.put(`/branches/${s.branchA}/location`, { lat: 51.5, lng: -0.12 })).status).toBe(422);
+    const set = await sa.put(`/branches/${s.branchA}/location`, { lat: 22.701002, lng: 90.353451 });
+    expect(set.status).toBe(200);
+    expectConforms('PUT', '/branches/{id}/location', 200, set.body);
+    expect(set.body).toMatchObject({ lat: 22.701002, lng: 90.353451 });
     // A tighter radius from settings makes every located customer "far".
     await setSystem('reports.dataQualityMaxBranchKm', 0.001, s.branchA);
     const near = await bm.get('/reports/data-quality');

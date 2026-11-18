@@ -28,6 +28,9 @@ const post = async (c: Awaited<ReturnType<typeof as>>, b: Record<string, unknown
 
 beforeAll(async () => {
   t = await createTestApp();
+  // These journeys post several collections on one invoice in a day: OD-27 granted here.
+  // The ERP default (one per day → DUPLICATE_SAME_DAY) has its own test below.
+  t.erp.allowSameDay = true;
   s = await seedBasics(t);
   await deltaSync();
   for (const e of ['100245', '100246', '100247', '100248', '200301']) ids[e] = (await getByErpId(e))!.id;
@@ -57,7 +60,7 @@ describe('record + post (FR-COL-001..005, 008)', () => {
     await dispatchOutbox();
     const g = await fs.get(`/collections/${id}`);
     expect(g.body.status).toBe('posted');
-    expect(g.body.erpReceiptNo).toMatch(/^R-/);
+    expect(g.body.erpReceiptNo).toMatch(/^PAY-20261115-/);
     // customer balance refreshed from ERP
     expect((await fs.get(`/customers/${ids['100246']}`)).body.totalOutstandingPoisha).toBe(2100000);
   });
@@ -218,5 +221,50 @@ describe('list & scope (FR-COL-010)', () => {
 
   it('audit chain is intact after money actions', async () => {
     expect((await verifyChain()).ok).toBe(true);
+  });
+});
+
+describe('rules of the real ERP (1.13.0, ADR-033)', () => {
+  it('a second collection on one installment invoice the same day becomes DUPLICATE_SAME_DAY', async () => {
+    t.erp.allowSameDay = false; // OD-27 default
+    try {
+      const fs = await as(t, '01700000003');
+      await dispatchOutbox();
+      const a = await post(fs, body({ customerId: ids['100245'], amountPoisha: 10000 }));
+      const b = await post(fs, body({ customerId: ids['100245'], amountPoisha: 20000 }));
+      await dispatchOutbox();
+      expect((await fs.get(`/collections/${a.res.body.id}`)).body.status).toBe('posted');
+      const c = await fs.get(`/collections/${b.res.body.id}`);
+      expect(c.body.status).toBe('conflict');
+      expect(c.body.conflict).toMatchObject({ code: 'DUPLICATE_SAME_DAY', message: { bn: expect.stringContaining('ইনভয়েস'), en: expect.stringContaining('that day') } });
+    } finally {
+      t.erp.allowSameDay = true;
+    }
+  });
+
+  it('a collector with no ERP employee gets COLLECTOR_NOT_LINKED; linking is picked from the ERP list', async () => {
+    const sa = await as(t, '01700000001');
+    const emp = await sa.get('/system/erp-employees');
+    expect(emp.status).toBe(200);
+    expectConforms('GET', '/system/erp-employees', 200, emp.body);
+    expect(emp.body.items.find((e: { erpEmployeeId: string }) => e.erpEmployeeId === '8')).toMatchObject({ code: 'EMP-00008', name: 'Sumon Mia', active: true });
+    expect(emp.body.items[emp.body.items.length - 1].active).toBe(false); // inactive last
+    expect((await (await as(t, '01700000002')).get('/system/erp-employees')).status).toBe(403);
+    expect((await sa.patch(`/users/${s.fs2.id}`, { erpEmployeeId: null, reason: 'not linked yet' })).status).toBe(200);
+    try {
+      const fs2 = await as(t, '01700000004');
+      await dispatchOutbox();
+      const r = await post(fs2, body({ customerId: ids['100248'], erpPlanId: '55300', amountPoisha: 5000, receiptNo: 'BRL01-FS015-261115-0901' }));
+      expect(r.res.status).toBe(201);
+      await dispatchOutbox();
+      const c = await fs2.get(`/collections/${r.res.body.id}`);
+      expect(c.body.status).toBe('conflict');
+      expect(c.body.conflict.code).toBe('COLLECTOR_NOT_LINKED');
+    } finally {
+      await sa.patch(`/users/${s.fs2.id}`, { erpEmployeeId: '8', reason: 'linked' });
+    }
+    t.erp.unavailable = true;
+    expect((await sa.get('/system/erp-employees')).status).toBe(503);
+    t.erp.unavailable = false;
   });
 });

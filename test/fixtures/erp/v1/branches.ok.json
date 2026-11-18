@@ -1,4 +1,26 @@
-{ "data": [
-  { "id": 3, "code": "BRL01", "name": "Barishal Sadar", "name_bn": "বরিশাল সদর", "district": "Barishal", "address": "Sadar Road, Barishal", "latitude": "22.701002", "longitude": "90.353451", "is_active": true, "updated_at": "2026-10-01T10:00:00+06:00" },
-  { "id": 4, "code": "PTK01", "name": "Patuakhali", "name_bn": "পটুয়াখালী", "district": "Patuakhali", "address": "Sadar Road, Patuakhali", "latitude": "22.359600", "longitude": "90.329800", "is_active": true, "updated_at": "2026-10-01T10:00:00+06:00" }
-] }
+{
+ "data": [
+  {
+   "id": 3,
+   "code": "BRL01",
+   "name": "Barishal Sadar",
+   "type": "branch",
+   "address": "Sadar Road, Barishal",
+   "phone": "01700000100",
+   "manager_name": "Manager A",
+   "is_active": true,
+   "updated_at": "2026-10-01T10:00:00+06:00"
+  },
+  {
+   "id": 4,
+   "code": "PTK01",
+   "name": "Patuakhali",
+   "type": "branch",
+   "address": "Sadar Road, Patuakhali",
+   "phone": "01700000200",
+   "manager_name": "Manager B",
+   "is_active": true,
+   "updated_at": "2026-10-01T10:00:00+06:00"
+  }
+ ]
+}

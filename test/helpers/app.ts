@@ -30,7 +30,12 @@ export async function createTestApp(opts: { now?: string; seedErp?: boolean } = 
   await connectMongo(inject('mongoUri'), `t_${randomUUID().replace(/-/g, '').slice(0, 20)}`);
   const { app, ctx } = await buildApp({ config, clock, migrate: true });
   const erp = new MockErpClient();
-  if (opts.seedErp !== false) erp.seedLaravel({ branches: (fixture('branches.ok.json') as { data: unknown[] }).data, customers: (fixture('customers.ok.json') as { data: unknown[] }).data });
+  if (opts.seedErp !== false)
+    erp.seedLaravel({
+      branches: (fixture('branches.ok.json') as { data: unknown[] }).data,
+      employees: (fixture('employees.ok.json') as { data: unknown[] }).data,
+      customers: (fixture('customers.ok.json') as { data: unknown[] }).data,
+    });
   setErpClient(erp);
   await app.ready();
   return {
@@ -65,19 +70,37 @@ export async function seedBasics(t: TestApp, opts: { flagsOn?: boolean } = {}): 
   const branches = await listBranches();
   const branchA = branches.find((b) => b.code === 'BRL01')!.id;
   const branchB = branches.find((b) => b.code === 'PTK01')!.id;
-  const mk = (role: UserView['role'], phone: string, code: string, branchIds: string[], en: string) =>
-    createSystemUser({ name: { en, bn: en }, phone, role, branchIds, employeeCode: code, password: PASSWORD });
+  // Field staff and the manager are linked to ERP employees (employees.ok.json), as the ERP requires a collector.
+  const mk = (
+    role: UserView['role'],
+    phone: string,
+    code: string,
+    branchIds: string[],
+    en: string,
+    erpEmployeeId?: string,
+  ) =>
+    createSystemUser({
+      name: { en, bn: en },
+      phone,
+      role,
+      branchIds,
+      employeeCode: code,
+      password: PASSWORD,
+      ...(erpEmployeeId ? { erpEmployeeId } : {}),
+    });
   const seeded: Seeded = {
     branchA,
     branchB,
     sa: await mk('super_admin', '01700000001', 'SA001', [branchA, branchB], 'Owner'),
-    bm: await mk('branch_manager', '01700000002', 'BM001', [branchA], 'Manager A'),
-    fs1: await mk('field_staff', '01700000003', 'FS014', [branchA], 'Rakib Hasan'),
-    fs2: await mk('field_staff', '01700000004', 'FS015', [branchA], 'Sumon Mia'),
-    fsB: await mk('field_staff', '01700000005', 'FS101', [branchB], 'Babul B'),
+    bm: await mk('branch_manager', '01700000002', 'BM001', [branchA], 'Manager A', '10'),
+    fs1: await mk('field_staff', '01700000003', 'FS014', [branchA], 'Rakib Hasan', '7'),
+    fs2: await mk('field_staff', '01700000004', 'FS015', [branchA], 'Sumon Mia', '8'),
+    fsB: await mk('field_staff', '01700000005', 'FS101', [branchB], 'Babul B', '9'),
     vw: await mk('viewer', '01700000006', 'VW001', [branchA], 'Auditor'),
   };
-  if (opts.flagsOn !== false) for (const m of t.ctx.manifests) if (m.featureFlag && m.name !== 'microfinance') await setFlagSystem(m.featureFlag.key, true);
+  if (opts.flagsOn !== false)
+    for (const m of t.ctx.manifests)
+      if (m.featureFlag && m.name !== 'microfinance') await setFlagSystem(m.featureFlag.key, true);
   return seeded;
 }
 
@@ -88,11 +111,21 @@ export interface Res<T = any> {
 }
 
 export function client(app: FastifyInstance, token?: string, extraHeaders: Record<string, string> = {}) {
-  const call = async <T = any>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', url: string, payload?: unknown, headers: Record<string, string> = {}): Promise<Res<T>> => {
+  const call = async <T = any>(
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    url: string,
+    payload?: unknown,
+    headers: Record<string, string> = {},
+  ): Promise<Res<T>> => {
     const res = await app.inject({
       method,
       url: url.startsWith('/api') ? url : `/api/v1${url}`,
-      headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), 'accept-language': 'en', ...extraHeaders, ...headers },
+      headers: {
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        'accept-language': 'en',
+        ...extraHeaders,
+        ...headers,
+      },
       ...(payload !== undefined ? { payload: payload as Record<string, unknown> } : {}),
     });
     return { status: res.statusCode, body: res.body ? (res.json() as T) : (undefined as T), headers: res.headers };
@@ -106,7 +139,11 @@ export function client(app: FastifyInstance, token?: string, extraHeaders: Recor
   };
 }
 
-export async function login(app: FastifyInstance, phone: string, opts: { client?: 'app' | 'web'; deviceId?: string; password?: string } = {}) {
+export async function login(
+  app: FastifyInstance,
+  phone: string,
+  opts: { client?: 'app' | 'web'; deviceId?: string; password?: string } = {},
+) {
   const res = await app.inject({
     method: 'POST',
     url: '/api/v1/auth/login',
@@ -114,7 +151,13 @@ export async function login(app: FastifyInstance, phone: string, opts: { client?
     payload: { phone, password: opts.password ?? PASSWORD, client: opts.client ?? 'app' },
   });
   if (res.statusCode !== 200) throw new Error(`login failed ${res.statusCode} ${res.body}`);
-  return res.json() as { accessToken: string; refreshToken: string; permissions: string[]; flags: Record<string, boolean>; user: UserView };
+  return res.json() as {
+    accessToken: string;
+    refreshToken: string;
+    permissions: string[];
+    flags: Record<string, boolean>;
+    user: UserView;
+  };
 }
 
 export async function as(t: TestApp, phone: string, deviceId?: string) {

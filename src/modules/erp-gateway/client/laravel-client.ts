@@ -1,10 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import { CircuitBreaker } from './circuit-breaker.js';
-import { mapBranch, mapCustomer, mapCustomerPage, mapPayment, mapPaymentError, mapPosted, toPaymentRequest } from '../mappers/laravel-v1.js';
+import {
+  mapBranch,
+  mapCustomer,
+  mapCustomerPage,
+  mapEmployee,
+  mapPayment,
+  mapPaymentError,
+  mapPosted,
+  toPaymentRequest,
+} from '../mappers/laravel-v1.js';
 import { ErpUnavailableError, type ErpClient, type PostPaymentInput, type PostPaymentResult } from '../types.js';
 
 export interface LaravelClientOptions {
-  baseUrl: string; // e.g. https://erp.example.com/api/integrations/field/v1
+  baseUrl: string; // e.g. https://erp.example.com/api/field/v1
   token: string;
   nextToken?: string | undefined;
   timeoutMs: number;
@@ -20,7 +29,7 @@ interface RawResponse {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** HTTP client for the Laravel integration endpoints (erp-integration-spec). */
+/** HTTP client for the ERP field integration API v1 (erp-integration-spec v2, docs/erp-findings.md). */
 export class LaravelErpClient implements ErpClient {
   readonly mode = 'live' as const;
   readonly breaker: CircuitBreaker;
@@ -33,7 +42,12 @@ export class LaravelErpClient implements ErpClient {
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
-  private async raw(method: 'GET' | 'POST', path: string, body?: unknown, headers: Record<string, string> = {}): Promise<RawResponse> {
+  private async raw(
+    method: 'GET' | 'POST',
+    path: string,
+    body?: unknown,
+    headers: Record<string, string> = {},
+  ): Promise<RawResponse> {
     if (!this.breaker.canRequest()) throw new ErpUnavailableError('circuit open');
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), this.opts.timeoutMs);
@@ -52,7 +66,7 @@ export class LaravelErpClient implements ErpClient {
           ...(body ? { body: JSON.stringify(body) } : {}),
         });
       let res = await send(this.token);
-      // Token rotation overlap (erp-integration-spec §3): try the next token once.
+      // Token rotation overlap (erp-integration-spec v2 §2): try the next token once.
       if (res.status === 401 && this.opts.nextToken && this.opts.nextToken !== this.token) {
         res = await send(this.opts.nextToken);
         if (res.status !== 401) this.token = this.opts.nextToken;
@@ -108,18 +122,28 @@ export class LaravelErpClient implements ErpClient {
   }
 
   async listBranches() {
-    const b = this.ok(await this.get('/branches'), 'branches') as { data: unknown[] };
+    // type=all: some receivable invoices sit on warehouse locations; those customers must not be skipped.
+    const b = this.ok(await this.get('/branches?type=all'), 'branches') as { data: unknown[] };
     return b.data.map(mapBranch);
   }
 
-  async listCustomers(q: { erpBranchId?: string; updatedSince?: string | null; cursor?: string | null; pageSize?: number }) {
+  async listEmployees() {
+    const b = this.ok(await this.get('/employees'), 'employees') as { data: unknown[] };
+    return b.data.map(mapEmployee);
+  }
+
+  async listCustomers(q: {
+    erpBranchId?: string;
+    updatedSince?: string | null;
+    cursor?: string | null;
+    pageSize?: number;
+  }) {
     const p = new URLSearchParams();
     if (q.erpBranchId) p.set('branch_id', q.erpBranchId);
     if (q.updatedSince) p.set('updated_since', q.updatedSince);
     if (q.cursor) p.set('page[cursor]', q.cursor);
     p.set('page[size]', String(q.pageSize ?? 100));
-    p.set('include', 'plans,schedule,recent_payments');
-    p.set('status', 'all');
+    p.set('scope', 'receivables');
     return mapCustomerPage(this.ok(await this.get(`/customers?${p.toString()}`), 'customers'));
   }
 
@@ -131,7 +155,9 @@ export class LaravelErpClient implements ErpClient {
   }
 
   async listPayments(id: string) {
-    const b = this.ok(await this.get(`/customers/${encodeURIComponent(id)}/payments?page[size]=200`), 'payments') as { data: unknown[] };
+    const b = this.ok(await this.get(`/customers/${encodeURIComponent(id)}/payments?page[size]=200`), 'payments') as {
+      data: unknown[];
+    };
     return b.data.map(mapPayment);
   }
 
@@ -142,6 +168,14 @@ export class LaravelErpClient implements ErpClient {
   }
 
   async postPayment(input: PostPaymentInput): Promise<PostPaymentResult> {
+    // The ERP requires a collector employee (findings §2.5); say so instead of sending a request that must fail.
+    if (!input.employeeId)
+      return {
+        kind: 'business_error',
+        code: 'COLLECTOR_NOT_LINKED',
+        message: 'Collector has no ERP employee id',
+        details: {},
+      };
     let r: RawResponse;
     try {
       r = await this.raw('POST', '/payments', toPaymentRequest(input), { 'Idempotency-Key': input.idempotencyKey });

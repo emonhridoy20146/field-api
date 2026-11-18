@@ -135,7 +135,8 @@ Rules:
 |---|---|---|---|---|---|
 | FR-USER-001 | CRUD users: name (Bangla + English), phone, role, branchIds, employeeCode, `erpEmployeeId` (optional), photo, active flag. | active | P0 | A W | I E |
 | FR-USER-002 | Deactivation revokes sessions, blocks login, and triggers a handover reminder if the user still holds assignments. | active | P0 | A W | I |
-| FR-BR-001 | Branches mirrored from Laravel (`erpBranchId`, code, name bn/en, district, address, lat/lng). Read-only in FOS except local extras (duty hours override, cash limit default). | active | P0 | A W | C I |
+| FR-BR-001 | Branches mirrored from Laravel (`erpBranchId`, code, name bn/en, district, address, lat/lng). Read-only in FOS except local extras (duty hours override, cash limit default). The ERP has no Bangla name, district or coordinates; warehouses are mirrored too (ADR-033). | active | P0 | A W | C I |
+| FR-BR-002 | Branch map point set in FOS (`PUT /branches/{id}/location`, `settings.manage`, inside Bangladesh, audited); ERP sync never clears it. Used for map centring and the "far from branch" data-quality check. | active | P1 | A W | I |
 | FR-SET-001 | Org settings (key/value, typed, audited): duty hours, late threshold, break max, cash limits, geofence radius, stop dwell, retention days, min app version, receipt prefix, SMS on/off. | active | P0 | A W | U I |
 | FR-FLAG-001 | Feature flags per module: global default OFF, per-branch override; registry lists owner, description, created, review-by date. | active | P0 | A W | U I |
 | FR-FLAG-002 | Disabled module: routes return `403 FEATURE_DISABLED`, mobile hides entry points, admin hides menu. | active | P0 | A W M | I E |
@@ -146,11 +147,12 @@ Rules:
 
 | ID | Requirement | Status | Phase | Repos | Test |
 |---|---|---|---|---|---|
-| FR-ERP-001 | ERP client with Sanctum bearer token of an integration user; timeouts 10 s; retries with jitter for 5xx/429 only; circuit breaker (open after 5 consecutive failures, half-open after 60 s). | active | P0 | A | U C |
+| FR-ERP-001 | ERP client with a bearer token of an integration user (ERP field API v1, erp-integration-spec v2; the ERP has no Sanctum, the API checks a hashed token); timeouts 10 s; retries with jitter for 5xx/429 only; circuit breaker (open after 5 consecutive failures, half-open after 60 s). | active | P0 | A | U C |
 | FR-ERP-002 | Delta sync job pulls customers/plans/schedules/payments changed since last cursor every 5 min (configurable) and nightly full reconcile per branch. | active | P1 | A | C I |
 | FR-ERP-003 | On-demand refresh of one customer (`POST /customers/{id}/refresh`) with 30 s rate limit per customer. | active | P1 | A W M | C I |
 | FR-ERP-004 | ERP status indicator: last successful sync time, lag, failure count; exposed at `/system/erp-status` and shown in admin header when lag > 15 min. | active | P1 | A W | I E |
 | FR-ERP-005 | "Record-only mode" fallback (setting): if Laravel write endpoint is unavailable, collections remain `received` and an export for manual office entry is available. | active | P1 | A W | I E |
+| FR-ERP-006 | Real ERP shape (contract 1.13.0, ADR-033): plan = ERP invoice (installment or credit) with invoice number, items, guarantor, frequency, late fee and rolled lines; reversed payments from ERP removals; ERP directions and risk on the customer; ERP employees list to link staff (`GET /system/erp-employees`); conflicts `PLAN_CLOSED`, `DUPLICATE_SAME_DAY`, `METHOD_NOT_AVAILABLE`, `COLLECTOR_NOT_LINKED`. | active | P0 | A W M | U C I |
 | FR-CUS-001 | Customer list scoped by role: FS = assigned (direct + area); BM = their branches; SA = all. Cursor-paginated (default 25, max 100). | active | P1 | A W M | I E |
 | FR-CUS-002 | Filters: `overdue`, `due_today`, `promised_today`, `assigned_to_me`, `branchId`, `areaId`, `assigneeId`, `bad_suggested`, `tagged_bad`, `no_location`, `q` (name/phone/ERP code), `near` (lat,lng,radius) with sort by distance. | active | P1 | A W M | I E |
 | FR-CUS-003 | Customer detail: profile, all plans with schedule, payment history (ERP + pending field collections, visually distinct), outstanding balance per plan and total, next due, days overdue, assignment, tag + suggestion, last visit, open promise, notes. | active | P1 | A W M | I E |
@@ -318,7 +320,7 @@ Rules:
 
 | ID | Requirement | Status | Phase | Repos | Test |
 |---|---|---|---|---|---|
-| FR-AUD-001 | Append-only audit log for: money (collections, voids, resolutions, deposits), location edits (pin corrections, attendance corrections), handovers, tags, permission and role changes, settings and flag changes, logins/failed logins, exports, device unbinds. | active | P0 | A | U I |
+| FR-AUD-001 | Append-only audit log for: money (collections, voids, resolutions, deposits), location edits (pin corrections, attendance corrections), handovers, tags, permission and role changes, settings and flag changes (incl. branch map points, `branch.location_set`), logins/failed logins, exports, device unbinds. | active | P0 | A | U I |
 | FR-AUD-002 | Entry: `actorId`, `actorRole`, `action`, `entity`, `entityId`, `branchId`, `before`, `after`, `reason`, `ip`, `userAgent`/`deviceId`, `at`, `requestId`, hash chain (`prevHash`) for tamper evidence. | active | P0 | A | U |
 | FR-AUD-003 | Audit viewer with filters (actor, action, entity, date) and diff view. | active | P1 | A W | E |
 | FR-AUD-004 | Audit log cannot be modified or deleted through the API; retention 8 years for money, 3 years other (OD-09). | active | P0 | A | I |

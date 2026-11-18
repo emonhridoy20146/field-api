@@ -31,6 +31,7 @@ import {
   VOIDABLE,
   type Status,
   CASH_COUNTED_STATUSES,
+  receiptPrefix,
 } from './domain/rules.js';
 import { CollectionModel } from './models/collection.model.js';
 
@@ -178,7 +179,7 @@ export async function record(user: AuthUser, idempotencyKey: string, input: Coll
   const branch = await getBranch(customer.branchId);
   const collector = await getUser(user.id);
   if (!branch || !collector) throw notFound('customer');
-  const prefix = `${branch.code}-${collector.employeeCode}`.toUpperCase();
+  const prefix = receiptPrefix(branch.code, collector.employeeCode);
   const receiptProblem = checkReceipt(input.receiptNo, prefix);
   if (receiptProblem) fields.push({ path: 'receiptNo', message: receiptProblem });
   const plan = choosePlan(customer.plans, input.erpPlanId);

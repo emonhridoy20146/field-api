@@ -1,0 +1,64 @@
+{
+ "data": [
+  {
+   "id": 7,
+   "employee_code": "EMP-00007",
+   "name": "Rakib Hasan",
+   "phone": "01700000003",
+   "user_id": null,
+   "branch_ids": [
+    3
+   ],
+   "is_active": true,
+   "updated_at": "2026-10-01T10:00:00+06:00"
+  },
+  {
+   "id": 8,
+   "employee_code": "EMP-00008",
+   "name": "Sumon Mia",
+   "phone": "01700000004",
+   "user_id": null,
+   "branch_ids": [
+    3
+   ],
+   "is_active": true,
+   "updated_at": "2026-10-01T10:00:00+06:00"
+  },
+  {
+   "id": 9,
+   "employee_code": "EMP-00009",
+   "name": "Babul B",
+   "phone": "01700000005",
+   "user_id": null,
+   "branch_ids": [
+    4
+   ],
+   "is_active": true,
+   "updated_at": "2026-10-01T10:00:00+06:00"
+  },
+  {
+   "id": 10,
+   "employee_code": "EMP-00010",
+   "name": "Manager A",
+   "phone": "01700000002",
+   "user_id": 21,
+   "branch_ids": [
+    3
+   ],
+   "is_active": true,
+   "updated_at": "2026-10-01T10:00:00+06:00"
+  },
+  {
+   "id": 11,
+   "employee_code": "EMP-00011",
+   "name": "Former Staff",
+   "phone": "01700000009",
+   "user_id": null,
+   "branch_ids": [
+    3
+   ],
+   "is_active": false,
+   "updated_at": "2026-10-01T10:00:00+06:00"
+  }
+ ]
+}

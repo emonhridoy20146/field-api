@@ -1,56 +1,786 @@
-{ "data": [
-  { "id": 100245, "code": "BRL01-100245", "branch_id": 3, "name": "Md Karim Uddin", "name_bn": "মোঃ করিম উদ্দিন",
-    "phones": ["01811223344"], "guarantor": { "name": "Abdul Malek", "phone": "01911000000" },
-    "address": "Vill: Charkawa, Barishal Sadar", "area_code": "BSL-CHK", "latitude": "22.710500", "longitude": "90.370200",
-    "status": "active", "updated_at": "2026-11-14T16:22:00+06:00",
-    "plans": [ { "id": 55021, "product_name": "Walton Fridge WFC-3D8", "sale_date": "2026-05-10", "principal": "65000.00", "down_payment": "10000.00",
-      "total_payable": "68000.00", "installment_count": 6, "start_date": "2026-05-10", "end_date": "2026-10-10", "paid_total": "59500.00", "outstanding": "8500.00", "status": "active",
-      "schedule": [
-        { "seq": 1, "due_date": "2026-05-10", "amount": "9667.00", "paid": "9667.00" },
-        { "seq": 2, "due_date": "2026-06-10", "amount": "9667.00", "paid": "9667.00" },
-        { "seq": 3, "due_date": "2026-07-10", "amount": "9667.00", "paid": "9667.00" },
-        { "seq": 4, "due_date": "2026-08-10", "amount": "9667.00", "paid": "9667.00" },
-        { "seq": 5, "due_date": "2026-09-10", "amount": "9666.00", "paid": "9666.00" },
-        { "seq": 6, "due_date": "2026-10-10", "amount": "9666.00", "paid": "1166.00" } ] } ],
-    "recent_payments": [ { "id": 9921, "plan_id": 55021, "date": "2026-09-12", "amount": "9666.00", "method": "cash", "source": "office", "receipt_no": "R-77812", "idempotency_key": null, "is_reversed": false } ] },
-  { "id": 100246, "code": "BRL01-100246", "branch_id": 3, "name": "Rina Begum", "name_bn": "রিনা বেগম",
-    "phones": ["01712000111"], "guarantor": null, "address": "Kawnia, Barishal", "area_code": "BSL-KAW",
-    "latitude": "90.365100", "longitude": "22.705300", "status": "active", "updated_at": "2026-11-14T12:00:00+06:00",
-    "plans": [ { "id": 55100, "product_name": "Singer LED TV 43\"", "sale_date": "2026-05-15", "principal": "48000.00", "down_payment": "6000.00",
-      "total_payable": "48000.00", "installment_count": 12, "start_date": "2026-06-15", "end_date": "2027-05-15", "paid_total": "23500.00", "outstanding": "24500.00", "status": "active",
-      "schedule": [
-        { "seq": 1, "due_date": "2026-06-15", "amount": "3500.00", "paid": "3500.00" },
-        { "seq": 2, "due_date": "2026-07-15", "amount": "3500.00", "paid": "3500.00" },
-        { "seq": 3, "due_date": "2026-08-15", "amount": "3500.00", "paid": "3500.00" },
-        { "seq": 4, "due_date": "2026-09-15", "amount": "3500.00", "paid": "3500.00" },
-        { "seq": 5, "due_date": "2026-10-15", "amount": "3500.00", "paid": "3500.00" },
-        { "seq": 6, "due_date": "2026-11-15", "amount": "3500.00", "paid": "0.00" },
-        { "seq": 7, "due_date": "2026-12-15", "amount": "3500.00", "paid": "0.00" } ] } ],
-    "recent_payments": [] },
-  { "id": 100247, "code": "BRL01-100247", "branch_id": 3, "name": "Shahidul Islam", "name_bn": null,
-    "phones": ["01611000222"], "address": "Bagura Road, Barishal", "area_code": "BSL-CHK",
-    "latitude": null, "longitude": null, "status": "active", "updated_at": "2026-11-01T09:00:00+06:00",
-    "plans": [ { "id": 54001, "product_name": "Ceiling Fan", "sale_date": "2026-03-01", "principal": "6000.00", "down_payment": "1500.00",
-      "total_payable": "6000.00", "installment_count": 3, "start_date": "2026-04-01", "end_date": "2026-06-01", "paid_total": "6000.00", "outstanding": "0.00", "status": "completed",
-      "schedule": [ { "seq": 1, "due_date": "2026-04-01", "amount": "1500.00", "paid": "1500.00" }, { "seq": 2, "due_date": "2026-05-01", "amount": "1500.00", "paid": "1500.00" }, { "seq": 3, "due_date": "2026-06-01", "amount": "1500.00", "paid": "1500.00" } ] } ],
-    "recent_payments": [] },
-  { "id": 100248, "code": "BRL01-100248", "branch_id": 3, "name": "Nasrin Akter", "name_bn": "নাসরিন আক্তার",
-    "phones": ["01911333444", "01511333444"], "address": "Rupatali, Barishal", "area_code": "BSL-RUP",
-    "latitude": "0.000000", "longitude": "0.000000", "status": "active", "updated_at": "2026-11-14T18:00:00+06:00",
-    "plans": [
-      { "id": 54500, "product_name": "Rice Cooker", "sale_date": "2026-08-01", "principal": "3000.00", "down_payment": "0.00", "total_payable": "3000.00",
-        "installment_count": 3, "start_date": "2026-08-14", "end_date": "2026-11-14", "paid_total": "2999.99", "outstanding": "0.01", "status": "active",
-        "schedule": [ { "seq": 1, "due_date": "2026-09-14", "amount": "1000.00", "paid": "1000.00" }, { "seq": 2, "due_date": "2026-10-14", "amount": "1000.00", "paid": "1000.00" }, { "seq": 3, "due_date": "2026-11-14", "amount": "1000.00", "paid": "999.99" } ] },
-      { "id": 55300, "product_name": "Walton AC 1.5 Ton", "sale_date": "2026-10-01", "principal": "75000.00", "down_payment": "15000.00", "total_payable": "78000.00",
-        "installment_count": 5, "start_date": "2026-11-01", "end_date": null, "paid_total": "15000.00", "outstanding": "63000.00", "status": "active",
-        "schedule": [ { "seq": 1, "due_date": "2026-11-20", "amount": "12600.00", "paid": null }, { "seq": 2, "due_date": "2026-12-20", "amount": "12600.00", "paid": null }, { "seq": 3, "due_date": "2027-01-20", "amount": "12600.00", "paid": null }, { "seq": 4, "due_date": "2027-02-20", "amount": "12600.00", "paid": null }, { "seq": 5, "due_date": "2027-03-20", "amount": "12600.00", "paid": null } ] } ],
-    "recent_payments": [] },
-  { "id": 200301, "code": "PTK01-200301", "branch_id": 4, "name": "Jamal Hossain", "name_bn": "জামাল হোসেন",
-    "phones": ["01812999888"], "address": "Kalapara, Patuakhali", "area_code": "PTK-KLP",
-    "latitude": "21.985000", "longitude": "90.240000", "status": "active", "updated_at": "2026-11-13T11:00:00+06:00",
-    "plans": [ { "id": 66001, "product_name": "Motorbike Helmet + Battery", "sale_date": "2026-07-01", "principal": "12000.00", "down_payment": "2000.00", "total_payable": "12000.00",
-      "installment_count": 5, "start_date": "2026-08-01", "end_date": "2026-12-01", "paid_total": "4000.00", "outstanding": "8000.00", "status": "active",
-      "schedule": [ { "seq": 1, "due_date": "2026-08-01", "amount": "2000.00", "paid": "2000.00" }, { "seq": 2, "due_date": "2026-09-01", "amount": "2000.00", "paid": "0.00" }, { "seq": 3, "due_date": "2026-10-01", "amount": "2000.00", "paid": "0.00" }, { "seq": 4, "due_date": "2026-11-01", "amount": "2000.00", "paid": "0.00" }, { "seq": 5, "due_date": "2026-12-01", "amount": "2000.00", "paid": "0.00" } ] } ],
-    "recent_payments": [] }
-],
-"meta": { "next_cursor": null, "server_time": "2026-11-15T07:00:00+06:00" } }
+{
+ "_comment": "Recorded shape of GET /api/field/v1/customers (Howlader ERP field API v1, erp-integration-spec v2). Fake people and numbers only. area_code is not sent by the ERP; it is kept here to exercise code-based areas.",
+ "data": [
+  {
+   "id": 100245,
+   "customer_code": "BRL01-100245",
+   "name": "Md Karim Uddin",
+   "phone": "01811223344",
+   "phone_numbers": [],
+   "branch_id": 3,
+   "branch_source": "customer",
+   "address": "Vill: Charkawa, Barishal Sadar",
+   "detailed_address": null,
+   "location_instructions": "Blue gate next to the mosque",
+   "latitude": "22.710500",
+   "longitude": "90.370200",
+   "is_active": true,
+   "outstanding_balance": "8500.00",
+   "default_guarantor": null,
+   "risk": {
+    "grade": "C",
+    "risk_level": "Medium",
+    "classification": "isolated",
+    "score": "62.50",
+    "overdue_count": 1,
+    "max_days_late": 36,
+    "computed_at": "2026-11-14T08:00:00+06:00"
+   },
+   "updated_at": "2026-11-14T16:22:00+06:00",
+   "changed_at": "2026-11-14T16:22:00+06:00",
+   "area_code": "BSL-CHK",
+   "invoices": [
+    {
+     "id": 55021,
+     "invoice_number": "INV-55021",
+     "invoice_date": "2026-05-10",
+     "branch_id": 3,
+     "sale_type": "installment",
+     "status": "active",
+     "payment_status": "partial",
+     "collectable": true,
+     "grand_total": "68000.00",
+     "discount_total": "0.00",
+     "amount_paid": "59500.00",
+     "amount_due": "8500.00",
+     "written_off": "0.00",
+     "credit_due_date": null,
+     "items": [
+      {
+       "line_id": 550211,
+       "product_id": 700,
+       "name": "Walton Fridge",
+       "model_number": "WFC-3D8",
+       "qty": 1,
+       "line_total": "68000.00",
+       "serials": [
+        "SN-TEST-0001"
+       ]
+      }
+     ],
+     "guarantor": {
+      "customer_id": null,
+      "name": "Abdul Malek",
+      "phones": [
+       "01911000000"
+      ],
+      "address": "Charkawa, Barishal"
+     },
+     "installment_plan": {
+      "id": 855021,
+      "status": "active",
+      "total_amount": "68000.00",
+      "down_payment": "10000.00",
+      "financed_amount": "58000.00",
+      "remaining_amount": "8500.00",
+      "frequency": "monthly",
+      "custom_days": null,
+      "installment_count": 6,
+      "penalty_enabled": false,
+      "schedules": [
+       {
+        "id": 5502101,
+        "installment_no": 1,
+        "due_date": "2026-05-10",
+        "due_amount": "9667.00",
+        "paid_amount": "9667.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "0.00",
+        "status": "paid"
+       },
+       {
+        "id": 5502102,
+        "installment_no": 2,
+        "due_date": "2026-06-10",
+        "due_amount": "9667.00",
+        "paid_amount": "9667.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "0.00",
+        "status": "paid"
+       },
+       {
+        "id": 5502103,
+        "installment_no": 3,
+        "due_date": "2026-07-10",
+        "due_amount": "9667.00",
+        "paid_amount": "9667.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "0.00",
+        "status": "paid"
+       },
+       {
+        "id": 5502104,
+        "installment_no": 4,
+        "due_date": "2026-08-10",
+        "due_amount": "9667.00",
+        "paid_amount": "9667.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "0.00",
+        "status": "paid"
+       },
+       {
+        "id": 5502105,
+        "installment_no": 5,
+        "due_date": "2026-09-10",
+        "due_amount": "9666.00",
+        "paid_amount": "9666.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "0.00",
+        "status": "paid"
+       },
+       {
+        "id": 5502106,
+        "installment_no": 6,
+        "due_date": "2026-10-10",
+        "due_amount": "9666.00",
+        "paid_amount": "1166.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "8500.00",
+        "status": "partially_paid"
+       }
+      ]
+     },
+     "updated_at": "2026-11-14T16:22:00+06:00"
+    }
+   ],
+   "recent_payments": [
+    {
+     "id": 9921,
+     "payment_number": "PAY-20260912-09921",
+     "customer_id": 100245,
+     "sales_invoice_id": 55021,
+     "payment_date": "2026-09-12",
+     "amount": "9666.00",
+     "settlement_discount": "0.00",
+     "payment_method": "cash",
+     "payment_method_id": 4,
+     "payment_method_name": "Cash-03",
+     "payment_method_type": "cash",
+     "collector_employee_id": 7,
+     "collector_name": "Rakib Hasan",
+     "reference_no": "Rakib Hasan",
+     "is_advance": false,
+     "source": "office",
+     "idempotency_key": null,
+     "created_at": "2026-09-12T15:10:00+06:00"
+    }
+   ],
+   "removed_payments": []
+  },
+  {
+   "id": 100246,
+   "customer_code": "BRL01-100246",
+   "name": "Rina Begum",
+   "phone": "01712000111",
+   "phone_numbers": [],
+   "branch_id": 3,
+   "branch_source": "customer",
+   "address": "Kawnia, Barishal",
+   "detailed_address": null,
+   "location_instructions": null,
+   "latitude": "90.365100",
+   "longitude": "22.705300",
+   "is_active": true,
+   "outstanding_balance": "24500.00",
+   "default_guarantor": null,
+   "risk": null,
+   "updated_at": "2026-11-14T12:00:00+06:00",
+   "changed_at": "2026-11-14T12:00:00+06:00",
+   "area_code": "BSL-KAW",
+   "invoices": [
+    {
+     "id": 55100,
+     "invoice_number": "INV-55100",
+     "invoice_date": "2026-05-15",
+     "branch_id": 3,
+     "sale_type": "installment",
+     "status": "active",
+     "payment_status": "partial",
+     "collectable": true,
+     "grand_total": "48000.00",
+     "discount_total": "0.00",
+     "amount_paid": "23500.00",
+     "amount_due": "24500.00",
+     "written_off": "0.00",
+     "credit_due_date": null,
+     "items": [
+      {
+       "line_id": 551001,
+       "product_id": 700,
+       "name": "Singer LED TV 43\"",
+       "model_number": null,
+       "qty": 1,
+       "line_total": "48000.00",
+       "serials": [
+        "SN-TEST-0002"
+       ]
+      }
+     ],
+     "guarantor": null,
+     "installment_plan": {
+      "id": 855100,
+      "status": "active",
+      "total_amount": "48000.00",
+      "down_payment": "6000.00",
+      "financed_amount": "42000.00",
+      "remaining_amount": "24500.00",
+      "frequency": "monthly",
+      "custom_days": null,
+      "installment_count": 12,
+      "penalty_enabled": false,
+      "schedules": [
+       {
+        "id": 5510001,
+        "installment_no": 1,
+        "due_date": "2026-06-15",
+        "due_amount": "3500.00",
+        "paid_amount": "3500.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "0.00",
+        "status": "paid"
+       },
+       {
+        "id": 5510002,
+        "installment_no": 2,
+        "due_date": "2026-07-15",
+        "due_amount": "3500.00",
+        "paid_amount": "3500.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "0.00",
+        "status": "paid"
+       },
+       {
+        "id": 5510003,
+        "installment_no": 3,
+        "due_date": "2026-08-15",
+        "due_amount": "3500.00",
+        "paid_amount": "3500.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "0.00",
+        "status": "paid"
+       },
+       {
+        "id": 5510004,
+        "installment_no": 4,
+        "due_date": "2026-09-15",
+        "due_amount": "3500.00",
+        "paid_amount": "3500.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "0.00",
+        "status": "paid"
+       },
+       {
+        "id": 5510005,
+        "installment_no": 5,
+        "due_date": "2026-10-15",
+        "due_amount": "3500.00",
+        "paid_amount": "3500.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "0.00",
+        "status": "paid"
+       },
+       {
+        "id": 5510006,
+        "installment_no": 6,
+        "due_date": "2026-11-15",
+        "due_amount": "3500.00",
+        "paid_amount": "0.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "3500.00",
+        "status": "pending"
+       },
+       {
+        "id": 5510007,
+        "installment_no": 7,
+        "due_date": "2026-12-15",
+        "due_amount": "3500.00",
+        "paid_amount": "0.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "3500.00",
+        "status": "pending"
+       },
+       {
+        "id": 5510008,
+        "installment_no": 8,
+        "due_date": "2027-01-15",
+        "due_amount": "3500.00",
+        "paid_amount": "0.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "3500.00",
+        "status": "pending"
+       },
+       {
+        "id": 5510009,
+        "installment_no": 9,
+        "due_date": "2027-02-15",
+        "due_amount": "3500.00",
+        "paid_amount": "0.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "3500.00",
+        "status": "pending"
+       },
+       {
+        "id": 5510010,
+        "installment_no": 10,
+        "due_date": "2027-03-15",
+        "due_amount": "3500.00",
+        "paid_amount": "0.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "3500.00",
+        "status": "pending"
+       },
+       {
+        "id": 5510011,
+        "installment_no": 11,
+        "due_date": "2027-04-15",
+        "due_amount": "3500.00",
+        "paid_amount": "0.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "3500.00",
+        "status": "pending"
+       },
+       {
+        "id": 5510012,
+        "installment_no": 12,
+        "due_date": "2027-05-15",
+        "due_amount": "3500.00",
+        "paid_amount": "0.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "3500.00",
+        "status": "pending"
+       }
+      ]
+     },
+     "updated_at": "2026-11-14T12:00:00+06:00"
+    }
+   ],
+   "recent_payments": [],
+   "removed_payments": []
+  },
+  {
+   "id": 100247,
+   "customer_code": "BRL01-100247",
+   "name": "Shahidul Islam",
+   "phone": "01611000222",
+   "phone_numbers": [],
+   "branch_id": 3,
+   "branch_source": "last_invoice",
+   "address": "Bagura Road, Barishal",
+   "detailed_address": null,
+   "location_instructions": null,
+   "latitude": null,
+   "longitude": null,
+   "is_active": true,
+   "outstanding_balance": "0.00",
+   "default_guarantor": null,
+   "risk": null,
+   "updated_at": "2026-11-01T09:00:00+06:00",
+   "changed_at": "2026-11-01T09:00:00+06:00",
+   "area_code": "BSL-CHK",
+   "invoices": [
+    {
+     "id": 54001,
+     "invoice_number": "INV-54001",
+     "invoice_date": "2026-03-01",
+     "branch_id": 3,
+     "sale_type": "installment",
+     "status": "active",
+     "payment_status": "paid",
+     "collectable": false,
+     "grand_total": "6000.00",
+     "discount_total": "0.00",
+     "amount_paid": "6000.00",
+     "amount_due": "0.00",
+     "written_off": "0.00",
+     "credit_due_date": null,
+     "items": [
+      {
+       "line_id": 540011,
+       "product_id": 700,
+       "name": "Ceiling Fan",
+       "model_number": null,
+       "qty": 1,
+       "line_total": "6000.00",
+       "serials": []
+      }
+     ],
+     "guarantor": null,
+     "installment_plan": {
+      "id": 854001,
+      "status": "completed",
+      "total_amount": "6000.00",
+      "down_payment": "1500.00",
+      "financed_amount": "4500.00",
+      "remaining_amount": "0.00",
+      "frequency": "monthly",
+      "custom_days": null,
+      "installment_count": 3,
+      "penalty_enabled": false,
+      "schedules": [
+       {
+        "id": 5400101,
+        "installment_no": 1,
+        "due_date": "2026-04-01",
+        "due_amount": "1500.00",
+        "paid_amount": "1500.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "0.00",
+        "status": "paid"
+       },
+       {
+        "id": 5400102,
+        "installment_no": 2,
+        "due_date": "2026-05-01",
+        "due_amount": "1500.00",
+        "paid_amount": "1500.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "0.00",
+        "status": "paid"
+       },
+       {
+        "id": 5400103,
+        "installment_no": 3,
+        "due_date": "2026-06-01",
+        "due_amount": "1500.00",
+        "paid_amount": "1500.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "0.00",
+        "status": "paid"
+       }
+      ]
+     },
+     "updated_at": "2026-11-01T09:00:00+06:00"
+    }
+   ],
+   "recent_payments": [],
+   "removed_payments": []
+  },
+  {
+   "id": 100248,
+   "customer_code": "BRL01-100248",
+   "name": "Nasrin Akter",
+   "phone": "01911333444",
+   "phone_numbers": [
+    "01511333444"
+   ],
+   "branch_id": 3,
+   "branch_source": "customer",
+   "address": "Rupatali, Barishal",
+   "detailed_address": null,
+   "location_instructions": null,
+   "latitude": "0.000000",
+   "longitude": "0.000000",
+   "is_active": true,
+   "outstanding_balance": "63000.01",
+   "default_guarantor": null,
+   "risk": null,
+   "updated_at": "2026-11-14T18:00:00+06:00",
+   "changed_at": "2026-11-14T18:00:00+06:00",
+   "area_code": "BSL-RUP",
+   "invoices": [
+    {
+     "id": 54500,
+     "invoice_number": "INV-54500",
+     "invoice_date": "2026-08-01",
+     "branch_id": 3,
+     "sale_type": "installment",
+     "status": "active",
+     "payment_status": "partial",
+     "collectable": true,
+     "grand_total": "3000.00",
+     "discount_total": "0.00",
+     "amount_paid": "2999.99",
+     "amount_due": "0.01",
+     "written_off": "0.00",
+     "credit_due_date": null,
+     "items": [
+      {
+       "line_id": 545001,
+       "product_id": 700,
+       "name": "Rice Cooker",
+       "model_number": null,
+       "qty": 1,
+       "line_total": "3000.00",
+       "serials": []
+      }
+     ],
+     "guarantor": null,
+     "installment_plan": {
+      "id": 854500,
+      "status": "active",
+      "total_amount": "3000.00",
+      "down_payment": "0.00",
+      "financed_amount": "3000.00",
+      "remaining_amount": "0.01",
+      "frequency": "monthly",
+      "custom_days": null,
+      "installment_count": 3,
+      "penalty_enabled": false,
+      "schedules": [
+       {
+        "id": 5450001,
+        "installment_no": 1,
+        "due_date": "2026-09-14",
+        "due_amount": "1000.00",
+        "paid_amount": "1000.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "0.00",
+        "status": "paid"
+       },
+       {
+        "id": 5450002,
+        "installment_no": 2,
+        "due_date": "2026-10-14",
+        "due_amount": "1000.00",
+        "paid_amount": "1000.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "0.00",
+        "status": "paid"
+       },
+       {
+        "id": 5450003,
+        "installment_no": 3,
+        "due_date": "2026-11-14",
+        "due_amount": "1000.00",
+        "paid_amount": "999.99",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "0.01",
+        "status": "partially_paid"
+       }
+      ]
+     },
+     "updated_at": "2026-11-14T18:00:00+06:00"
+    },
+    {
+     "id": 55300,
+     "invoice_number": "INV-55300",
+     "invoice_date": "2026-10-01",
+     "branch_id": 3,
+     "sale_type": "installment",
+     "status": "active",
+     "payment_status": "partial",
+     "collectable": true,
+     "grand_total": "78000.00",
+     "discount_total": "0.00",
+     "amount_paid": "15000.00",
+     "amount_due": "63000.00",
+     "written_off": "0.00",
+     "credit_due_date": null,
+     "items": [
+      {
+       "line_id": 553001,
+       "product_id": 700,
+       "name": "Walton AC 1.5 Ton",
+       "model_number": null,
+       "qty": 1,
+       "line_total": "78000.00",
+       "serials": [
+        "SN-TEST-0003"
+       ]
+      }
+     ],
+     "guarantor": null,
+     "installment_plan": {
+      "id": 855300,
+      "status": "active",
+      "total_amount": "78000.00",
+      "down_payment": "15000.00",
+      "financed_amount": "63000.00",
+      "remaining_amount": "63000.00",
+      "frequency": "monthly",
+      "custom_days": null,
+      "installment_count": 5,
+      "penalty_enabled": false,
+      "schedules": [
+       {
+        "id": 5530001,
+        "installment_no": 1,
+        "due_date": "2026-11-20",
+        "due_amount": "12600.00",
+        "paid_amount": null,
+        "late_fee_amount": "0.00",
+        "remaining_amount": "12600.00",
+        "status": "pending"
+       },
+       {
+        "id": 5530002,
+        "installment_no": 2,
+        "due_date": "2026-12-20",
+        "due_amount": "12600.00",
+        "paid_amount": null,
+        "late_fee_amount": "0.00",
+        "remaining_amount": "12600.00",
+        "status": "pending"
+       },
+       {
+        "id": 5530003,
+        "installment_no": 3,
+        "due_date": "2027-01-20",
+        "due_amount": "12600.00",
+        "paid_amount": null,
+        "late_fee_amount": "0.00",
+        "remaining_amount": "12600.00",
+        "status": "pending"
+       },
+       {
+        "id": 5530004,
+        "installment_no": 4,
+        "due_date": "2027-02-20",
+        "due_amount": "12600.00",
+        "paid_amount": null,
+        "late_fee_amount": "0.00",
+        "remaining_amount": "12600.00",
+        "status": "pending"
+       },
+       {
+        "id": 5530005,
+        "installment_no": 5,
+        "due_date": "2027-03-20",
+        "due_amount": "12600.00",
+        "paid_amount": null,
+        "late_fee_amount": "0.00",
+        "remaining_amount": "12600.00",
+        "status": "pending"
+       }
+      ]
+     },
+     "updated_at": "2026-11-14T18:00:00+06:00"
+    }
+   ],
+   "recent_payments": [],
+   "removed_payments": []
+  },
+  {
+   "id": 200301,
+   "customer_code": "PTK01-200301",
+   "name": "Jamal Hossain",
+   "phone": "01812-999888",
+   "phone_numbers": [],
+   "branch_id": 4,
+   "branch_source": "customer",
+   "address": "Kalapara, Patuakhali",
+   "detailed_address": null,
+   "location_instructions": null,
+   "latitude": "21.985000",
+   "longitude": "90.240000",
+   "is_active": true,
+   "outstanding_balance": "8000.00",
+   "default_guarantor": null,
+   "risk": null,
+   "updated_at": "2026-11-13T11:00:00+06:00",
+   "changed_at": "2026-11-13T11:00:00+06:00",
+   "area_code": "PTK-KLP",
+   "invoices": [
+    {
+     "id": 66001,
+     "invoice_number": "INV-66001",
+     "invoice_date": "2026-07-01",
+     "branch_id": 4,
+     "sale_type": "installment",
+     "status": "active",
+     "payment_status": "partial",
+     "collectable": true,
+     "grand_total": "12000.00",
+     "discount_total": "0.00",
+     "amount_paid": "4000.00",
+     "amount_due": "8000.00",
+     "written_off": "0.00",
+     "credit_due_date": null,
+     "items": [
+      {
+       "line_id": 660011,
+       "product_id": 700,
+       "name": "Motorbike Helmet",
+       "model_number": null,
+       "qty": 1,
+       "line_total": "6000.00",
+       "serials": []
+      },
+      {
+       "line_id": 660012,
+       "product_id": 701,
+       "name": "Battery",
+       "model_number": null,
+       "qty": 1,
+       "line_total": "6000.00",
+       "serials": []
+      }
+     ],
+     "guarantor": null,
+     "installment_plan": {
+      "id": 866001,
+      "status": "active",
+      "total_amount": "12000.00",
+      "down_payment": "2000.00",
+      "financed_amount": "10000.00",
+      "remaining_amount": "8000.00",
+      "frequency": "monthly",
+      "custom_days": null,
+      "installment_count": 5,
+      "penalty_enabled": false,
+      "schedules": [
+       {
+        "id": 6600101,
+        "installment_no": 1,
+        "due_date": "2026-08-01",
+        "due_amount": "2000.00",
+        "paid_amount": "2000.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "0.00",
+        "status": "paid"
+       },
+       {
+        "id": 6600102,
+        "installment_no": 2,
+        "due_date": "2026-09-01",
+        "due_amount": "2000.00",
+        "paid_amount": "0.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "2000.00",
+        "status": "pending"
+       },
+       {
+        "id": 6600103,
+        "installment_no": 3,
+        "due_date": "2026-10-01",
+        "due_amount": "2000.00",
+        "paid_amount": "0.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "2000.00",
+        "status": "pending"
+       },
+       {
+        "id": 6600104,
+        "installment_no": 4,
+        "due_date": "2026-11-01",
+        "due_amount": "2000.00",
+        "paid_amount": "0.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "2000.00",
+        "status": "pending"
+       },
+       {
+        "id": 6600105,
+        "installment_no": 5,
+        "due_date": "2026-12-01",
+        "due_amount": "2000.00",
+        "paid_amount": "0.00",
+        "late_fee_amount": "0.00",
+        "remaining_amount": "2000.00",
+        "status": "pending"
+       }
+      ]
+     },
+     "updated_at": "2026-11-13T11:00:00+06:00"
+    }
+   ],
+   "recent_payments": [],
+   "removed_payments": []
+  }
+ ],
+ "meta": {
+  "next_cursor": null,
+  "server_time": "2026-11-15T07:00:00+06:00",
+  "page_size": 100
+ }
+}
