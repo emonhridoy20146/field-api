@@ -71,7 +71,7 @@ New module: `pnpm new:module <name>`, then follow the checklist in `CLAUDE.md §
 | `PROCESS_ROLE` | `api` or `worker` |
 | `PORT` | HTTP port |
 | `PUBLIC_BASE_URL` | e.g. https://api.example.com |
-| `ADMIN_WEB_ORIGIN` | CORS allow-origin for admin-web |
+| `ADMIN_WEB_ORIGIN` | CORS allow-origin for admin-web (comma-separated; exact origin, e.g. `https://howlader-apps-admin.vercel.app`, no trailing slash) |
 | `COOKIE_DOMAIN` | parent domain for refresh cookie |
 | `MONGODB_URI` | Atlas connection string (SRV) |
 | `MONGODB_DB_NAME` | database name |
