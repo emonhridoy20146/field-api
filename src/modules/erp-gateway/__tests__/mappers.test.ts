@@ -212,7 +212,7 @@ describe('ERP field API v1 mappers (contract fixtures)', () => {
     expect(p.items![0]).not.toHaveProperty('unitPricePoisha');
   });
 
-  it('credit invoice becomes one line on credit_due_date; write-offs count as settled', () => {
+  it('credit invoice becomes one line on credit_due_date; write-offs (inside amount_paid) count as settled once', () => {
     const p = mapCustomer(
       customer({
         invoices: [
@@ -222,7 +222,8 @@ describe('ERP field API v1 mappers (contract fixtures)', () => {
             installment_plan: null,
             credit_due_date: '2026-12-05',
             grand_total: '5000.00',
-            amount_paid: '1000.00',
+            // the ERP adds the 500 write-off to amount_paid: 1000 cash + 500 written off
+            amount_paid: '1500.00',
             amount_due: '3500.00',
             written_off: '500.00',
           }),

@@ -377,13 +377,14 @@ export function mapInvoice(inv: LvInvoice): ErpPlan {
         };
       });
   } else {
-    // Credit sale: one amount due on credit_due_date (findings §2.3). Write-offs count as settled.
+    // Credit sale: one amount due on credit_due_date (findings §2.3). The ERP adds a write-off to amount_paid
+    // (DebtWriteoffService; grand_total = amount_paid + amount_due in the real data), so it is already settled here.
     schedule = [
       {
         seq: 1,
         dueDate: (inv.credit_due_date ?? inv.invoice_date ?? '').slice(0, 10),
-        amountPoisha: paid + due + writtenOff,
-        paidPoisha: paid + writtenOff,
+        amountPoisha: paid + due,
+        paidPoisha: paid,
         lateFeePoisha: 0,
         rolled: false,
       },
