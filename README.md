@@ -18,7 +18,23 @@ pnpm dev:worker                 # jobs + outbox (PROCESS_ROLE=worker)
 ```
 No Docker? `pnpm smoke` boots migrate → seed → API → worker against a throwaway in-memory MongoDB and checks sign-in.
 
-`ERP_MODE=mock` (default) uses an in-process fake ERP. To exercise the real HTTP client, run `pnpm mock:erp` and set `ERP_MODE=live`, `ERP_BASE_URL=http://localhost:4100/api/integrations/field/v1`. Laravel itself is never touched from this repo.
+`ERP_MODE=mock` (default) uses an in-process fake ERP. To exercise the real HTTP client, run `pnpm mock:erp` and set `ERP_MODE=live`, `ERP_BASE_URL=http://localhost:4100/api/field/v1`. The real ERP serves the same API from its own module (howlader-erp `docs/field-api/README.md`).
+
+## Go live (production)
+The image (`Dockerfile`) has no dev tools, so first-run steps are in `dist/src/cli.js`.
+
+1. In the ERP, turn on its field API (howlader-erp `docs/field-api/README.md`) and keep the printed token.
+2. Make the JWT key pair once and store both values as secrets:
+   ```bash
+   openssl genpkey -algorithm ed25519 -out jwt.pem && openssl pkey -in jwt.pem -pubout -out jwt.pub
+   base64 -w0 jwt.pem   # JWT_PRIVATE_KEY
+   base64 -w0 jwt.pub   # JWT_PUBLIC_KEY
+   ```
+3. Set the environment (table below): `NODE_ENV=production`, MongoDB, JWT, S3, `ADMIN_WEB_ORIGIN`, `PUBLIC_BASE_URL`, and `ERP_MODE=record_only`, `ERP_BASE_URL`, `ERP_API_TOKEN`. In `record_only` everything is read from the ERP but field collections wait in FOS and are not posted.
+4. Run once: `node dist/src/cli.js migrate`, then `ADMIN_PASSWORD='…' node dist/src/cli.js create-admin --phone 01XXXXXXXXX --name "Owner" --enable-modules`. It pulls the ERP branches, creates the super admin on all of them (the password must be changed at first sign-in) and switches the modules on (microfinance stays off).
+5. Start the API (`PROCESS_ROLE=api`) and one worker (`PROCESS_ROLE=worker`). The worker pulls the ERP customers every 5 minutes; `GET /api/v1/system/health` shows `"erp":"ok"`.
+6. In admin: create the staff users and link each to their ERP employee (the ERP needs a collector on every payment), set each branch's map point, and compare a few customers' balances with the ERP.
+7. Switch posting on: `ERP_MODE=live` and restart both processes. Collections that waited are sent to the ERP by the worker within about 20 minutes.
 
 ## Checks (all run in CI)
 | Command | What it proves |
@@ -49,8 +65,8 @@ New module: `pnpm new:module <name>`, then follow the checklist in `CLAUDE.md §
 | `ACCESS_TOKEN_TTL_SEC` | default 900 |
 | `REFRESH_TOKEN_TTL_DAYS_APP` | default 30 |
 | `REFRESH_TOKEN_TTL_HOURS_WEB` | default 12 (idle) |
-| `ERP_BASE_URL` | Laravel integration base URL |
-| `ERP_API_TOKEN` | Sanctum token of integration user |
+| `ERP_BASE_URL` | ERP field API base, e.g. https://erp.example.com/api/field/v1 |
+| `ERP_API_TOKEN` | token printed by `php artisan field-api:setup` in the ERP |
 | `ERP_API_TOKEN_NEXT` | next token during rotation |
 | `ERP_MODE` | `live` / `record_only` / `mock` |
 | `ERP_TIMEOUT_MS` | default 10000 |

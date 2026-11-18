@@ -46,8 +46,9 @@ const schema = z
       if (env.ERP_MODE === 'mock')
         ctx.addIssue({ code: 'custom', message: 'ERP_MODE=mock is not allowed in production', path: ['ERP_MODE'] });
     }
-    if (env.ERP_MODE === 'live' && (!env.ERP_BASE_URL || !env.ERP_API_TOKEN))
-      ctx.addIssue({ code: 'custom', message: 'ERP_BASE_URL and ERP_API_TOKEN required for live mode', path: ['ERP_MODE'] });
+    // record_only reads the real ERP too (only posting waits), so it needs the same two values.
+    if ((env.ERP_MODE === 'live' || env.ERP_MODE === 'record_only') && (!env.ERP_BASE_URL || !env.ERP_API_TOKEN))
+      ctx.addIssue({ code: 'custom', message: 'ERP_BASE_URL and ERP_API_TOKEN required for live and record_only modes', path: ['ERP_MODE'] });
   });
 
 export type Config = z.infer<typeof schema>;
