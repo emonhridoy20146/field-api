@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { badges, deriveCustomer, deriveLines, finalDueDate, worstStatus, type PlanInput } from '../domain/status.js';
+import { badges, deriveCustomer, deriveLines, finalDueDate, isBadTag, payState, worstPayState, worstStatus, type PlanInput } from '../domain/status.js';
 import { businessDate } from '../../../core/time/index.js';
 
 /** Builds a plan of n monthly lines starting at `start` without any month arithmetic in the rule itself. */
@@ -95,5 +95,59 @@ describe('badges', () => {
     expect(worstStatus(b)).toBe('bad_suggested');
     expect(badges({ overdue: false, dueToday: false, badSuggested: false, totalOutstandingPoisha: 0 }, { promisedToday: false, tagged: false })).toEqual(['paid_up']);
     expect(badges({ overdue: false, dueToday: false, badSuggested: false, totalOutstandingPoisha: 9 }, { promisedToday: false, tagged: false })).toEqual(['current']);
+  });
+});
+
+describe('missed installments and pin colour (FR-CUS-012, ADR-035)', () => {
+  const today = '2026-11-15';
+  const line = (seq: number, dueDate: string, amountPoisha: number, paidPoisha: number, extra: Record<string, unknown> = {}) => ({ seq, dueDate, amountPoisha, paidPoisha, ...extra });
+  const of = (schedule: ReturnType<typeof line>[], outstandingPoisha: number, endDate: string | null = null): PlanInput => ({ erpPlanId: 'P', endDate, outstandingPoisha, status: 'active', schedule });
+
+  it('counts past lines with money left; today and later lines are not missed', () => {
+    const d = deriveCustomer([of([line(1, '2026-09-10', 100, 100), line(2, '2026-10-10', 100, 40), line(3, '2026-11-10', 100, 0), line(4, '2026-11-15', 100, 0), line(5, '2026-12-10', 100, 0)], 360)], today);
+    expect(d.missedCount).toBe(2);
+    expect(d.plans[0]!.missedCount).toBe(2);
+    expect(d.plans[0]!.lines.map((l) => l.missed)).toEqual([false, true, true, false, false]);
+    expect(d.plans[0]!.lines.map((l) => l.daysLate)).toEqual([0, 36, 5, 0, 0]);
+  });
+
+  it('a line the ERP rolled forward counts while the line that took its balance is unpaid', () => {
+    const rolled = { rolled: true };
+    // Sep and Oct were missed and rolled onto Dec (not due yet): two missed installments.
+    const behind = of([line(1, '2026-09-10', 0, 0, rolled), line(2, '2026-10-10', 0, 0, rolled), line(3, '2026-12-10', 300, 0)], 300);
+    expect(deriveCustomer([behind], today).missedCount).toBe(2);
+    // Once the carrier line is paid, the customer has caught up.
+    const caughtUp = of([line(1, '2026-09-10', 0, 0, rolled), line(2, '2026-10-10', 0, 0, rolled), line(3, '2026-12-10', 300, 300), line(4, '2027-01-10', 100, 0)], 100);
+    expect(deriveCustomer([caughtUp], today).missedCount).toBe(0);
+  });
+
+  it('paid date and days late come from the ERP payments on the line', () => {
+    const p = of([line(1, '2026-10-10', 100, 100, { payments: [{ date: '2026-10-12', amountPoisha: 60 }, { date: '2026-10-20', amountPoisha: 40 }] }), line(2, '2026-12-10', 100, 0)], 100);
+    const l = deriveCustomer([p], today).plans[0]!.lines[0]!;
+    expect(l.paidOn).toBe('2026-10-20');
+    expect(l.daysLate).toBe(10);
+    expect(deriveLines(of([line(1, '2026-10-10', 100, 100)], 0), today)[0]!.paidOn).toBeNull();
+  });
+
+  it('pin colours, worst first', () => {
+    const base = { badSuggested: false, missedCount: 0, dueToday: false, totalOutstandingPoisha: 500 };
+    expect(payState(base, { badTag: true })).toBe('bad');
+    expect(payState({ ...base, badSuggested: true }, { badTag: false })).toBe('bad');
+    expect(payState({ ...base, missedCount: 3 }, { badTag: false })).toBe('missed_many');
+    expect(payState({ ...base, missedCount: 1, dueToday: true }, { badTag: false })).toBe('missed_one');
+    expect(payState({ ...base, dueToday: true }, { badTag: false })).toBe('due_today');
+    expect(payState(base, { badTag: false })).toBe('on_track');
+    expect(payState({ ...base, totalOutstandingPoisha: 0 }, { badTag: false })).toBe('paid_off');
+    expect(worstPayState(['on_track', 'missed_one', 'paid_off'])).toBe('missed_one');
+  });
+
+  it('a credit sale past its due date is a full term over → red; a watch tag alone is not', () => {
+    const credit = of([line(1, '2026-11-01', 5000, 1000)], 4000, '2026-11-01');
+    const d = deriveCustomer([credit], today);
+    expect(payState(d, { badTag: false })).toBe('bad');
+    expect(isBadTag({ state: 'tagged', severity: 'watch' })).toBe(false);
+    expect(isBadTag({ state: 'tagged', severity: 'legal' })).toBe(true);
+    expect(isBadTag({ state: 'tagged' })).toBe(true);
+    expect(isBadTag({ state: 'none' })).toBe(false);
   });
 });

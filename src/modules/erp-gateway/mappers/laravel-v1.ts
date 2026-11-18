@@ -19,6 +19,7 @@ import type {
   ErpCustomer,
   ErpEmployee,
   ErpGuarantor,
+  ErpLinePayment,
   ErpPayment,
   ErpPlan,
   ErpPlanFrequency,
@@ -159,6 +160,13 @@ const lvGuarantor = z.object({
   address: str,
 });
 
+const lvLinePayment = z.object({
+  payment_id: id,
+  payment_number: str,
+  payment_date: str,
+  amount: money,
+});
+
 const lvLine = z.object({
   id: optId,
   installment_no: z.number().int(),
@@ -168,6 +176,9 @@ const lvLine = z.object({
   late_fee_amount: money,
   remaining_amount: money,
   status: str,
+  // 1.14.0 (additive in the ERP field API): which payments paid this line, and write-offs on it.
+  written_off: money,
+  payments: z.array(lvLinePayment).nullable().optional(),
 });
 
 const lvInstallmentPlan = z.object({
@@ -181,6 +192,7 @@ const lvInstallmentPlan = z.object({
   custom_days: z.number().int().nullable().optional(),
   installment_count: z.number().int().nullable().optional(),
   penalty_enabled: z.boolean().optional(),
+  penalty_rate: z.union([z.string(), z.number()]).transform(String).nullable().optional(),
   schedules: z.array(lvLine).optional().default([]),
 });
 
@@ -190,6 +202,9 @@ const lvItem = z.object({
   name: str,
   model_number: str,
   qty: z.union([z.number(), z.string()]).optional(),
+  unit_price: money,
+  discount_amount: money,
+  service_charge: money,
   line_total: money,
   serials: z.array(z.string()).optional().default([]),
 });
@@ -203,11 +218,15 @@ const lvInvoice = z.object({
   status: z.string(),
   payment_status: str,
   collectable: z.boolean().optional(),
+  subtotal: money,
+  tax_total: money,
   grand_total: money,
   discount_total: money,
   amount_paid: money,
   amount_due: money,
   written_off: money,
+  settlement_discount: money,
+  refunded: money,
   credit_due_date: str,
   items: z.array(lvItem).optional().default([]),
   guarantor: lvGuarantor.nullable().optional(),
@@ -319,6 +338,19 @@ function productLabel(inv: LvInvoice): string {
   return parts.join(', ') || inv.invoice_number || '';
 }
 
+function linePayment(p: z.infer<typeof lvLinePayment>): ErpLinePayment {
+  return {
+    erpPaymentId: p.payment_id,
+    receiptNo: p.payment_number ?? null,
+    date: (p.payment_date ?? '').slice(0, 10),
+    amountPoisha: poisha(p.amount),
+  };
+}
+
+/** Optional ERP money (1.14.0 fields): absent stays absent, so older ERP versions read as before. */
+const optPoisha = (v: string | number | null | undefined): number | undefined =>
+  v === null || v === undefined || v === '' ? undefined : poisha(v);
+
 export function mapInvoice(inv: LvInvoice): ErpPlan {
   const due = poisha(inv.amount_due);
   const paid = poisha(inv.amount_paid);
@@ -340,16 +372,19 @@ export function mapInvoice(inv: LvInvoice): ErpPlan {
           paidPoisha: l.paid_amount === null || l.paid_amount === undefined ? null : linePaid,
           lateFeePoisha: fee,
           rolled: dueAmt === 0 && fee === 0 && linePaid === 0,
+          ...(l.payments ? { payments: l.payments.map(linePayment).filter((x) => !!x.date) } : {}),
+          ...(l.written_off != null ? { writtenOffPoisha: poisha(l.written_off) } : {}),
         };
       });
   } else {
-    // Credit sale: one amount due on credit_due_date (findings §2.3). Write-offs count as settled.
+    // Credit sale: one amount due on credit_due_date (findings §2.3). The ERP adds a write-off to amount_paid
+    // (DebtWriteoffService; grand_total = amount_paid + amount_due in the real data), so it is already settled here.
     schedule = [
       {
         seq: 1,
         dueDate: (inv.credit_due_date ?? inv.invoice_date ?? '').slice(0, 10),
-        amountPoisha: paid + due + writtenOff,
-        paidPoisha: paid + writtenOff,
+        amountPoisha: paid + due,
+        paidPoisha: paid,
         lateFeePoisha: 0,
         rolled: false,
       },
@@ -385,10 +420,33 @@ export function mapInvoice(inv: LvInvoice): ErpPlan {
       model: i.model_number ?? null,
       qty: Number(i.qty ?? 1) || 1,
       serials: i.serials,
+      ...defined({
+        unitPricePoisha: optPoisha(i.unit_price),
+        discountPoisha: optPoisha(i.discount_amount),
+        serviceChargePoisha: optPoisha(i.service_charge),
+        lineTotalPoisha: optPoisha(i.line_total),
+      }),
     })),
     guarantor: mapGuarantor(inv.guarantor),
     writtenOffPoisha: writtenOff,
+    ...defined({
+      financedPoisha: plan ? optPoisha(plan.financed_amount) : undefined,
+      subtotalPoisha: optPoisha(inv.subtotal),
+      discountPoisha: optPoisha(inv.discount_total),
+      taxPoisha: optPoisha(inv.tax_total),
+      settlementDiscountPoisha: optPoisha(inv.settlement_discount),
+      refundedPoisha: optPoisha(inv.refunded),
+    }),
+    invoiceStatus: inv.status,
+    paymentStatus: inv.payment_status ?? null,
+    creditDueDate: kind === 'credit' ? (inv.credit_due_date ?? '').slice(0, 10) || null : null,
+    ...(plan ? { penaltyEnabled: !!plan.penalty_enabled, penaltyRate: plan.penalty_rate ?? null } : {}),
   };
+}
+
+/** Drops undefined values so optional fields stay absent in the cache and the API. */
+function defined<T extends Record<string, unknown>>(o: T): Partial<T> {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
 }
 
 /** ERP method type → the method words FOS already uses for display. */

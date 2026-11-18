@@ -5,7 +5,7 @@ import { recordChange, recordChanges, type ChangeInput } from '../../core/change
 import { classifyCoords, haversineM, parseBbox, type LatLng } from '../../core/geo/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { formatBdt } from '../../core/money/index.js';
-import { businessDate } from '../../core/time/index.js';
+import { businessDate, diffDays } from '../../core/time/index.js';
 import { branchQuery, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
@@ -13,7 +13,7 @@ import { getBranches, getByErpBranchId } from '../branches/index.js';
 import { getUsers } from '../users/index.js';
 import { getSetting } from '../settings/index.js';
 import { refreshCustomer as erpRefresh, ErpUnavailableError, type ErpCustomer } from '../erp-gateway/index.js';
-import { badges, deriveCustomer, worstStatus, type CustomerStatus } from './domain/status.js';
+import { badges, deriveCustomer, isBadTag, payState, worstPayState, worstStatus, type CustomerStatus, type PayState } from './domain/status.js';
 import { QUALITY_ISSUES, findIssues, sharedPhones, type Finding, type QualityInput } from './domain/quality.js';
 import { CustomerModel, LocationProposalModel } from './models/customer.model.js';
 
@@ -282,7 +282,8 @@ export async function markMissing(erpBranchId: string, seen: string[]): Promise<
 export async function recomputeAllDerived(): Promise<number> {
   const date = today();
   let n = 0;
-  const cursor = CustomerModel.find({ 'derived.computedFor': { $ne: date } })
+  // Also documents derived before 1.14.0, which have no missedCount yet (ADR-035).
+  const cursor = CustomerModel.find({ $or: [{ 'derived.computedFor': { $ne: date } }, { 'derived.missedCount': null }] })
     .lean()
     .cursor();
   for await (const c of cursor as AsyncIterable<Doc>) {
@@ -398,6 +399,38 @@ function statusBadges(c: Doc, date: string): CustomerStatus[] {
   );
 }
 
+/** Missed installments; documents cached before 1.14.0 count their overdue lines until the recompute job runs. */
+function missedOf(c: Doc): number {
+  const m = c.derived?.missedCount;
+  if (typeof m === 'number') return m;
+  return (c.derived?.plans ?? []).reduce(
+    (n: number, p: LooseObject) => n + ((p.lines ?? []) as LooseObject[]).filter((l) => l.status === 'overdue').length,
+    0,
+  );
+}
+
+/** FR-CUS-012 / ADR-035: the colour of the customer's map pin. */
+function payStateOf(c: Doc): PayState {
+  return payState(
+    {
+      badSuggested: !!c.derived?.badSuggested,
+      missedCount: missedOf(c),
+      dueToday: !!c.derived?.dueToday,
+      totalOutstandingPoisha: c.derived?.totalOutstandingPoisha ?? 0,
+    },
+    { badTag: isBadTag(c.fos?.tag) },
+  );
+}
+
+const isOpenPlan = (p: LooseObject) => p.status !== 'closed' && p.status !== 'cancelled' && (p.outstandingPoisha ?? 0) > 0;
+
+/** Open (balance due) installment and credit invoices, for list badges and the invoice filters (1.14.0). */
+function openInvoices(c: Doc): { installment: number; credit: number } {
+  const out = { installment: 0, credit: 0 };
+  for (const p of (c.plans ?? []) as LooseObject[]) if (isOpenPlan(p)) out[p.kind === 'credit' ? 'credit' : 'installment']++;
+  return out;
+}
+
 async function listItems(rows: Doc[], user: AuthUser, near: LatLng | null) {
   const ids = rows.map((r) => r._id.toHexString());
   const date = today();
@@ -425,6 +458,9 @@ async function listItems(rows: Doc[], user: AuthUser, near: LatLng | null) {
       nextDueDate: c.derived?.nextDueDate ?? null,
       daysOverdue: c.derived?.daysOverdue ?? 0,
       badges: statusBadges(c, date),
+      payState: payStateOf(c),
+      missedCount: missedOf(c),
+      openInvoices: openInvoices(c),
       tag: tagView(c),
       openPromise: x.openPromise ?? null,
       lastVisitAt: x.lastVisitAt ?? null,
@@ -441,6 +477,10 @@ async function listItems(rows: Doc[], user: AuthUser, near: LatLng | null) {
 
 export interface ListQuery {
   filter: string[];
+  /** 1.14.0: pin colours (OR), see payState(). */
+  payState?: PayState[];
+  /** 1.14.0: has an open invoice of this kind. */
+  invoiceKind?: 'installment' | 'credit';
   assignedTo?: string;
   branchId?: string;
   areaId?: string;
@@ -464,12 +504,41 @@ const STATUS_FILTERS: Record<string, (date: string) => Record<string, unknown>> 
   unassigned: () => ({ 'fos.assigneeId': null }),
 };
 
+/** FOS tag that makes a customer red (isBadTag): tagged, severity anything but watch. */
+const BAD_TAG = { 'fos.tag.state': 'tagged', 'fos.tag.severity': { $ne: 'watch' } };
+const NOT_BAD = { 'derived.badSuggested': { $ne: true }, $nor: [BAD_TAG] };
+
+/** Mongo form of payState() (same order of rules). Needs derived.missedCount (recompute job, 1.14.0). */
+const PAY_FILTERS: Record<PayState, Record<string, unknown>> = {
+  bad: { $or: [BAD_TAG, { 'derived.badSuggested': true }] },
+  missed_many: { ...NOT_BAD, 'derived.missedCount': { $gte: 2 } },
+  missed_one: { ...NOT_BAD, 'derived.missedCount': 1 },
+  due_today: { ...NOT_BAD, 'derived.missedCount': 0, 'derived.totalOutstandingPoisha': { $gt: 0 }, 'derived.dueToday': true },
+  on_track: { ...NOT_BAD, 'derived.missedCount': 0, 'derived.totalOutstandingPoisha': { $gt: 0 }, 'derived.dueToday': { $ne: true } },
+  paid_off: { ...NOT_BAD, 'derived.totalOutstandingPoisha': 0 },
+};
+
+/** Has an open invoice of this kind; plans cached before 1.13.0 have no kind and are installment plans. */
+function invoiceKindFilter(kind: 'installment' | 'credit'): Record<string, unknown> {
+  return {
+    plans: {
+      $elemMatch: {
+        kind: kind === 'credit' ? 'credit' : { $ne: 'credit' },
+        status: { $nin: ['closed', 'cancelled'] },
+        outstandingPoisha: { $gt: 0 },
+      },
+    },
+  };
+}
+
 function buildFilter(user: AuthUser, q: ListQuery): Record<string, unknown> {
   const and: Record<string, unknown>[] = [scopeFilter(user)];
   if (q.branchId) and.push(branchQuery(user, q.branchId));
   // Status filters combine with OR ("due today or overdue"); other params narrow with AND.
   const ors = q.filter.filter((f) => STATUS_FILTERS[f]).map((f) => STATUS_FILTERS[f]!(today()));
   if (ors.length) and.push({ $or: ors });
+  if (q.payState?.length) and.push({ $or: q.payState.map((p) => PAY_FILTERS[p]) });
+  if (q.invoiceKind) and.push(invoiceKindFilter(q.invoiceKind));
   if (q.assignedTo) and.push({ 'fos.assigneeId': q.assignedTo === 'me' ? user.id : q.assignedTo });
   if (q.areaId) and.push({ 'fos.areaId': q.areaId });
   if (q.q) {
@@ -534,7 +603,29 @@ export async function list(user: AuthUser, q: ListQuery) {
   };
 }
 
-function planView(p: LooseObject, d: LooseObject | undefined) {
+/** Plan-level payment state for the invoice list (same rules as the customer, without FOS tags). */
+function planPayState(p: LooseObject, d: LooseObject | undefined, date: string): PayState | null {
+  if (p.status === 'closed' || p.status === 'cancelled') return null;
+  const lines = (d?.lines ?? []) as LooseObject[];
+  return payState(
+    {
+      badSuggested: !!d?.badSuggested,
+      missedCount: typeof d?.missedCount === 'number' ? d.missedCount : lines.filter((l) => l.status === 'overdue').length,
+      dueToday: lines.some((l) => l.dueDate === date && (l.outstandingPoisha ?? 0) > 0),
+      totalOutstandingPoisha: p.outstandingPoisha ?? 0,
+    },
+    { badTag: false },
+  );
+}
+
+function planView(p: LooseObject, d: LooseObject | undefined, branchIdOf: Map<string, string> = new Map()) {
+  const date = today();
+  const raw = new Map<number, LooseObject>(((p.schedule ?? []) as LooseObject[]).map((l) => [l.seq as number, l]));
+  const lines = (d?.lines ?? []) as LooseObject[];
+  const open = lines.filter((l) => (l.outstandingPoisha ?? 0) > 0);
+  const next = open.filter((l) => l.dueDate >= date).sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
+  const oldestMissed = lines.filter((l) => l.missed || (l.status === 'overdue' && l.missed === undefined))[0];
+  const ps = planPayState(p, d, date);
   return {
     erpPlanId: p.erpPlanId,
     product: p.product ?? '',
@@ -547,16 +638,35 @@ function planView(p: LooseObject, d: LooseObject | undefined) {
     outstandingPoisha: p.outstandingPoisha ?? 0,
     status: p.status,
     badSuggested: !!d?.badSuggested,
-    schedule: (d?.lines ?? []).map((l: LooseObject) => ({
-      seq: l.seq,
-      dueDate: l.dueDate,
-      amountPoisha: l.amountPoisha,
-      paidPoisha: l.paidPoisha,
-      status: l.status,
-      estimated: l.estimated,
-      lateFeePoisha: l.lateFeePoisha ?? 0,
-      rolled: !!l.rolled,
-    })),
+    schedule: lines.map((l: LooseObject) => {
+      const r = raw.get(l.seq as number);
+      return {
+        seq: l.seq,
+        dueDate: l.dueDate,
+        amountPoisha: l.amountPoisha,
+        paidPoisha: l.paidPoisha,
+        status: l.status,
+        estimated: l.estimated,
+        lateFeePoisha: l.lateFeePoisha ?? 0,
+        rolled: !!l.rolled,
+        // 1.14.0: invoice viewer (FR-CUS-013). payments come from the ERP allocations; absent on older ERP versions.
+        outstandingPoisha: l.outstandingPoisha ?? Math.max(0, (l.amountPoisha ?? 0) - (l.paidPoisha ?? 0)),
+        ...(l.paidOn ? { paidOn: l.paidOn } : {}),
+        daysLate: l.daysLate ?? 0,
+        missed: !!l.missed,
+        ...(r?.writtenOffPoisha ? { writtenOffPoisha: r.writtenOffPoisha } : {}),
+        ...(Array.isArray(r?.payments)
+          ? {
+              payments: (r.payments as LooseObject[]).map((x) => ({
+                erpPaymentId: x.erpPaymentId,
+                date: x.date,
+                amountPoisha: x.amountPoisha,
+                ...(x.receiptNo ? { receiptNo: x.receiptNo } : {}),
+              })),
+            }
+          : {}),
+      };
+    }),
     // 1.13.0: what the plan is in the ERP (ADR-033). Absent on data synced before 1.13.0.
     ...(p.kind ? { kind: p.kind } : {}),
     ...(p.invoiceNo ? { invoiceNo: p.invoiceNo } : {}),
@@ -566,7 +676,38 @@ function planView(p: LooseObject, d: LooseObject | undefined) {
     ...(Array.isArray(p.items) ? { items: p.items } : {}),
     ...(p.guarantor ? { guarantor: { name: p.guarantor.name, phone: p.guarantor.phone ?? '', phones: p.guarantor.phones ?? [], ...(p.guarantor.address ? { address: p.guarantor.address } : {}) } } : {}),
     ...(p.writtenOffPoisha ? { writtenOffPoisha: p.writtenOffPoisha } : {}),
+    // ---- 1.14.0: invoice viewer (FR-CUS-013) ----
+    ...(ps ? { payState: ps } : {}),
+    missedCount: typeof d?.missedCount === 'number' ? d.missedCount : lines.filter((l) => l.status === 'overdue').length,
+    daysOverdue: oldestMissed && oldestMissed.dueDate < date ? diffDays(oldestMissed.dueDate, date) : 0,
+    ...(next ? { nextDueDate: next.dueDate, nextDuePoisha: next.outstandingPoisha } : {}),
+    ...(p.erpBranchId && branchIdOf.get(p.erpBranchId) ? { branchId: branchIdOf.get(p.erpBranchId) } : {}),
+    ...optionalMoney(p, ['financedPoisha', 'subtotalPoisha', 'discountPoisha', 'taxPoisha', 'settlementDiscountPoisha', 'refundedPoisha']),
+    ...(p.invoiceStatus ? { invoiceStatus: p.invoiceStatus } : {}),
+    ...(p.paymentStatus ? { paymentStatus: p.paymentStatus } : {}),
+    ...(p.creditDueDate ? { creditDueDate: p.creditDueDate } : {}),
+    ...(p.penaltyEnabled !== undefined ? { penalty: { enabled: !!p.penaltyEnabled, ...(p.penaltyRate ? { rate: p.penaltyRate } : {}) } } : {}),
   };
+}
+
+function optionalMoney(p: LooseObject, keys: string[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const k of keys) if (typeof p[k] === 'number') out[k] = p[k] as number;
+  return out;
+}
+
+/** ERP branch id → FOS branch id for the branches the customer's invoices were sold at (usually one). */
+async function invoiceBranchIds(c: Doc): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const erpIds = [...new Set(((c.plans ?? []) as LooseObject[]).map((p) => p.erpBranchId as string).filter(Boolean))];
+  for (const e of erpIds) {
+    if (e === c.erpBranchId && c.branchId) out.set(e, c.branchId as string);
+    else {
+      const b = await getByErpBranchId(e);
+      if (b) out.set(e, b.id);
+    }
+  }
+  return out;
 }
 
 function fmtDate(d: string, lang: 'bn' | 'en') {
@@ -580,6 +721,7 @@ function fmtDate(d: string, lang: 'bn' | 'en') {
 
 async function detailOf(c: Doc, user: AuthUser) {
   const [item] = await listItems([c], user, null);
+  const branchIdOf = await invoiceBranchIds(c);
   const dPlans = new Map<string, LooseObject>(
     (c.derived?.plans ?? []).map((p: LooseObject) => [p.erpPlanId, p]),
   );
@@ -594,7 +736,7 @@ async function detailOf(c: Doc, user: AuthUser) {
     ...item!,
     phones: c.phones ?? [],
     ...(c.guarantor ? { guarantor: c.guarantor } : {}),
-    plans: (c.plans ?? []).map((p: LooseObject) => planView(p, dPlans.get(p.erpPlanId))),
+    plans: (c.plans ?? []).map((p: LooseObject) => planView(p, dPlans.get(p.erpPlanId), branchIdOf)),
     payments: (c.recentPayments ?? []).map((p: LooseObject) => ({
       erpPaymentId: p.erpPaymentId,
       date: p.date,
@@ -703,7 +845,10 @@ export async function timeline(user: AuthUser, id: string, limit: number, cursor
   return { items: page, nextCursor: items.length > limit ? encodeCursor({ before: page[page.length - 1]!.at }) : null };
 }
 
-export async function map(user: AuthUser, q: { bbox: string; zoom?: number; filter: string[]; branchId?: string }) {
+export async function map(
+  user: AuthUser,
+  q: { bbox: string; zoom?: number; filter: string[]; branchId?: string; payState?: PayState[]; invoiceKind?: 'installment' | 'credit' },
+) {
   const box = parseBbox(q.bbox);
   if (!box)
     throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'bbox', message: 'minLng,minLat,maxLng,maxLat' }] });
@@ -712,6 +857,8 @@ export async function map(user: AuthUser, q: { bbox: string; zoom?: number; filt
     radiusM: 0,
     limit: 0,
     ...(q.branchId ? { branchId: q.branchId } : {}),
+    ...(q.payState?.length ? { payState: q.payState } : {}),
+    ...(q.invoiceKind ? { invoiceKind: q.invoiceKind } : {}),
   });
   (filter.$and as Record<string, unknown>[]).push({
     location: {
@@ -733,18 +880,21 @@ export async function map(user: AuthUser, q: { bbox: string; zoom?: number; filt
     name: c.name?.bn || c.name?.en || '',
     outstandingPoisha: c.derived?.totalOutstandingPoisha ?? 0,
     tagged: c.fos?.tag?.state === 'tagged',
+    payState: payStateOf(c),
+    missedCount: missedOf(c),
   }));
   if ((q.zoom ?? 15) >= 13 && pins.length <= 2000) return { pins, clusters: [] };
   // Grid clustering: cell ≈ 1/8 of a tile at this zoom.
   const cell = 360 / 2 ** (q.zoom ?? 10) / 8;
-  const cells = new Map<string, { lat: number; lng: number; count: number; statuses: CustomerStatus[] }>();
+  const cells = new Map<string, { lat: number; lng: number; count: number; statuses: CustomerStatus[]; pay: Partial<Record<PayState, number>> }>();
   for (const p of pins) {
     const k = `${Math.floor(p.lat / cell)}:${Math.floor(p.lng / cell)}`;
-    const g = cells.get(k) ?? { lat: 0, lng: 0, count: 0, statuses: [] };
+    const g = cells.get(k) ?? { lat: 0, lng: 0, count: 0, statuses: [], pay: {} };
     g.lat += p.lat;
     g.lng += p.lng;
     g.count++;
     g.statuses.push(p.status);
+    g.pay[p.payState] = (g.pay[p.payState] ?? 0) + 1;
     cells.set(k, g);
   }
   return {
@@ -754,6 +904,8 @@ export async function map(user: AuthUser, q: { bbox: string; zoom?: number; filt
       lng: g.lng / g.count,
       count: g.count,
       worstStatus: worstStatus(g.statuses),
+      worstPayState: worstPayState(Object.keys(g.pay) as PayState[]),
+      payStates: g.pay,
     })),
   };
 }

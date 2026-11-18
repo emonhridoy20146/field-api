@@ -162,6 +162,9 @@ export class MockErpClient implements ErpClient {
           line.paidPoisha -= take;
           left -= take;
         }
+        // The ERP deletes the removed payment's installment allocations with it (1.14.0 line payments).
+        for (const line of plan.schedule)
+          if (line.payments) line.payments = line.payments.filter((x) => x.erpPaymentId !== p.erpPaymentId);
         if (plan.status === 'completed') plan.status = 'active';
       }
       c.updatedAt = this.nowIso();
@@ -184,6 +187,9 @@ export class MockErpClient implements ErpClient {
     const plan = c.plans.find((p) => p.erpPlanId === planId)!;
     plan.paidPoisha += amount;
     plan.outstandingPoisha = Math.max(0, plan.outstandingPoisha - amount);
+    this.seq++;
+    const erpPaymentId = String(this.seq);
+    const receiptNo = receipt ?? `PAY-${date.replace(/-/g, '')}-${String(this.seq).padStart(5, '0')}`;
     let left = amount;
     for (const line of plan.schedule) {
       if (left <= 0) break;
@@ -191,20 +197,23 @@ export class MockErpClient implements ErpClient {
       const due = line.amountPoisha - paid;
       if (due <= 0) continue;
       const take = Math.min(due, left);
-      if (line.paidPoisha !== null) line.paidPoisha = paid + take;
+      if (line.paidPoisha !== null) {
+        line.paidPoisha = paid + take;
+        // Like installment_payment_allocations in the ERP (1.14.0).
+        line.payments = [...(line.payments ?? []), { erpPaymentId, receiptNo, date, amountPoisha: take }];
+      }
       left -= take;
     }
     if (plan.outstandingPoisha === 0) plan.status = 'completed';
-    this.seq++;
     const employee = employeeId ? this.employees.get(employeeId) : undefined;
     const payment: ErpPayment = {
-      erpPaymentId: String(this.seq),
+      erpPaymentId,
       erpPlanId: planId,
       date,
       amountPoisha: amount,
       method,
       source,
-      receiptNo: receipt ?? `PAY-${date.replace(/-/g, '')}-${String(this.seq).padStart(5, '0')}`,
+      receiptNo,
       idempotencyKey: key,
       reversed: false,
       reversedAt: null,
