@@ -4,7 +4,8 @@ import { ctx } from '../../core/context/index.js';
 import { indexMigration } from '../../core/db/migrations.js';
 import type { ErpCustomer } from '../erp-gateway/index.js';
 import { customerRoutes } from './routes.js';
-import { markMissing, recomputeAllDerived, myProposals, proposalSyncLoad, syncLoad, syncSnapshot, upsertFromErp } from './service.js';
+import { markMissing, recomputeAllDerived, myProposals, proposalSyncLoad, refeedBranches, syncLoad, syncSnapshot, upsertFromErp } from './service.js';
+import { listBranches } from '../branches/index.js';
 
 export const manifest: ModuleManifest = {
   name: 'customers',
@@ -29,10 +30,19 @@ export const manifest: ModuleManifest = {
       exposeToApp: true,
       description: 'FR-CUS-011 / ADR-031: when_missing = a staff pin for a customer without a usable pin applies at once (moving a pin still needs approval); always = every staff pin waits for a manager',
     },
+    {
+      key: 'customers.staffVisibility',
+      type: 'enum',
+      enum: ['branch', 'assigned'],
+      default: 'branch',
+      branchOverridable: true,
+      exposeToApp: true,
+      description: 'FR-CUS-014 / ADR-036: branch = field staff see every customer of their branches (owner request 2026-11-18); assigned = only customers assigned to them (the rule before 1.15.0)',
+    },
   ],
   events: {
     emits: ['customer.balance_cleared', 'customer.placed', 'customer.payments_synced', 'customer.location.proposed', 'customer.location.approved', 'customer.location.decided'],
-    consumes: ['erp.customer.synced', 'erp.reconcile.completed'],
+    consumes: ['erp.customer.synced', 'erp.reconcile.completed', 'user.updated', 'settings.changed'],
   },
   jobs: [{ name: 'customers.recompute-derived', schedule: '5 0 * * *', handler: async () => void (await recomputeAllDerived()) }],
   syncEntities: [
@@ -61,5 +71,19 @@ export const manifest: ModuleManifest = {
     const bus = ctx().bus;
     bus.on('erp.customer.synced', async (p) => void (await upsertFromErp(p.customer as ErpCustomer, p.fetchedAt as Date)));
     bus.on('erp.reconcile.completed', async (p) => void (await markMissing(p.erpBranchId as string, p.seenErpCustomerIds as string[])));
+    // ADR-036: a staff member's devices get the customers of a branch they joined and drop those of one they left.
+    bus.on('user.updated', async (p) => {
+      if (!p.branchesChanged) return;
+      const before = (p.previousBranchIds as string[] | undefined) ?? [];
+      const after = (p.branchIds as string[] | undefined) ?? [];
+      const changed = [...before.filter((b) => !after.includes(b)), ...after.filter((b) => !before.includes(b))];
+      if (changed.length) await refeedBranches(changed, p.userId as string);
+    });
+    // Visibility switched (branch ↔ assigned): every device of the branch reloads or drops its customers.
+    bus.on('settings.changed', async (p) => {
+      if (!(p.keys as string[]).includes('customers.staffVisibility')) return;
+      const branchIds = p.branchId ? [p.branchId as string] : (await listBranches()).map((b) => b.id);
+      await refeedBranches(branchIds);
+    });
   },
 };

@@ -62,7 +62,9 @@ export async function pull(user: AuthUser, q: { cursor: string; limit: number })
   const oldest = await ChangeModel.findOne().sort({ seq: 1 }).select({ seq: 1 }).lean();
   if (since > head || (since < head && (!oldest || since + 1 < oldest.seq))) throw new AppError('CURSOR_EXPIRED');
 
-  const rows = await ChangeModel.find({ userIds: user.id, seq: { $gt: since } }).sort({ seq: 1 }).limit(q.limit + 1).lean();
+  // Own changes, plus branch-wide ones of the user's branches (ADR-036); each loader still applies the user's scope.
+  const audience = user.branchIds.length ? { $or: [{ userIds: user.id }, { fanoutBranchId: { $in: user.branchIds } }] } : { userIds: user.id };
+  const rows = await ChangeModel.find({ ...audience, seq: { $gt: since } }).sort({ seq: 1 }).limit(q.limit + 1).lean();
   const page = rows.slice(0, q.limit);
   const hasMore = rows.length > q.limit;
   // Only the newest change per entity matters; data is loaded fresh, so older entries are redundant.

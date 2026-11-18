@@ -15,6 +15,8 @@ const events: { name: string; payload: unknown }[] = [];
 beforeAll(async () => {
   t = await createTestApp();
   s = await seedBasics(t);
+  // These cases cover the assigned-only rule (customers.staffVisibility = assigned); branch-wide scope: staff-visibility.test.ts.
+  await setSystem('customers.staffVisibility', 'assigned');
   for (const n of ['customer.balance_cleared', 'customer.placed']) t.ctx.bus.on(n, async (p) => void events.push({ name: n, payload: p }));
   await deltaSync();
   for (const e of ['100245', '100246', '100247', '100248', '200301']) ids[e] = (await getByErpId(e))!.id;

@@ -270,6 +270,14 @@ One installment line in `GET /customers/{id}` → `plans[].schedule[]`:
 ```
 A credit plan has `kind: "credit"`, `creditDueDate`, one schedule line on that date, and no `penalty`.
 
+### 3.10b Staff see the whole branch, staff in several branches (1.15.0)
+An admin lets a Barishal staff member also work in Patuakhali (the first branch stays the home branch):
+```http
+PATCH /api/v1/users/6740…
+{ "branchIds": ["<BRL01 id>", "<PTK01 id>"], "reason": "covers Patuakhali too" }
+```
+→ `200` user. On the next `GET /sync/pull` that staff member's phone receives every Patuakhali customer (and loses them again when the branch is removed). `GET /customers` as that staff member lists both branches, each row with `"branch": { "id": "…", "code": "PTK01", "name": { "bn": "পটুয়াখালী", "en": "Patuakhali" } }` and `assignee` when someone owns it; `GET /customers?assignedTo=me` is their own work list. A branch that wants the old rule sets `PATCH /settings { "branchId": "…", "changes": { "customers.staffVisibility": "assigned" }, "reason": "…" }`.
+
 ### 3.11 Leave, holidays, shifts, notices, guarantor calls (1.12.0)
 A staff member withdraws a request with wrong dates, then asks again:
 ```http

@@ -202,7 +202,13 @@ export async function update(actor: AuthUser, id: string, input: z.infer<typeof 
     if (!doc) throw new AppError('PRECONDITION_FAILED');
     const after = toView(doc as unknown as Lean);
     await audit.record({ actor, action: 'user.updated', entity: 'user', entityId: id, branchId: after.branchIds[0] ?? null, before, after, reason: reason ?? null, meta });
-    await ctx().bus.emit('user.updated', { userId: id, roleChanged: before.role !== after.role, branchesChanged: before.branchIds.join() !== after.branchIds.join() });
+    await ctx().bus.emit('user.updated', {
+      userId: id,
+      roleChanged: before.role !== after.role,
+      branchesChanged: before.branchIds.join() !== after.branchIds.join(),
+      branchIds: after.branchIds,
+      previousBranchIds: before.branchIds,
+    });
     return after;
   } catch (e) {
     if (isDuplicateKey(e)) dupError(e);

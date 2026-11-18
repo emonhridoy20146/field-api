@@ -18,5 +18,7 @@ export const manifest: ModuleManifest = {
       { collection: 'device_sync_state', key: { deviceId: 1, userId: 1 }, options: { unique: true } },
       { collection: 'device_sync_state', key: { branchId: 1, lastPullAt: -1 } },
     ]),
+    // 1.15.0 (ADR-036): branch-wide customer changes reach every device of the branch.
+    indexMigration('20261118-0001-sync-fanout-index', [{ collection: 'sync_changes', key: { fanoutBranchId: 1, seq: 1 } }]),
   ],
 };

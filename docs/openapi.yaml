@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.14.0
+  version: 1.15.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -485,6 +485,10 @@ paths:
     get:
       tags: [customers]
       operationId: listCustomers
+      description: |
+        Scope (FR-CUS-001, FR-CUS-014): super admin = all; branch manager / viewer = their branches; field staff =
+        every customer of their branches (one or more) since 1.15.0, or only the ones assigned to them in a branch whose
+        setting `customers.staffVisibility` is `assigned`. `assignedTo=me` gives the caller's own work list.
       parameters:
         - { name: filter, in: query, style: form, explode: false, schema: { type: array, items: { type: string, enum: [overdue, due_today, promised_today, bad_suggested, tagged_bad, no_location, unassigned, paid_up] } } }
         - { name: assignedTo, in: query, schema: { type: string, description: "'me' or a userId" } }
@@ -1672,7 +1676,7 @@ components:
         phone: { type: string }
         username: { type: string }
         role: { $ref: '#/components/schemas/Role' }
-        branchIds: { type: array, items: { type: string } }
+        branchIds: { type: array, items: { type: string }, description: 'One or more branches; field staff may work in several since 1.15.0 (FR-CUS-014). The first is the home branch (attendance, cash, targets, app settings); the others widen whose customers they see.' }
         employeeCode: { type: string }
         erpEmployeeId: { type: [string, 'null'] }
         shiftId: { type: [string, 'null'] }
@@ -1690,7 +1694,7 @@ components:
         phone: { type: string }
         username: { type: string }
         role: { $ref: '#/components/schemas/Role' }
-        branchIds: { type: array, items: { type: string }, minItems: 1 }
+        branchIds: { type: array, items: { type: string }, minItems: 1, description: 'One or more branches; field staff may work in several since 1.15.0 (FR-CUS-014). The first is the home branch (attendance, cash, targets, app settings); the others widen whose customers they see.' }
         employeeCode: { type: string }
         erpEmployeeId: { type: string }
         shiftId: { type: string }
@@ -1701,7 +1705,7 @@ components:
         name: { $ref: '#/components/schemas/I18nText' }
         phone: { type: string }
         role: { $ref: '#/components/schemas/Role' }
-        branchIds: { type: array, items: { type: string } }
+        branchIds: { type: array, items: { type: string }, minItems: 1, description: 'One or more branches; field staff may work in several since 1.15.0 (FR-CUS-014). The first is the home branch (attendance, cash, targets, app settings); the others widen whose customers they see.' }
         shiftId: { type: string }
         cashLimitPoisha: { type: integer }
         erpEmployeeId: { type: [string, 'null'], description: 'Documented in 1.13.0 (already accepted). Links the user to an ERP employee (GET /system/erp-employees); null unlinks' }
@@ -1827,6 +1831,15 @@ components:
         areaName: { oneOf: [ { $ref: '#/components/schemas/I18nText' }, { type: 'null' } ], description: 'FOS area the customer falls in. Added in 1.2.0' }
         assignee: { type: object, properties: { id: { type: string }, name: { type: string } } }
         branchId: { type: [string, 'null'], description: 'FOS branch of the customer. Added in 1.11.0' }
+        branch:
+          type: object
+          description: |
+            Added in 1.15.0 (FR-CUS-014). The customer's branch, so a list that spans several branches can say which
+            one each row belongs to. Absent when the customer has no FOS branch.
+          properties:
+            id: { type: string }
+            code: { type: string }
+            name: { $ref: '#/components/schemas/I18nText' }
         payState: { $ref: '#/components/schemas/PayState' }
         missedCount: { type: integer, description: 'Added in 1.14.0. Missed installments across open plans' }
         openInvoices:
