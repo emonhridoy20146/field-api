@@ -177,7 +177,7 @@ Checks, in order (first failure wins):
 3. Installment or credit, `status ∈ {active, posted}` → else `422 PLAN_CLOSED`.
 4. Customer active → else `422 CUSTOMER_INACTIVE`.
 5. `amount_due > 0` → else `422 PLAN_SETTLED`; `amount ≤ amount_due` → else `422 AMOUNT_EXCEEDS_OUTSTANDING` (`details.outstanding`).
-6. `collected_at` not in the future (`422 VALIDATION_FAILED`) and not older than `FIELD_API_MAX_BACKDATE_DAYS` (default 7, open decision **OD-28**) → `423 PERIOD_LOCKED` (`details.oldest_allowed`).
+6. `collected_at` not in the future (`422 VALIDATION_FAILED`) and not older than `FIELD_API_MAX_BACKDATE_DAYS` when it is set (**OD-28 decided 2026-11-18: unset by default, any past date is accepted**) → `423 PERIOD_LOCKED` (`details.oldest_allowed`).
 7. Collector is an active employee → else `422 COLLECTOR_NOT_LINKED`.
 8. A method of `method_type` is available at the invoice branch → else `422 METHOD_NOT_AVAILABLE`.
 9. Installment invoice already has an inbound payment (not the advance) on that date and the integration user lacks `installment.allow-same-day-duplicate` → `422 DUPLICATE_SAME_DAY`.
@@ -255,7 +255,7 @@ Failed requests are not stored, so the same key can be retried after the cause i
 | ID | Question | Default until decided |
 |---|---|---|
 | OD-27 | May a field collection land on an installment invoice that already has a payment that day? | **No** (`DUPLICATE_SAME_DAY` conflict; the office decides) |
-| OD-28 | How many days back may a field collection be dated? The office form allows 2 | **7 days** (staff can be offline for a few days); configurable |
+| OD-28 | How many days back may a field collection be dated? The office form allows 2 | **Decided 2026-11-18 by the owner: any past date** (no window unless `FIELD_API_MAX_BACKDATE_DAYS` is set); never a future date |
 | OD-29 | Should staff pins be written back to the ERP customer lat/lng? | **No** in v1 (FOS keeps pins) |
 
 ## 10. Test evidence (sandbox)

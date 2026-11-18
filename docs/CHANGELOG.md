@@ -5,6 +5,9 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 ## [Unreleased] — contract 1.13.0 (go live)
 ### Added
 - Go-live commands in the image (owner request 2026-11-18: deploy with the real ERP): `node dist/src/cli.js migrate` applies the migrations; `ADMIN_PASSWORD=… node dist/src/cli.js create-admin --phone … --name … [--code SA001] [--enable-modules]` pulls the ERP branches and creates the first super admin on all of them (password policy applies, must be changed at first sign-in, refused when the phone already has an account) and can switch every module on except microfinance. Production had no way to make its first user: `seed:dev` refuses production and the image has no tsx. README "Go live" lists the steps, starting in `record_only`.
+### Changed
+- OD-28 decided by the owner (2026-11-18): a field collection of any past date is accepted. The ERP field API has no back-date window unless `FIELD_API_MAX_BACKDATE_DAYS` is set (howlader-ERP PR #2); `MockErpClient.maxBackdateDays` defaults to `null` to match. A future date is still refused. This also means collections held in `record_only` for more than a week are not refused when posting is switched on.
+- README "Go live": hosting note. The worker must run all the time, so serverless hosts (Vercel) are not supported; API and admin-web go under one parent domain because the web refresh cookie is `SameSite=Strict`.
 ### Fixed
 - `ERP_MODE=record_only` now also requires `ERP_BASE_URL` and `ERP_API_TOKEN`: it reads the real ERP, and without them the server failed on the first ERP call instead of at start.
 ### Checked

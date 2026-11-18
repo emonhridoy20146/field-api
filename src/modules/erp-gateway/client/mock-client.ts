@@ -44,8 +44,8 @@ export class MockErpClient implements ErpClient {
   allowSameDay = false;
   /** ERP method types each branch can take; a branch missing here takes every type. */
   methodTypes = new Map<string, string[]>();
-  /** OD-28: oldest collection date the ERP accepts, in days before today. */
-  maxBackdateDays = 7;
+  /** OD-28 (owner, 2026-11-18): any past date by default; a number mirrors FIELD_API_MAX_BACKDATE_DAYS. */
+  maxBackdateDays: number | null = null;
   postCalls = 0;
   unavailable = false;
 
@@ -268,7 +268,7 @@ export class MockErpClient implements ErpClient {
     const today = businessDate(ctx().clock.now());
     const date = businessDate(i.collectedAt);
     if (date > today) return this.reject('ERP_VALIDATION', 'collected_at is in the future.');
-    if (diffDays(date, today) > this.maxBackdateDays)
+    if (this.maxBackdateDays !== null && diffDays(date, today) > this.maxBackdateDays)
       return this.reject('PERIOD_LOCKED', 'Collection date is older than the allowed back-date window.');
     const employee = i.employeeId ? this.employees.get(i.employeeId) : undefined;
     if (!i.employeeId || (this.employees.size > 0 && !employee?.active))
