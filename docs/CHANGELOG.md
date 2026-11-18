@@ -2,6 +2,15 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
+## [1.17.0] — contract 1.17.0 (delete a pin, "Sync from ERP")
+### Added
+- **Delete a pin** (FR-CUS-014, owner request 2026-11-18, ADR-036). `DELETE /customers/{id}/location` (`customer.location.approve`): a manager deletes any in-scope customer's pin, from the ERP, the field or the map. The customer shows as "no location", the assignee's phone and polygon areas are updated, and the ERP sync keeps the pin deleted until a new pin is set. Audited `customer.location.cleared`; idempotent (`removed: false` when there was no pin).
+- **"Sync from ERP"** (FR-ERP-007, owner request 2026-11-18, ADR-036). `POST /system/erp-sync` with the new permission `erp.sync` (super admin and branch manager): pulls the customers changed in the ERP now. One run at a time (lock in `erp_sync_state`), at most ~40 s per call; `partial: true` = call again. `429 RATE_LIMITED` (`SYNC_RUNNING`), `503 ERP_UNAVAILABLE`.
+### Changed
+- `deltaSync({ budgetMs })` keeps the page it stopped at (`erp_sync_state.resume`), always does at least one page per run, and the scheduled job honours the same `resume`.
+### Checked
+- New integration tests: pin delete (ERP pin, idempotent, audit, sync feed, stays deleted after `reconcile` and `deltaSync`, 403/404/401), manual sync (200, lock 429, ERP down 503, permission 403, budget + resume).
+
 ## [1.14.0] — contract 1.14.0 (map pin colours, invoice viewer)
 ### Added
 - **Pin colour by payment state** (owner request 2026-11-18, FR-CUS-012, ADR-035): `PayState` = `bad` (red: tagged bad/legal, or a plan's full term is over with money left), `missed_many` (orange: two or more missed installments), `missed_one` (yellow: one missed), `due_today` (blue), `on_track` (green: everything due so far is paid), `paid_off` (grey: nothing left). A missed installment is a past-due line with money left, or a line the ERP rolled forward while the line that took its balance is still unpaid. `payState` + `missedCount` on `CustomerListItem`, `CustomerDetail` and `MapPin`; clusters gain `worstPayState` and `payStates` (count per colour). `GET /customers` and `GET /customers/map` take `payState=a,b` (OR) and `invoiceKind=installment|credit` (customers with an open invoice of that kind). `openInvoices { installment, credit }` on list items.

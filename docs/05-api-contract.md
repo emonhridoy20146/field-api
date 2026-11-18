@@ -59,6 +59,8 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 | `GET /attendance/events` (raw events of a staff member's day, with photo ids) | `attendance.view` | FR-ATT-001/004 |
 | `GET /location-proposals/mine` (own proposals and their status; also sync entity `location_proposal`) | `customer.location.propose` | FR-CUS-008 |
 | `POST /customers/{id}/location` (manager sets the pin on the map, 1.11.0) | `customer.location.approve` | FR-CUS-011 |
+| `DELETE /customers/{id}/location` (manager deletes the pin, 1.17.0; answer `{removed, location}`) | `customer.location.approve` | FR-CUS-014 |
+| `POST /system/erp-sync` ("Sync from ERP", 1.17.0; answer `{customers, branches, partial, durationMs, finishedAt}`; call again while `partial`; 429 `SYNC_RUNNING`, 503 `ERP_UNAVAILABLE`) | `erp.sync` | FR-ERP-007 |
 | `GET /cowork/colleagues` · `POST /cowork/requests` · `GET /cowork/sessions/mine` · `POST /cowork/sessions/{id}/respond` · `POST /cowork/sessions/{id}/leave` | `cowork.use` | FR-CW-001/002 |
 | `GET /cowork/sessions` · `GET /cowork/sessions/{id}` | `cowork.view` | FR-CW-004 |
 | `PUT /customers/{id}/tag` | `tag.set` | FR-TAG-003 |

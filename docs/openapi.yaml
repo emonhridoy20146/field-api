@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.14.0
+  version: 1.17.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -158,6 +158,23 @@ paths:
       operationId: erpStatus
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ErpStatus' } } } }
+  /system/erp-sync:
+    post:
+      tags: [system]
+      operationId: erpSync
+      description: |
+        Added in 1.17.0 (owner request 2026-11-18). The admin panel's "Sync from ERP" button: pulls the customers
+        that changed in the ERP since the last sync (all of them on the first run) into FOS now, instead of waiting for
+        the 5-minute job. Permission `erp.sync` (super admin and branch manager by default). One run at a time.
+        A call stops after about 40 s and answers `partial: true`; the caller calls again until it is `false`
+        (the next call continues where the last one stopped). Never changes money; the ERP stays the truth.
+        `429 RATE_LIMITED` (`details.reason: SYNC_RUNNING`) while another run is in progress; `503 ERP_UNAVAILABLE`
+        when the ERP cannot be reached.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ErpSyncResult' } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
   /system/erp-employees:
     get:
       tags: [system]
@@ -626,6 +643,22 @@ paths:
         '404': { $ref: '#/components/responses/Problem' }
         '409': { description: 'INVALID_STATE CLIENT_ID_REUSED: the clientId belongs to another pin', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
         '422': { description: 'BUSINESS_RULE OUTSIDE_BANGLADESH', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    delete:
+      tags: [customers]
+      operationId: deleteCustomerLocation
+      description: |
+        1.17.0 (owner request 2026-11-18): a manager deletes the customer's map pin, whatever its source (ERP, field or
+        map). The customer has no pin afterwards (`location.status: missing`, `source: overlay`), so it shows in the
+        "no location" list and staff can drop a new pin, which applies at once under the default policy. The ERP
+        coordinates are not shown again: the sync keeps the pin deleted until a new pin is set. Audited as
+        `customer.location.cleared`, reaches the assignee's phone through sync, recomputes polygon areas. Pending staff
+        proposals stay pending. Idempotent: when there is no pin, nothing changes and `removed` is `false`.
+        Permission `customer.location.approve`; out of scope → 404.
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DeleteLocationResult' } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
   /location-proposals:
     get:
       tags: [customers]
@@ -2223,6 +2256,23 @@ components:
       properties:
         id: { type: string }
         status: { type: string, enum: [pending, approved, rejected], description: '`approved` when it was applied at once' }
+    DeleteLocationResult:
+      type: object
+      description: Added in 1.17.0
+      required: [removed, location]
+      properties:
+        removed: { type: boolean, description: 'false when the customer had no pin (nothing changed)' }
+        location: { $ref: '#/components/schemas/CustomerLocation' }
+    ErpSyncResult:
+      type: object
+      description: Added in 1.17.0
+      required: [customers, branches, partial, finishedAt]
+      properties:
+        customers: { type: integer, description: 'Customers pulled and updated by this call' }
+        branches: { type: integer, description: 'ERP branches seen' }
+        partial: { type: boolean, description: 'true = stopped for time; call again to continue' }
+        durationMs: { type: integer }
+        finishedAt: { type: string, format: date-time }
     SetLocationResult:
       type: object
       description: Added in 1.11.0
