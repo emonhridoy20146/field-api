@@ -1688,6 +1688,7 @@ components:
         branchIds: { type: array, items: { type: string } }
         shiftId: { type: string }
         cashLimitPoisha: { type: integer }
+        erpEmployeeId: { type: [string, 'null'], description: 'Documented in 1.13.0 (already accepted). Links the user to an ERP employee (GET /system/erp-employees); null unlinks' }
         reason: { type: string }
     UserPage:
       type: object
