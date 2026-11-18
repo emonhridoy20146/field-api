@@ -34,9 +34,22 @@ The image (`Dockerfile`) has no dev tools, so first-run steps are in `dist/src/c
 4. Run once: `node dist/src/cli.js migrate`, then `ADMIN_PASSWORD='…' node dist/src/cli.js create-admin --phone 01XXXXXXXXX --name "Owner" --enable-modules`. It pulls the ERP branches, creates the super admin on all of them (the password must be changed at first sign-in) and switches the modules on (microfinance stays off).
 5. Start the API (`PROCESS_ROLE=api`) and one worker (`PROCESS_ROLE=worker`). The worker pulls the ERP customers every 5 minutes; `GET /api/v1/system/health` shows `"erp":"ok"`.
 
-**Hosting.** field-api needs two long-running processes from the same image: the API and one worker (scheduled jobs and the outbox that posts collections to the ERP every few seconds). Serverless hosts such as Vercel stop the code between requests, so the worker would never run: use a container host (Railway, Render, Fly.io, a VPS with Docker). Put the API and admin-web under one parent domain (for example `api.example.com` and `admin.example.com`): the web refresh cookie is `SameSite=Strict`, so admin on `*.vercel.app` with the API on another host signs out on every reload.
+**Hosting.** Production needs two long-running processes from the same image: the API and one worker (scheduled jobs and the outbox that posts collections to the ERP every few seconds). Use a container host (Railway, Render, Fly.io, a VPS with Docker). Vercel is for testing only (next section). Put the API and admin-web under one parent domain (for example `api.example.com` and `admin.example.com`): the web refresh cookie is `SameSite=Strict`, so admin on `*.vercel.app` with the API on another host signs out on every reload.
 6. In admin: create the staff users and link each to their ERP employee (the ERP needs a collector on every payment), set each branch's map point, and compare a few customers' balances with the ERP.
 7. Switch posting on: `ERP_MODE=live` and restart both processes. Collections that waited are sent to the ERP by the worker within about 20 minutes.
+
+## Test deployment on Vercel (not for production)
+Vercel runs the API as a serverless function (`api/index.js` → `src/app/serverless.ts`) and the worker as a function you call (`api/cron.js`), ADR-034. Good for trying the API with real phones and admin-web; not for real money.
+
+1. MongoDB Atlas cluster (any tier); in Network Access allow `0.0.0.0/0` (Vercel has no fixed IPs; test data only).
+2. `pnpm keys:jwt` and keep the three lines it prints.
+3. Point a local `.env` at the Atlas test database, then run `pnpm db:migrate` and `pnpm seed:dev` (mock ERP data, one user per role, password = `SEED_PASSWORD`), or `pnpm build && node dist/src/cli.js create-admin …` for an empty start.
+4. Import the repo in Vercel (root = `field-api`); `vercel.json` sets the build, the Mumbai region (`bom1`) and the routes. Environment variables:
+   `NODE_ENV=staging`, `MONGODB_URI`, `MONGODB_DB_NAME`, `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY`, `JWT_KEY_ID`, `ERP_MODE=mock` (or `record_only` + `ERP_BASE_URL`/`ERP_API_TOKEN`), `TRUST_PROXY=true`, `PUBLIC_BASE_URL=https://<project>.vercel.app`, `ADMIN_WEB_ORIGIN=<admin-web URL>`, `CRON_SECRET` (≥ 16 random characters). Photos and exports need S3 settings (for example a free Cloudflare R2 bucket); without them storage is in memory per instance and uploads fail.
+5. Check: `curl https://<project>.vercel.app/api/v1/system/health`.
+6. Worker: `curl -H "Authorization: Bearer $CRON_SECRET" https://<project>.vercel.app/api/cron` runs the jobs due this minute and drains the outbox; add `?job=erp.delta-sync` (or any job name) to run one job now. For a steady test, call it every minute from an external scheduler (for example cron-job.org with that header); Vercel Cron on the Pro plan works too.
+
+Limits of the test setup: rate limits are counted per function instance, the first request after idle is slow (cold start), events in the outbox wait until the next `/api/cron` call, and a function stops after 60 s.
 
 ## Checks (all run in CI)
 | Command | What it proves |

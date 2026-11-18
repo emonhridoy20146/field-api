@@ -1,0 +1,10 @@
+# Never upload local secrets or bulky local folders to Vercel.
+.env
+.env.*
+node_modules
+dist
+coverage
+test
+docs
+templates
+scripts/unlock.ts

@@ -77,4 +77,6 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 ## Phase 4 — Premium & hardening (as approved)
 SMS receipts (FR-COL-012), broadcasts (FR-NOT-005), leave (FR-ATT-008), staff-initiated handover (FR-HO-007), manager digest (FR-REP-006), offline map packs, Bluetooth printing, payment verification module, ASVS L2 review, performance tuning to 200 staff.
 
+**Test hosting:** Vercel serverless test deployment ready (ADR-034, README "Test deployment on Vercel"); production host still OD-08.
+
 **Go-live checklist (before any production branch):** ASVS L2 review done · restore drill passed · secrets rotated from staging · Atlas IP list = API egress only · privacy notice approved by counsel · staff trained (Bangla quick guide) · rollback plan (flags OFF) rehearsed.

@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Howlader Field API</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #16181d; --muted: #5f6673; --line: #e3e6eb;
+    --ok: #138a4b; --ok-bg: #e6f5ec; --bad: #c0392b; --bad-bg: #fbe9e7; --wait: #8a6d00; --wait-bg: #fcf4d9;
+    --accent: #1f5fbf; --code: #eef1f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --card: #171a21; --text: #e8eaee; --muted: #9aa3b2; --line: #262b35;
+      --ok: #4cc584; --ok-bg: #12291d; --bad: #ff7b6b; --bad-bg: #2e1715; --wait: #e3c35a; --wait-bg: #2b2513;
+      --accent: #7aa7ff; --code: #1f232c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Bengali", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 40px 16px 56px; }
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+  .logo { width: 44px; height: 44px; border-radius: 10px; background: var(--accent); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 18px; flex: none; }
+  h1 { font-size: 22px; margin: 0; }
+  .sub { color: var(--muted); margin: 2px 0 0; }
+  .banner { margin: 24px 0; padding: 16px 18px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--wait); flex: none; }
+  .banner.ok .dot { background: var(--ok); } .banner.bad .dot { background: var(--bad); }
+  .banner strong { font-size: 17px; }
+  .banner .meta { color: var(--muted); margin-left: auto; font-size: 13px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .card h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 8px; text-transform: uppercase; letter-spacing: .04em; }
+  .val { font-size: 20px; font-weight: 600; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 14px; font-weight: 600; background: var(--wait-bg); color: var(--wait); }
+  .pill.ok { background: var(--ok-bg); color: var(--ok); } .pill.bad { background: var(--bad-bg); color: var(--bad); }
+  .hint { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  section { margin-top: 28px; }
+  section > h3 { font-size: 16px; margin: 0 0 10px; }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  td { padding: 10px 14px; border-top: 1px solid var(--line); vertical-align: top; }
+  tr:first-child td { border-top: 0; }
+  td:first-child { color: var(--muted); width: 38%; }
+  code { background: var(--code); padding: 1px 6px; border-radius: 6px; font: 13px ui-monospace, SFMono-Regular, Consolas, monospace; word-break: break-all; }
+  a { color: var(--accent); }
+  button { font: inherit; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  footer { margin-top: 36px; color: var(--muted); font-size: 13px; }
+  @media (max-width: 520px) { .banner .meta { margin-left: 0; width: 100%; } td:first-child { width: 45%; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="logo" aria-hidden="true">H</div>
+    <div>
+      <h1>Howlader Field API</h1>
+      <p class="sub">Backend for the Howlader Field Operations System · test deployment</p>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" role="status" aria-live="polite">
+    <span class="dot"></span>
+    <strong id="overall">Checking…</strong>
+    <span class="meta" id="checked">—</span>
+    <button id="refresh" type="button">Check again</button>
+  </div>
+
+  <div class="grid">
+    <div class="card"><h2>API</h2><span id="s-api" class="pill">…</span><p class="hint" id="latency">&nbsp;</p></div>
+    <div class="card"><h2>Database</h2><span id="s-mongo" class="pill">…</span><p class="hint">MongoDB Atlas</p></div>
+    <div class="card"><h2>ERP link</h2><span id="s-erp" class="pill">…</span><p class="hint">Howlader ERP field API</p></div>
+    <div class="card"><h2>Version</h2><div class="val" id="version">—</div><p class="hint">field-api build</p></div>
+  </div>
+
+  <section>
+    <h3>Server</h3>
+    <table>
+      <tr><td>Server time (Dhaka)</td><td id="t-dhaka">—</td></tr>
+      <tr><td>Server time (UTC)</td><td id="t-utc">—</td></tr>
+      <tr><td>Business time zone</td><td>Asia/Dhaka (UTC+6)</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h3>For the apps</h3>
+    <table>
+      <tr><td>API base URL</td><td><code id="base">/api/v1</code></td></tr>
+      <tr><td>Health check</td><td><a id="health-link" href="/api/v1/system/health"><code>/api/v1/system/health</code></a></td></tr>
+      <tr><td>Clients</td><td>admin-web (browser) · staff-app (Android)</td></tr>
+      <tr><td>Authentication</td><td>Bearer token from <code>POST /api/v1/auth/login</code></td></tr>
+    </table>
+  </section>
+
+  <footer>Howlader Field Operations System · this page shows live health only; no customer data is shown here.</footer>
+</main>
+
+<script>
+  const HEALTH = '/api/v1/system/health';
+  const $ = (id) => document.getElementById(id);
+  document.getElementById('base').textContent = location.origin + '/api/v1';
+
+  function pill(el, state) {
+    const map = { ok: ['ok', 'Online'], down: ['bad', 'Down'], degraded: ['bad', 'Degraded'] };
+    const [cls, label] = map[state] || ['', state || 'Unknown'];
+    el.className = 'pill ' + cls;
+    el.textContent = label;
+  }
+
+  function fmt(d, tz) {
+    return d.toLocaleString('en-GB', { timeZone: tz, dateStyle: 'medium', timeStyle: 'medium' });
+  }
+
+  async function check() {
+    const banner = $('banner');
+    banner.className = 'banner';
+    $('overall').textContent = 'Checking…';
+    const started = performance.now();
+    try {
+      const res = await fetch(HEALTH, { cache: 'no-store', headers: { Accept: 'application/json' } });
+      const ms = Math.round(performance.now() - started);
+      const body = await res.json();
+      pill($('s-api'), res.ok ? 'ok' : 'down');
+      pill($('s-mongo'), body.mongo);
+      pill($('s-erp'), body.erp);
+      $('version').textContent = body.version || '—';
+      $('latency').textContent = 'Answered in ' + ms + ' ms';
+      const all = body.status === 'ok' && body.erp === 'ok';
+      banner.className = 'banner ' + (all ? 'ok' : body.status === 'ok' ? '' : 'bad');
+      $('overall').textContent = all ? 'All systems working' : body.status === 'ok' ? 'API working · ERP link needs attention' : 'Service degraded';
+      const st = res.headers.get('X-Server-Time');
+      const t = st ? new Date(st) : new Date();
+      $('t-dhaka').textContent = fmt(t, 'Asia/Dhaka');
+      $('t-utc').textContent = fmt(t, 'UTC');
+    } catch {
+      banner.className = 'banner bad';
+      $('overall').textContent = 'API not reachable';
+      ['s-api', 's-mongo', 's-erp'].forEach((id) => pill($(id), 'down'));
+      $('latency').textContent = 'No answer (the first call after idle can take a few seconds)';
+    }
+    $('checked').textContent = 'Last checked ' + new Date().toLocaleTimeString('en-GB');
+  }
+
+  $('refresh').addEventListener('click', check);
+  check();
+  setInterval(check, 30000);
+</script>
+</body>
+</html>

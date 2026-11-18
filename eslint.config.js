@@ -36,4 +36,9 @@ export default tseslint.config(
     rules: { '@typescript-eslint/no-explicit-any': 'off' },
   },
   { files: ['scripts/**/*.ts', 'mock-erp/**/*.ts', 'src/main.ts'], rules: { 'no-console': 'off' } },
+  {
+    // Vercel function shims (ADR-034): plain ESM JavaScript running on Node.
+    files: ['api/**/*.js'],
+    languageOptions: { sourceType: 'module', globals: { process: 'readonly', console: 'readonly', URL: 'readonly' } },
+  },
 );

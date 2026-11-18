@@ -4,10 +4,11 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased] — contract 1.13.0 (go live)
 ### Added
+- Vercel test deployment (owner request 2026-11-18, ADR-034): `vercel.json`, `api/index.js` (all API routes through `src/app/serverless.ts`, which caches the Mongo connection and app per instance) and `api/cron.js` (jobs due this minute or `?job=<name>`, then the outbox; needs `Authorization: Bearer CRON_SECRET`). `pnpm keys:jwt` prints a JWT key pair. `.vercelignore` keeps `.env*` and local folders out of uploads. README "Test deployment on Vercel". `public/index.html` is a static status page at `/` that reads the public health check (API, database, ERP link, version, server time); no customer data. Production hosting is unchanged (ADR-011). No contract change.
 - Go-live commands in the image (owner request 2026-11-18: deploy with the real ERP): `node dist/src/cli.js migrate` applies the migrations; `ADMIN_PASSWORD=… node dist/src/cli.js create-admin --phone … --name … [--code SA001] [--enable-modules]` pulls the ERP branches and creates the first super admin on all of them (password policy applies, must be changed at first sign-in, refused when the phone already has an account) and can switch every module on except microfinance. Production had no way to make its first user: `seed:dev` refuses production and the image has no tsx. README "Go live" lists the steps, starting in `record_only`.
 ### Changed
 - OD-28 decided by the owner (2026-11-18): a field collection of any past date is accepted. The ERP field API has no back-date window unless `FIELD_API_MAX_BACKDATE_DAYS` is set (howlader-ERP PR #2); `MockErpClient.maxBackdateDays` defaults to `null` to match. A future date is still refused. This also means collections held in `record_only` for more than a week are not refused when posting is switched on.
-- README "Go live": hosting note. The worker must run all the time, so serverless hosts (Vercel) are not supported; API and admin-web go under one parent domain because the web refresh cookie is `SameSite=Strict`.
+- README "Go live": hosting note. The worker must run all the time, so serverless hosts (Vercel) are for tests only (ADR-034); API and admin-web go under one parent domain because the web refresh cookie is `SameSite=Strict`.
 ### Fixed
 - `ERP_MODE=record_only` now also requires `ERP_BASE_URL` and `ERP_API_TOKEN`: it reads the real ERP, and without them the server failed on the first ERP call instead of at start.
 ### Checked
