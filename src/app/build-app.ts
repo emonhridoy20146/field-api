@@ -64,7 +64,17 @@ export async function buildApp(opts: BuildOptions): Promise<Built> {
   app.decorateRequest('authError', null);
   app.decorateRequest('perms', null);
 
-  await app.register(cors, { origin: opts.config.ADMIN_WEB_ORIGIN.split(','), credentials: true });
+  // admin-web is served from its own origin. @fastify/cors allows only GET, HEAD
+  // and POST by default, so list every method the routes use, or the browser's
+  // preflight blocks PATCH/PUT/DELETE (e.g. saving settings). Request headers are
+  // reflected (default); X-Request-Id is exposed for the error banner.
+  await app.register(cors, {
+    origin: opts.config.ADMIN_WEB_ORIGIN.split(','),
+    credentials: true,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    exposedHeaders: ['X-Request-Id', 'X-Server-Time', 'Retry-After'],
+    maxAge: 600,
+  });
   await app.register(cookie);
   await app.register(rateLimit, {
     global: true,
