@@ -4,10 +4,10 @@
   "description": "Howlader Field Operations System backend (Fastify + MongoDB); owner of the API contract",
   "scripts": {
     "dev": "tsx watch --env-file=.env src/main.ts",
-    "dev:worker": "tsx watch --env-file=.env src/main.ts",
+    "dev:worker": "tsx watch --env-file=.env src/main.ts --worker",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/src/main.js",
-    "start:worker": "PROCESS_ROLE=worker node dist/src/main.js",
+    "start:worker": "node dist/src/main.js --worker",
     "typecheck": "tsc --noEmit -p .",
     "lint": "eslint . && prettier --check \"scripts/**/*.ts\" \"mock-erp/**/*.ts\" && depcruise src --config .dependency-cruiser.cjs",
     "lint:boundaries": "depcruise src --config .dependency-cruiser.cjs",

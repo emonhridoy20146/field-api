@@ -61,6 +61,9 @@ export interface CronResult {
  * in Mongo (ADR-008), so overlapping calls never run a job twice in the same minute.
  */
 export async function runCron(opts: { job?: string; budgetMs?: number } = {}): Promise<CronResult> {
+  // The budget counts from the start of the call, jobs included: the function is stopped at 60 s
+  // (vercel.json maxDuration), so slow jobs leave less time for the outbox, never more.
+  const deadline = performance.now() + (opts.budgetMs ?? 40_000);
   const { ctx } = await getApp();
   const scheduler = new JobScheduler(ctx.manifests.flatMap((m) => m.jobs ?? []));
   let ran: string[];
@@ -70,17 +73,29 @@ export async function runCron(opts: { job?: string; budgetMs?: number } = {}): P
   } else {
     ran = await scheduler.tick();
   }
-  const budget = opts.budgetMs ?? 40_000;
-  const started = performance.now();
+  return { ran, outbox: await drainOutbox(deadline) };
+}
+
+/**
+ * Runs outbox batches until the outbox is empty or `deadline` (a performance.now() value) has
+ * passed. Batches are small so the deadline is checked often: one ERP post can take up to
+ * ERP_TIMEOUT_MS. An item cut off by the 60 s stop keeps its lease and is retried later with
+ * the same idempotency key, so this only bounds delay, not correctness.
+ */
+export async function drainOutbox(
+  deadline: number,
+  dispatch: (limit: number) => Promise<DispatchStats> = dispatchOutbox,
+  now: () => number = () => performance.now(),
+): Promise<DispatchStats> {
   const outbox: DispatchStats = { done: 0, retried: 0, failed: 0 };
-  while (performance.now() - started < budget) {
-    const s = await dispatchOutbox(50);
+  while (now() < deadline) {
+    const s = await dispatch(5);
     outbox.done += s.done;
     outbox.retried += s.retried;
     outbox.failed += s.failed;
     if (s.done + s.retried + s.failed === 0) break;
   }
-  return { ran, outbox };
+  return outbox;
 }
 
 export function knownJobs(ctx: AppContext): string[] {
