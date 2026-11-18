@@ -168,6 +168,46 @@ const RULES: Rule[] = [
     body: (p) => (p.decision === 'accept' ? t(`${str(p.name)} আপনার সাথে কাজ করতে রাজি হয়েছেন।`, `${str(p.name)} agreed to work with you.`) : t(`${str(p.name)} অনুরোধটি প্রত্যাখ্যান করেছেন।`, `${str(p.name)} rejected the request.`)),
     data: (p) => ({ sessionId: str(p.sessionId), decision: str(p.decision) }),
   },
+  {
+    event: 'task.assigned',
+    type: 'task.assigned',
+    to: (p) => [str(p.assigneeId)],
+    title: () => t('নতুন কাজ দেওয়া হয়েছে', 'New task assigned'),
+    body: (p) => t(str(p.title), str(p.title)),
+    data: (p) => ({ taskId: str(p.taskId) }),
+  },
+  {
+    event: 'task.resolve_requested',
+    type: 'task.resolve_requested',
+    to: managers('task.manage'),
+    title: () => t('কাজ সমাধানের অনুরোধ', 'Task resolve request'),
+    body: (p) => t(`${str(p.assigneeName)} "${str(p.title)}" কাজটি শেষ করেছেন। যাচাই করুন।`, `${str(p.assigneeName)} finished "${str(p.title)}". Please verify.`),
+    data: (p) => ({ taskId: str(p.taskId) }),
+  },
+  {
+    event: 'task.verified',
+    type: 'task.decided',
+    to: (p) => [str(p.assigneeId)],
+    title: () => t('কাজ সমাধান হয়েছে', 'Task resolved'),
+    body: (p) => t(`"${str(p.title)}" অফিস যাচাই করে সমাধান করেছে।`, `The office verified "${str(p.title)}".`),
+    data: (p) => ({ taskId: str(p.taskId), decision: 'verified' }),
+  },
+  {
+    event: 'task.rejected',
+    type: 'task.decided',
+    to: (p) => [str(p.assigneeId)],
+    title: () => t('কাজটি আবার দেখুন', 'Task needs more work'),
+    body: (p) => t(`"${str(p.title)}": ${str(p.note)}`, `"${str(p.title)}": ${str(p.note)}`),
+    data: (p) => ({ taskId: str(p.taskId), decision: 'rejected' }),
+  },
+  {
+    event: 'task.cancelled',
+    type: 'task.decided',
+    to: (p) => [str(p.assigneeId)],
+    title: () => t('কাজ বাতিল', 'Task cancelled'),
+    body: (p) => t(`"${str(p.title)}" কাজটি বাতিল করা হয়েছে।`, `"${str(p.title)}" was cancelled.`),
+    data: (p) => ({ taskId: str(p.taskId), decision: 'cancelled' }),
+  },
 ];
 
 export const CONSUMED_EVENTS = RULES.map((r) => r.event);

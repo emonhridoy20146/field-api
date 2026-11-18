@@ -61,6 +61,9 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 | `POST /customers/{id}/location` (manager sets the pin on the map, 1.11.0) | `customer.location.approve` | FR-CUS-011 |
 | `GET /cowork/colleagues` · `POST /cowork/requests` · `GET /cowork/sessions/mine` · `POST /cowork/sessions/{id}/respond` · `POST /cowork/sessions/{id}/leave` | `cowork.use` | FR-CW-001/002 |
 | `GET /cowork/sessions` · `GET /cowork/sessions/{id}` | `cowork.view` | FR-CW-004 |
+| `GET /tasks/mine` · `POST /tasks/{id}/resolve-request` (also sync mutation `task_resolve_request`, sync entity `task`) | `task.work` | FR-TASK-002 |
+| `GET /tasks` · `GET /tasks/{id}` | `task.view` | FR-TASK-004 |
+| `POST /tasks` · `PATCH /tasks/{id}` · `POST /tasks/{id}/verify` · `POST /tasks/{id}/reject` · `POST /tasks/{id}/cancel` | `task.manage` | FR-TASK-001/003 |
 | `PUT /customers/{id}/tag` | `tag.set` | FR-TAG-003 |
 | `GET /customers/{id}/tag-history` | `tag.view` | FR-TAG-006 |
 | `GET /tags/review-queue` · `POST /tags/review-queue/{eventId}/decision` | `tag.approve` | FR-TAG-005/007 |

@@ -2,6 +2,14 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
+## [1.16.0] — contract 1.16.0 (admin tasks for staff)
+### Added
+- **tasks module** (FR-TASK-001..005, owner request 2026-11-18, ADR-036): an admin or manager gives one field staff member a task with a title, a free-form note and an optional due date; it is not tied to a customer. `POST /tasks` (idempotent by `clientId`; `422 TASK_INVALID_ASSIGNEE`, `TASK_DUE_IN_PAST`), `GET /tasks` (filters `status`, `assigneeId`, `branchId`, `overdue`, `q`; `counts` per status and overdue), `GET /tasks/{id}` (with history), `PATCH /tasks/{id}` (while open), `POST /tasks/{id}/verify`, `POST /tasks/{id}/reject` (reason of at least 5 characters, `422 REASON_REQUIRED`), `POST /tasks/{id}/cancel`.
+- Staff side: `GET /tasks/mine`, `POST /tasks/{id}/resolve-request` (note, optional `requestedAt`), sync entity `task` (to the assignee only; bootstrap snapshot holds open tasks and those closed in the last 30 days) and sync mutation `task_resolve_request` `{ taskId, note?, requestedAt? }`. A resolve request moves the task to `resolve_requested`; only an admin verify makes it `resolved`; a reject sends it back to `open` with the reason.
+- Notifications `task.assigned`, `task.resolve_requested` (managers with `task.manage` in the task's branch), `task.decided` (verified / rejected / cancelled, to the assignee). Inbox item `task.resolve_requested` until the request is decided. Audited as `task.created`, `task.edited`, `task.resolve_requested`, `task.verified`, `task.rejected`, `task.cancelled`.
+- Permissions `task.view`, `task.manage`, `task.work`; flag `module.tasks` (off by default; super admin turns it on); collection `staff_tasks` (migration `tasks/20261118-0001-tasks-indexes`).
+- Additive only: no existing route, field or collection changed.
+
 ## [1.14.0] — contract 1.14.0 (map pin colours, invoice viewer)
 ### Added
 - **Pin colour by payment state** (owner request 2026-11-18, FR-CUS-012, ADR-035): `PayState` = `bad` (red: tagged bad/legal, or a plan's full term is over with money left), `missed_many` (orange: two or more missed installments), `missed_one` (yellow: one missed), `due_today` (blue), `on_track` (green: everything due so far is paid), `paid_off` (grey: nothing left). A missed installment is a past-due line with money left, or a line the ERP rolled forward while the line that took its balance is still unpaid. `payState` + `missedCount` on `CustomerListItem`, `CustomerDetail` and `MapPin`; clusters gain `worstPayState` and `payStates` (count per colour). `GET /customers` and `GET /customers/map` take `payState=a,b` (OR) and `invoiceKind=installment|credit` (customers with an open invoice of that kind). `openInvoices { installment, credit }` on list items.
