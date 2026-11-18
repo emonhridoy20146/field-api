@@ -2,7 +2,15 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
-## [Unreleased] — contract 1.13.0
+## [Unreleased] — contract 1.13.0 (go live)
+### Added
+- Go-live commands in the image (owner request 2026-11-18: deploy with the real ERP): `node dist/src/cli.js migrate` applies the migrations; `ADMIN_PASSWORD=… node dist/src/cli.js create-admin --phone … --name … [--code SA001] [--enable-modules]` pulls the ERP branches and creates the first super admin on all of them (password policy applies, must be changed at first sign-in, refused when the phone already has an account) and can switch every module on except microfinance. Production had no way to make its first user: `seed:dev` refuses production and the image has no tsx. README "Go live" lists the steps, starting in `record_only`.
+### Fixed
+- `ERP_MODE=record_only` now also requires `ERP_BASE_URL` and `ERP_API_TOKEN`: it reads the real ERP, and without them the server failed on the first ERP call instead of at start.
+### Checked
+- Rehearsal on a sandbox copy of the real ERP data with its new field API: migrate, create-admin (15 branches), a full delta sync of 1,441 customers in 15 s, and the admin API showing their invoices; the live client posted a collection and got the ERP's same-day, collector and unknown-invoice refusals.
+
+## [1.13.0] — contract 1.13.0 (PR #10)
 ### Added
 - **Real ERP shape** (owner request 2026-11-18, ADR-033). The Howlader ERP was studied (code + a copy of its data, `docs/erp-findings.md`) and its field API was written and tested on a sandbox copy without touching the production repository (`docs/erp-integration-spec.md` v2, field-by-field `docs/erp-mapping.md`). The Laravel mapper now reads that API: one FOS plan = one ERP invoice (installment or credit sale, `erpPlanId` = invoice id); schedule line amount = due + late fee, lines the ERP rolled forward are marked `rolled`; returned/cancelled invoices are `closed`/`cancelled` and not collectable or counted; payments the office removed in the ERP come back as reversed; messy ERP phone fields are normalized to `01XXXXXXXXX`; customers without a branch take the branch of their latest invoice (done by the ERP API); warehouses are synced as branches so their customers are not skipped.
 - Contract 1.13.0 (additive): `Plan.kind/invoiceNo/saleDate/frequency/customDays/items/guarantor/writtenOffPoisha`, schedule `lateFeePoisha/rolled`, `Payment.erpPlanId/methodLabel/collectorName/advance/discountPoisha`, `CustomerDetail.detailedAddress/directions/erpRisk`; `GET /system/erp-employees` (`user.manage`) to link a staff user to the ERP employee the ERP needs as collector; `PUT /branches/{id}/location` (`settings.manage`, audited `branch.location_set`) because the ERP has no branch coordinates; `Branch.kind` (`branch`/`warehouse`; warehouses are synced because they hold receivables); `UserUpdate.erpEmployeeId` (nullable) documented, the server already accepted it.

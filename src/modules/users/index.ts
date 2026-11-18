@@ -10,6 +10,7 @@ export {
   markLogin,
   loadAuthUser,
   createSystemUser,
+  checkPasswordPolicy,
   displayName,
   searchUsers,
   type UserView,
