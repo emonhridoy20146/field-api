@@ -12,10 +12,11 @@ pnpm install
 cp .env.example .env            # fill values locally; never commit .env
 docker compose up -d            # MongoDB (replica set) and MinIO; add `--profile erp` for the HTTP mock ERP
 pnpm db:migrate
-SEED_PASSWORD='choose-one' pnpm seed:dev   # branches, one user per role, sample customers, module flags ON
+pnpm seed:dev                   # branches, one user per role, sample customers, module flags ON (password = SEED_PASSWORD in .env)
 pnpm dev                        # API on http://localhost:4000 (PROCESS_ROLE=api)
-pnpm dev:worker                 # jobs + outbox (PROCESS_ROLE=worker)
+pnpm dev:worker                 # jobs + outbox, in a second terminal (`--worker` flag; works in Windows cmd/PowerShell too)
 ```
+`pnpm dev`, `dev:worker`, `db:migrate` and `seed:dev` read `.env` (`--env-file`), so create it first.
 No Docker? `pnpm smoke` boots migrate → seed → API → worker against a throwaway in-memory MongoDB and checks sign-in.
 
 `ERP_MODE=mock` (default) uses an in-process fake ERP. To exercise the real HTTP client, run `pnpm mock:erp` and set `ERP_MODE=live`, `ERP_BASE_URL=http://localhost:4100/api/field/v1`. The real ERP serves the same API from its own module (howlader-erp `docs/field-api/README.md`).

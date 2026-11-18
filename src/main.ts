@@ -4,6 +4,9 @@ import { bootModules, buildApp } from './app/build-app.js';
 import { startWorker } from './app/worker.js';
 
 async function main() {
+  // `--worker` picks the worker role without shell syntax: Windows cmd and PowerShell cannot run
+  // `PROCESS_ROLE=worker <cmd>`, and `--env-file=.env` would otherwise set PROCESS_ROLE=api.
+  if (process.argv.slice(2).includes('--worker')) process.env.PROCESS_ROLE = 'worker';
   const config = loadConfig();
   await connectMongo(config.MONGODB_URI, config.MONGODB_DB_NAME);
   if (config.PROCESS_ROLE === 'worker') {
