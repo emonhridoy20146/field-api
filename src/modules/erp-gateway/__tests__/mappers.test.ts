@@ -140,7 +140,24 @@ describe('ERP field API v1 mappers (contract fixtures)', () => {
       paidPoisha: 116600,
       lateFeePoisha: 0,
       rolled: false,
+      // 1.14.0: the ERP's installment_payment_allocations and write-offs for this line
+      payments: [{ erpPaymentId: '9733', receiptNo: 'PAY-20261020-09733', date: '2026-10-20', amountPoisha: 116600 }],
+      writtenOffPoisha: 0,
     });
+    expect(p).toMatchObject({
+      subtotalPoisha: 6800000,
+      discountPoisha: 0,
+      taxPoisha: 0,
+      settlementDiscountPoisha: 0,
+      refundedPoisha: 0,
+      financedPoisha: 5800000,
+      invoiceStatus: 'active',
+      paymentStatus: 'partial',
+      creditDueDate: null,
+      penaltyEnabled: false,
+      penaltyRate: '0.0000',
+    });
+    expect(p.items![0]).toMatchObject({ unitPricePoisha: 6800000, discountPoisha: 0, serviceChargePoisha: 0, lineTotalPoisha: 6800000 });
     expect(c.recentPayments[0]).toMatchObject({
       erpPaymentId: '9921',
       erpPlanId: '55021',
@@ -183,7 +200,16 @@ describe('ERP field API v1 mappers (contract fixtures)', () => {
       startDate: '2026-07-01',
       endDate: '2026-09-01',
     });
-    expect(p.items).toEqual([{ name: 'Fan', model: 'F-1', qty: 2, serials: [] }]);
+    expect(p.items).toEqual([{ name: 'Fan', model: 'F-1', qty: 2, serials: [], lineTotalPoisha: 300000 }]);
+  });
+
+  it('an ERP without the 1.14.0 fields still maps: line payments and invoice money stay absent', () => {
+    const p = mapCustomer(customer({ invoices: [invoice()] })).plans[0]!;
+    expect(p.schedule[0]).not.toHaveProperty('payments');
+    expect(p.schedule[0]).not.toHaveProperty('writtenOffPoisha');
+    expect(p).not.toHaveProperty('subtotalPoisha');
+    expect(p).not.toHaveProperty('settlementDiscountPoisha');
+    expect(p.items![0]).not.toHaveProperty('unitPricePoisha');
   });
 
   it('credit invoice becomes one line on credit_due_date; write-offs count as settled', () => {

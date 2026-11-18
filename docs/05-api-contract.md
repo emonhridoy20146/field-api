@@ -254,6 +254,22 @@ POST /api/v1/customers/6731…/location-proposals
 ```
 → `201 { "id": "6742…", "status": "approved" }` when the customer had no usable pin and `customers.staffPinApproval` is `when_missing` (default); otherwise `"status": "pending"` until a manager decides. The same body goes through `/sync/push` as mutation `location_proposal` (+ `customerId`).
 
+### 3.10a Pin colours and invoice viewer (1.14.0)
+Yellow and orange pins of credit customers in view:
+```http
+GET /api/v1/customers/map?bbox=90.30,22.10,90.45,22.20&zoom=15&payState=missed_one,missed_many&invoiceKind=credit
+```
+→ `{ "pins": [ { "id": "6731…", "lat": 22.16, "lng": 90.42, "status": "overdue", "payState": "missed_one", "missedCount": 1, "name": "…", "outstandingPoisha": 600000, "tagged": false } ], "clusters": [] }`. Zoomed out, each cluster has `worstPayState` and `payStates` (`{ "bad": 3, "on_track": 12 }`).
+
+One installment line in `GET /customers/{id}` → `plans[].schedule[]`:
+```json
+{ "seq": 2, "dueDate": "2026-09-05", "amountPoisha": 516233, "paidPoisha": 516233, "outstandingPoisha": 0, "status": "paid",
+  "paidOn": "2026-11-12", "daysLate": 68, "missed": false,
+  "payments": [ { "erpPaymentId": "30411", "receiptNo": "PAY-20261014-00012", "date": "2026-10-14", "amountPoisha": 483767 },
+                { "erpPaymentId": "30502", "receiptNo": "PAY-20261112-00031", "date": "2026-11-12", "amountPoisha": 32466 } ] }
+```
+A credit plan has `kind: "credit"`, `creditDueDate`, one schedule line on that date, and no `penalty`.
+
 ### 3.11 Leave, holidays, shifts, notices, guarantor calls (1.12.0)
 A staff member withdraws a request with wrong dates, then asks again:
 ```http

@@ -36,6 +36,8 @@ const customerSchema = new Schema(
       dueToday: { type: Boolean, default: false },
       badSuggested: { type: Boolean, default: false },
       badReason: { type: Schema.Types.Mixed, default: null },
+      // 1.14.0 (ADR-035): missed installments, drives the pin colour. null = derived before 1.14.0.
+      missedCount: { type: Number, default: null },
       plans: { type: Schema.Types.Mixed, default: [] },
       computedFor: String,
     },

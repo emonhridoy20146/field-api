@@ -126,6 +126,7 @@ Every non-draft installment or credit invoice of the customer (soft-deleted invo
 - `collectable` = `status ∈ {posted, active}` and `amount_due > 0`. `returned` / `cancelled` are never collectable.
 - `sale_type = credit` has no `installment_plan`; its single due date is `credit_due_date`.
 - `guarantor`: invoice guarantor (if not the buyer), else the customer's default guarantor, else `null`. **NID is never included.**
+- **Added 2026-11-18 (field-api 1.14.0, additive):** invoice `subtotal`, `tax_total`, `settlement_discount` (sum over live inbound payments), `refunded` (refunds of returns not rolled back); item `unit_price`, `discount_amount`, `service_charge`, `tax_amount`; plan `penalty_rate`; line `written_off` (from `installment_writeoff_allocations`) and `payments: [{"payment_id": 30411, "payment_number": "PAY-20261014-00012", "payment_date": "2026-10-14", "amount": "4837.67"}]` (from `installment_payment_allocations`, oldest first, removed payments left out). DiziCashier imports (`S-…`) were paid without allocation rows and send `payments: []`. field-api treats every one of these as optional.
 - `schedules[].status` is the stored ERP value and is **stale** (see findings §2.4); clients compute status from `due_date`, `due_amount + late_fee_amount − paid_amount` and today's Dhaka date. A line with `due_amount = paid_amount = 0` was rolled forward into a later line.
 
 #### 4.5.2 Payment

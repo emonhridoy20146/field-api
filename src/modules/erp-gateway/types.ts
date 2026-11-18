@@ -38,6 +38,19 @@ export interface ErpScheduleLine {
   lateFeePoisha?: number;
   /** The ERP roll-forward job zeroed this line and moved its balance to a later line (1.13.0). */
   rolled?: boolean;
+  // ---- 1.14.0 (ERP field API: installment_payment_allocations + write-off allocations) ----
+  /** Payments that went to this line, oldest first. Absent when the ERP does not send them. */
+  payments?: ErpLinePayment[];
+  /** Part of paidPoisha that the office wrote off (not cash). */
+  writtenOffPoisha?: number;
+}
+
+/** One payment slice on one installment line (1.14.0). */
+export interface ErpLinePayment {
+  erpPaymentId: string;
+  receiptNo: string | null;
+  date: string;
+  amountPoisha: number;
 }
 
 /** What one FOS plan is in the ERP: an installment invoice or a credit (pay-later) invoice (ADR-033). */
@@ -49,6 +62,11 @@ export interface ErpPlanItem {
   model: string | null;
   qty: number;
   serials: string[];
+  // ---- 1.14.0: invoice line money, as the ERP invoice page shows it ----
+  unitPricePoisha?: number;
+  discountPoisha?: number;
+  serviceChargePoisha?: number;
+  lineTotalPoisha?: number;
 }
 
 export interface ErpGuarantor {
@@ -98,6 +116,26 @@ export interface ErpPlan {
   items?: ErpPlanItem[];
   guarantor?: ErpGuarantor | null;
   writtenOffPoisha?: number;
+  // ---- 1.14.0: the invoice header, for the invoice viewer (all optional) ----
+  /** Financed part of an installment invoice (total − down payment). */
+  financedPoisha?: number;
+  subtotalPoisha?: number;
+  /** Invoice-level discount (ERP discount_total). */
+  discountPoisha?: number;
+  taxPoisha?: number;
+  /** Settlement discounts given with payments (count as paid in the ERP). */
+  settlementDiscountPoisha?: number;
+  /** Cash refunded for returns on this invoice. */
+  refundedPoisha?: number;
+  /** ERP invoice status as stored (draft|active|posted|cancelled|returned). */
+  invoiceStatus?: string | null;
+  /** ERP payment status (unpaid|partial|paid). */
+  paymentStatus?: string | null;
+  /** Credit sale: the one due date. */
+  creditDueDate?: string | null;
+  penaltyEnabled?: boolean;
+  /** ERP penalty rate as stored (e.g. "0.0200"), display only. */
+  penaltyRate?: string | null;
 }
 
 export type PaymentMethod = 'cash' | 'bkash' | 'nagad' | 'rocket' | 'bank_transfer' | 'other_mobile';

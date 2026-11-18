@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.13.0
+  version: 1.14.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -497,6 +497,8 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - { name: includeTotal, in: query, schema: { type: boolean, default: false }, description: 'Return `total` (capped at 10,000). Added in 1.1.0' }
+        - $ref: '#/components/parameters/PayStateFilter'
+        - $ref: '#/components/parameters/InvoiceKind'
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/CustomerPage' } } } }
   /customers/map:
@@ -508,6 +510,8 @@ paths:
         - { name: zoom, in: query, schema: { type: integer } }
         - { name: filter, in: query, schema: { type: string } }
         - $ref: '#/components/parameters/BranchId'
+        - $ref: '#/components/parameters/PayStateFilter'
+        - $ref: '#/components/parameters/InvoiceKind'
       responses:
         '200':
           description: Pins (max 2000) or clusters when zoom < 13
@@ -517,7 +521,17 @@ paths:
                 type: object
                 properties:
                   pins: { type: array, items: { $ref: '#/components/schemas/MapPin' } }
-                  clusters: { type: array, items: { type: object, properties: { lat: { type: number }, lng: { type: number }, count: { type: integer }, worstStatus: { $ref: '#/components/schemas/CustomerStatus' } } } }
+                  clusters:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        lat: { type: number }
+                        lng: { type: number }
+                        count: { type: integer }
+                        worstStatus: { $ref: '#/components/schemas/CustomerStatus' }
+                        worstPayState: { $ref: '#/components/schemas/PayState' }
+                        payStates: { type: object, description: 'Added in 1.14.0. Customers per pin colour in this cluster', additionalProperties: { type: integer } }
   /customers/{id}:
     get:
       tags: [customers]
@@ -1574,6 +1588,8 @@ components:
   parameters:
     Id: { name: id, in: path, required: true, schema: { type: string } }
     BranchId: { name: branchId, in: query, schema: { type: string } }
+    PayStateFilter: { name: payState, in: query, style: form, explode: false, schema: { type: array, items: { $ref: '#/components/schemas/PayState' } }, description: 'Added in 1.14.0 (FR-CUS-012). Pin colours, combined with OR; other parameters narrow with AND' }
+    InvoiceKind: { name: invoiceKind, in: query, schema: { type: string, enum: [installment, credit] }, description: 'Added in 1.14.0 (FR-CUS-013). Only customers with an open (balance due, not returned or cancelled) invoice of this kind' }
     Limit: { name: limit, in: query, schema: { type: integer, default: 25, minimum: 1, maximum: 100 } }
     Cursor: { name: cursor, in: query, schema: { type: string } }
     IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
@@ -1747,6 +1763,16 @@ components:
       type: object
       properties: { userId: { type: string }, userName: { type: string }, deviceId: { type: string }, lastPullAt: { type: string }, lastPushAt: { type: string }, pendingReported: { type: integer }, lastError: { type: string }, appVersion: { type: string } }
     CustomerStatus: { type: string, enum: [overdue, due_today, promised_today, paid_up, current, bad_suggested, tagged_bad] }
+    PayState:
+      type: string
+      enum: [bad, missed_many, missed_one, due_today, on_track, paid_off]
+      description: |
+        Added in 1.14.0 (FR-CUS-012, ADR-035). Payment state, the colour of the customer's map pin, worst first:
+        `bad` = tagged bad/legal in FOS, or a plan's full term is over (final due date passed) with money left;
+        `missed_many` = two or more missed installments (term not over); `missed_one` = one missed installment;
+        `due_today` = an installment falls due today, nothing missed; `on_track` = everything due so far is paid;
+        `paid_off` = nothing left to pay. A missed installment is a past-due line with money left, or a line the ERP
+        rolled forward while the line that took its balance is still unpaid.
     CustomerLocation:
       type: object
       properties: { lat: { type: [number, 'null'] }, lng: { type: [number, 'null'] }, status: { type: string, enum: [ok, missing, invalid, suspect_swapped, overridden] }, source: { type: string, enum: [erp, overlay] } }
@@ -1801,6 +1827,12 @@ components:
         areaName: { oneOf: [ { $ref: '#/components/schemas/I18nText' }, { type: 'null' } ], description: 'FOS area the customer falls in. Added in 1.2.0' }
         assignee: { type: object, properties: { id: { type: string }, name: { type: string } } }
         branchId: { type: [string, 'null'], description: 'FOS branch of the customer. Added in 1.11.0' }
+        payState: { $ref: '#/components/schemas/PayState' }
+        missedCount: { type: integer, description: 'Added in 1.14.0. Missed installments across open plans' }
+        openInvoices:
+          type: object
+          description: Added in 1.14.0. Open (balance due) invoices by kind
+          properties: { installment: { type: integer }, credit: { type: integer } }
         erpFetchedAt: { type: string, format: date-time }
     CustomerPage:
       type: object
@@ -1838,6 +1870,21 @@ components:
               estimated: { type: boolean }
               lateFeePoisha: { type: integer, description: 'Added in 1.13.0. Late fee included in amountPoisha' }
               rolled: { type: boolean, description: 'Added in 1.13.0. The ERP moved this line''s balance to a later line (amount 0). Apps hide it' }
+              outstandingPoisha: { type: integer, description: 'Added in 1.14.0. Left to pay on this line' }
+              paidOn: { type: string, format: date, description: 'Added in 1.14.0. Date of the payment that finished the line (ERP allocations). Absent when unpaid or not known' }
+              daysLate: { type: integer, description: 'Added in 1.14.0. Days after the due date it was paid (paid lines) or is still unpaid (overdue lines); 0 otherwise' }
+              missed: { type: boolean, description: 'Added in 1.14.0. A missed installment not made up yet (see PayState)' }
+              writtenOffPoisha: { type: integer, description: 'Added in 1.14.0. Part of paidPoisha the office wrote off (not cash)' }
+              payments:
+                type: array
+                description: Added in 1.14.0. ERP payments that went to this line, oldest first. Absent when the ERP does not send them
+                items:
+                  type: object
+                  properties:
+                    erpPaymentId: { type: string }
+                    date: { type: string, format: date }
+                    amountPoisha: { type: integer, description: 'Part of the payment that went to this line' }
+                    receiptNo: { type: string }
         kind: { type: string, enum: [installment, credit], description: 'Added in 1.13.0. Credit = pay-later sale with one due date' }
         invoiceNo: { type: string, description: 'Added in 1.13.0. ERP invoice number' }
         saleDate: { type: string, format: date, description: 'Added in 1.13.0' }
@@ -1846,12 +1893,38 @@ components:
         items:
           type: array
           description: Added in 1.13.0. Products on the invoice
-          items: { type: object, properties: { name: { type: string }, model: { type: [string, 'null'] }, qty: { type: integer }, serials: { type: array, items: { type: string } } } }
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              model: { type: [string, 'null'] }
+              qty: { type: integer }
+              serials: { type: array, items: { type: string } }
+              unitPricePoisha: { type: integer, description: 'Added in 1.14.0' }
+              discountPoisha: { type: integer, description: 'Added in 1.14.0. Line discount' }
+              serviceChargePoisha: { type: integer, description: 'Added in 1.14.0' }
+              lineTotalPoisha: { type: integer, description: 'Added in 1.14.0' }
         guarantor:
           type: object
           description: Added in 1.13.0. Guarantor of this plan (never an ID number)
           properties: { name: { type: string }, phone: { type: string }, phones: { type: array, items: { type: string } }, address: { type: string } }
         writtenOffPoisha: { type: integer, description: 'Added in 1.13.0. Amount the office wrote off (already out of outstanding)' }
+        payState: { $ref: '#/components/schemas/PayState' }
+        missedCount: { type: integer, description: 'Added in 1.14.0. Missed installments on this plan' }
+        daysOverdue: { type: integer, description: 'Added in 1.14.0. Days since the oldest missed installment' }
+        nextDueDate: { type: string, format: date, description: 'Added in 1.14.0. Next date with money due (today or later)' }
+        nextDuePoisha: { type: integer, description: 'Added in 1.14.0. Left to pay on that date' }
+        branchId: { type: string, description: 'Added in 1.14.0. FOS branch the invoice was sold at' }
+        financedPoisha: { type: integer, description: 'Added in 1.14.0. Installment invoices: total minus down payment' }
+        subtotalPoisha: { type: integer, description: 'Added in 1.14.0. Invoice subtotal (before invoice discount and tax)' }
+        discountPoisha: { type: integer, description: 'Added in 1.14.0. Invoice discount' }
+        taxPoisha: { type: integer, description: 'Added in 1.14.0' }
+        settlementDiscountPoisha: { type: integer, description: 'Added in 1.14.0. Discounts given with payments (count as paid in the ERP)' }
+        refundedPoisha: { type: integer, description: 'Added in 1.14.0. Cash refunded for returns' }
+        invoiceStatus: { type: string, description: 'Added in 1.14.0. ERP invoice status as stored (active, posted, returned, ...)' }
+        paymentStatus: { type: string, description: 'Added in 1.14.0. ERP payment status (unpaid, partial, paid)' }
+        creditDueDate: { type: string, format: date, description: 'Added in 1.14.0. Credit sales: the due date' }
+        penalty: { type: object, description: 'Added in 1.14.0. Installment invoices: ERP late-fee setting', properties: { enabled: { type: boolean }, rate: { type: string } } }
     Payment:
       type: object
       properties:
@@ -1895,7 +1968,16 @@ components:
             version: { type: integer }
     MapPin:
       type: object
-      properties: { id: { type: string }, lat: { type: number }, lng: { type: number }, status: { $ref: '#/components/schemas/CustomerStatus' }, name: { type: string }, outstandingPoisha: { type: integer }, tagged: { type: boolean } }
+      properties:
+        id: { type: string }
+        lat: { type: number }
+        lng: { type: number }
+        status: { $ref: '#/components/schemas/CustomerStatus' }
+        name: { type: string }
+        outstandingPoisha: { type: integer }
+        tagged: { type: boolean }
+        payState: { $ref: '#/components/schemas/PayState' }
+        missedCount: { type: integer, description: 'Added in 1.14.0' }
     TimelineItem:
       type: object
       properties:

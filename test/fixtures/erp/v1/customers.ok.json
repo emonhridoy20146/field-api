@@ -39,11 +39,15 @@
      "status": "active",
      "payment_status": "partial",
      "collectable": true,
+     "subtotal": "68000.00",
+     "tax_total": "0.00",
      "grand_total": "68000.00",
      "discount_total": "0.00",
      "amount_paid": "59500.00",
      "amount_due": "8500.00",
      "written_off": "0.00",
+     "settlement_discount": "0.00",
+     "refunded": "0.00",
      "credit_due_date": null,
      "items": [
       {
@@ -52,6 +56,10 @@
        "name": "Walton Fridge",
        "model_number": "WFC-3D8",
        "qty": 1,
+       "unit_price": "68000.00",
+       "discount_amount": "0.00",
+       "service_charge": "0.00",
+       "tax_amount": "0.00",
        "line_total": "68000.00",
        "serials": [
         "SN-TEST-0001"
@@ -77,6 +85,7 @@
       "custom_days": null,
       "installment_count": 6,
       "penalty_enabled": false,
+      "penalty_rate": "0.0000",
       "schedules": [
        {
         "id": 5502101,
@@ -86,7 +95,16 @@
         "paid_amount": "9667.00",
         "late_fee_amount": "0.00",
         "remaining_amount": "0.00",
-        "status": "paid"
+        "status": "paid",
+        "written_off": "0.00",
+        "payments": [
+         {
+          "payment_id": 9100,
+          "payment_number": "PAY-20260510-09100",
+          "payment_date": "2026-05-10",
+          "amount": "9667.00"
+         }
+        ]
        },
        {
         "id": 5502102,
@@ -96,7 +114,16 @@
         "paid_amount": "9667.00",
         "late_fee_amount": "0.00",
         "remaining_amount": "0.00",
-        "status": "paid"
+        "status": "paid",
+        "written_off": "0.00",
+        "payments": [
+         {
+          "payment_id": 9230,
+          "payment_number": "PAY-20260612-09230",
+          "payment_date": "2026-06-12",
+          "amount": "9667.00"
+         }
+        ]
        },
        {
         "id": 5502103,
@@ -106,7 +133,16 @@
         "paid_amount": "9667.00",
         "late_fee_amount": "0.00",
         "remaining_amount": "0.00",
-        "status": "paid"
+        "status": "paid",
+        "written_off": "0.00",
+        "payments": [
+         {
+          "payment_id": 9361,
+          "payment_number": "PAY-20260710-09361",
+          "payment_date": "2026-07-10",
+          "amount": "9667.00"
+         }
+        ]
        },
        {
         "id": 5502104,
@@ -116,7 +152,16 @@
         "paid_amount": "9667.00",
         "late_fee_amount": "0.00",
         "remaining_amount": "0.00",
-        "status": "paid"
+        "status": "paid",
+        "written_off": "0.00",
+        "payments": [
+         {
+          "payment_id": 9480,
+          "payment_number": "PAY-20260815-09480",
+          "payment_date": "2026-08-15",
+          "amount": "9667.00"
+         }
+        ]
        },
        {
         "id": 5502105,
@@ -126,7 +171,16 @@
         "paid_amount": "9666.00",
         "late_fee_amount": "0.00",
         "remaining_amount": "0.00",
-        "status": "paid"
+        "status": "paid",
+        "written_off": "0.00",
+        "payments": [
+         {
+          "payment_id": 9921,
+          "payment_number": "PAY-20260912-09921",
+          "payment_date": "2026-09-12",
+          "amount": "9666.00"
+         }
+        ]
        },
        {
         "id": 5502106,
@@ -136,7 +190,16 @@
         "paid_amount": "1166.00",
         "late_fee_amount": "0.00",
         "remaining_amount": "8500.00",
-        "status": "partially_paid"
+        "status": "partially_paid",
+        "written_off": "0.00",
+        "payments": [
+         {
+          "payment_id": 9733,
+          "payment_number": "PAY-20261020-09733",
+          "payment_date": "2026-10-20",
+          "amount": "1166.00"
+         }
+        ]
        }
       ]
      },

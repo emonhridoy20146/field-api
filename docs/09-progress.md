@@ -38,6 +38,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Inbox, dashboard, global search | FR-INB-001, FR-DSH-001, FR-SRCH-001 | ✅ API (inbox items for mock GPS / tracking stopped come with the location module; daily target is 0 until phase 3) |
 | Pin corrections | FR-CUS-008 | ✅ API |
 | Map pins: manager sets on the map, staff map pins, pinless customers applied at once (ADR-031, contract 1.11.0) | FR-CUS-011 | ✅ API |
+| Pin colour by payment state, invoice filters and invoice viewer data (ADR-035, contract 1.14.0) | FR-CUS-012, FR-CUS-013 | ✅ API; screens in admin-web |
 | Leave cancel and filters, holiday delete and branch filter, my shift, who read a notice, offline notice read, guarantor calls (ADR-032, contract 1.12.0) | FR-ATT-008, FR-SET-002/003, FR-NOT-005, FR-M-014 | ✅ API |
 | Devices binding/remote logout | FR-AUTH-006..008 | ✅ API |
 | Real ERP shape: plan = invoice, rolled lines, late fee, credit sales, ERP removals as reversed, warehouses, ERP employees picker, branch map point, real ERP posting rules (ADR-033, contract 1.13.0). Checked live against a sandbox copy of the ERP with the prototype API (1,441 customers, totals equal to the poisha) | FR-ERP-006, FR-BR-002 | ✅ API · ☐ ERP API installed in production (owner decision, erp-integration-spec v2 §8) |

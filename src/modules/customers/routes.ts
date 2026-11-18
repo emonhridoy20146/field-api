@@ -4,6 +4,7 @@ import { AppError } from '../../core/errors/index.js';
 import { parse } from '../../core/http/index.js';
 import { parseLatLng } from '../../core/geo/index.js';
 import * as s from './service.js';
+import { PAY_STATES, type PayState } from './domain/status.js';
 
 const FILTERS = ['overdue', 'due_today', 'promised_today', 'bad_suggested', 'tagged_bad', 'no_location', 'unassigned', 'paid_up'] as const;
 /** `filter=overdue,due_today` (form style, explode=false); unknown values are a 400. */
@@ -13,8 +14,19 @@ const filterList = z
   .transform((v) => (v ? v.split(',').map((x) => x.trim()).filter(Boolean) : []))
   .pipe(z.array(z.enum(FILTERS)));
 
+/** 1.14.0 (FR-CUS-012): pin colours, `payState=missed_one,missed_many` (OR). */
+const payStateList = z
+  .string()
+  .optional()
+  .transform((v) => (v ? v.split(',').map((x) => x.trim()).filter(Boolean) : []))
+  .pipe(z.array(z.enum(PAY_STATES as [PayState, ...PayState[]])));
+/** 1.14.0 (FR-CUS-013): customers with an open invoice of this kind. */
+const invoiceKind = z.enum(['installment', 'credit']).optional();
+
 const listQuery = z.object({
   filter: filterList,
+  payState: payStateList,
+  invoiceKind,
   assignedTo: z.string().max(64).optional(),
   branchId: z.string().max(64).optional(),
   areaId: z.string().max(64).optional(),
@@ -31,6 +43,8 @@ const mapQuery = z.object({
   bbox: z.string().max(100),
   zoom: z.coerce.number().int().min(1).max(22).optional(),
   filter: filterList,
+  payState: payStateList,
+  invoiceKind,
   branchId: z.string().max(64).optional(),
 });
 

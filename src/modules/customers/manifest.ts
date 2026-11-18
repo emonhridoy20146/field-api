@@ -54,6 +54,8 @@ export const manifest: ModuleManifest = {
       { collection: 'location_proposals', key: { branchId: 1, status: 1, createdAt: -1 } },
       { collection: 'location_proposals', key: { customerId: 1, decidedAt: -1 } },
     ]),
+    // 1.14.0 (ADR-035): fill derived.missedCount (pin colours) for customers cached before it existed.
+    { id: '20261118-0001-derive-missed-installments', up: async () => void (await recomputeAllDerived()) },
   ],
   init() {
     const bus = ctx().bus;

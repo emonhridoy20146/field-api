@@ -13,6 +13,8 @@ export interface PlanInput {
     paidPoisha: number | null;
     lateFeePoisha?: number;
     rolled?: boolean;
+    /** 1.14.0: payments that went to this line (ERP allocations), oldest first. */
+    payments?: { date: string; amountPoisha: number }[];
   }[];
 }
 
@@ -30,12 +32,23 @@ export interface LineDerived {
   lateFeePoisha: number;
   /** Zeroed by the ERP roll-forward job; its balance sits on a later line. Apps hide it. */
   rolled: boolean;
+  /** 1.14.0: date of the payment that finished this line (ERP allocations); null when unpaid or unknown. */
+  paidOn: string | null;
+  /** 1.14.0: days after the due date it was paid (paid lines) or is still unpaid (overdue lines); else 0. */
+  daysLate: number;
+  /**
+   * 1.14.0: a missed installment that is still not made up: past due and unpaid, or zeroed by the
+   * ERP roll-forward while the later line that took its balance is still unpaid (ADR-035).
+   */
+  missed: boolean;
 }
 
 export interface PlanDerived {
   erpPlanId: string;
   finalDueDate: string | null;
   badSuggested: boolean;
+  /** 1.14.0: missed installments on this plan (ADR-035). */
+  missedCount: number;
   lines: LineDerived[];
 }
 
@@ -50,6 +63,8 @@ export interface CustomerDerived {
   overdueAmountPoisha: number;
   /** Unpaid amount of the next upcoming due date across active plans (display only). */
   nextInstallmentPoisha: number | null;
+  /** 1.14.0: missed installments across active plans; drives the map pin colour (ADR-035). */
+  missedCount: number;
   plans: PlanDerived[];
 }
 
@@ -87,6 +102,10 @@ export function deriveLines(p: PlanInput, today: string): LineDerived[] {
     else if (l.dueDate < today) status = 'overdue';
     else if (l.dueDate === today) status = 'due';
     else status = paid > 0 ? 'partial' : 'upcoming';
+    const dates = (l.payments ?? []).map((x) => x.date).filter(Boolean).sort();
+    const paidOn = status === 'paid' && !l.rolled && l.amountPoisha > 0 ? (dates[dates.length - 1] ?? null) : null;
+    const daysLate =
+      status === 'overdue' ? diffDays(l.dueDate, today) : paidOn && paidOn > l.dueDate ? diffDays(l.dueDate, paidOn) : 0;
     return {
       seq: l.seq,
       dueDate: l.dueDate,
@@ -97,8 +116,30 @@ export function deriveLines(p: PlanInput, today: string): LineDerived[] {
       estimated,
       lateFeePoisha: l.lateFeePoisha ?? 0,
       rolled: !!l.rolled,
+      paidOn,
+      daysLate,
+      missed: false,
     };
   });
+}
+
+/**
+ * ADR-035: mark missed installments. A past-due line with money left is missed. The ERP roll-forward
+ * job zeroes a missed line and adds its balance to the next line, so a zeroed (rolled) past line also
+ * counts while the line that took its balance is still unpaid. Mutates and returns the count.
+ */
+export function markMissed(lines: LineDerived[], today: string): number {
+  let n = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i]!;
+    if (l.dueDate >= today) continue;
+    if (l.rolled) {
+      const carrier = lines.slice(i + 1).find((x) => !x.rolled);
+      l.missed = !!carrier && carrier.outstandingPoisha > 0;
+    } else l.missed = l.outstandingPoisha > 0;
+    if (l.missed) n++;
+  }
+  return n;
 }
 
 /** Overdue/due-today/bad-suggestion for one customer on a Dhaka business date (02-requirements §4.4). */
@@ -109,10 +150,13 @@ export function deriveCustomer(plans: PlanInput[], today: string): CustomerDeriv
   let nextDue: string | null = null;
   let dueToday = false;
   let overdueAmount = 0;
+  let missedTotal = 0;
   let bad: CustomerDerived['badReason'] = null;
   for (const p of active) {
     const fdd = finalDueDate(p);
     const lines = deriveLines(p, today);
+    const missed = p.outstandingPoisha > 0 ? markMissed(lines, today) : 0;
+    missedTotal += missed;
     const isBad = !!fdd && fdd < today && p.outstandingPoisha > 0;
     if (isBad && (!bad || fdd < bad.finalDueDate))
       bad = { erpPlanId: p.erpPlanId, finalDueDate: fdd, outstandingPoisha: p.outstandingPoisha };
@@ -133,7 +177,7 @@ export function deriveCustomer(plans: PlanInput[], today: string): CustomerDeriv
         if (!oldestOverdue || fdd! < oldestOverdue) oldestOverdue = fdd!;
       }
     }
-    planDerived.push({ erpPlanId: p.erpPlanId, finalDueDate: fdd, badSuggested: isBad, lines });
+    planDerived.push({ erpPlanId: p.erpPlanId, finalDueDate: fdd, badSuggested: isBad, missedCount: missed, lines });
   }
   let nextInstallment: number | null = null;
   if (nextDue) {
@@ -152,6 +196,7 @@ export function deriveCustomer(plans: PlanInput[], today: string): CustomerDeriv
     badReason: bad,
     overdueAmountPoisha: overdueAmount,
     nextInstallmentPoisha: nextInstallment,
+    missedCount: missedTotal,
     plans: planDerived,
   };
 }
@@ -184,3 +229,34 @@ const SEVERITY: CustomerStatus[] = [
   'paid_up',
 ];
 export const worstStatus = (a: CustomerStatus[]): CustomerStatus => SEVERITY.find((s) => a.includes(s)) ?? 'current';
+
+/**
+ * Payment state of a customer, the map pin colour (FR-CUS-012, ADR-035), worst first:
+ * - `bad` (red): tagged bad/legal in FOS, or a plan's full term is over (final due date passed) with money left;
+ * - `missed_many` (orange): two or more missed installments, term not over;
+ * - `missed_one` (yellow): one missed installment;
+ * - `due_today` (blue): an installment falls due today, nothing missed;
+ * - `on_track` (green): paid everything due so far, balance left for later dates;
+ * - `paid_off` (grey): nothing left to pay.
+ */
+export type PayState = 'bad' | 'missed_many' | 'missed_one' | 'due_today' | 'on_track' | 'paid_off';
+
+export const PAY_STATES: PayState[] = ['bad', 'missed_many', 'missed_one', 'due_today', 'on_track', 'paid_off'];
+
+/** A FOS tag that makes a customer red: tagged with severity bad or legal (or no severity). `watch` does not. */
+export const isBadTag = (tag: { state?: string; severity?: string } | null | undefined): boolean =>
+  tag?.state === 'tagged' && tag.severity !== 'watch';
+
+export function payState(
+  d: { badSuggested: boolean; missedCount: number; dueToday: boolean; totalOutstandingPoisha: number },
+  opts: { badTag: boolean },
+): PayState {
+  if (opts.badTag || d.badSuggested) return 'bad';
+  if (d.missedCount >= 2) return 'missed_many';
+  if (d.missedCount === 1) return 'missed_one';
+  if (d.totalOutstandingPoisha <= 0) return 'paid_off';
+  if (d.dueToday) return 'due_today';
+  return 'on_track';
+}
+
+export const worstPayState = (a: PayState[]): PayState => PAY_STATES.find((s) => a.includes(s)) ?? 'on_track';
