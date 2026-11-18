@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.14.0
+  version: 1.15.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -1122,6 +1122,39 @@ paths:
       parameters: [ { $ref: '#/components/parameters/Id' }, { name: variant, in: query, schema: { type: string, enum: [original, thumb] } } ]
       responses:
         '200': { description: Signed GET URL (5 min), content: { application/json: { schema: { type: object, properties: { url: { type: string }, expiresAt: { type: string } } } } } }
+
+  /storage/o:
+    parameters: [ { name: t, in: query, required: true, schema: { type: string, maxLength: 4096 }, description: Signed grant (key, method, expiry; for PUT also type, size and sha256) } ]
+    put:
+      tags: [media]
+      operationId: storagePut
+      summary: Upload target of a presigned URL when the server keeps files itself (ADR-036)
+      description: |
+        Only exists when the server has no S3 (`STORAGE_DRIVER=db`, the default on Vercel test deployments).
+        Clients never build this URL: they PUT to `uploadUrl` from `/media/upload-url` as for S3. No bearer
+        token; the signature in the path is the permission and expires after 5 minutes. The body must match
+        the signed content type, size and sha256.
+      security: []
+      requestBody:
+        required: true
+        content:
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
+          audio/aac: { schema: { type: string, format: binary } }
+          audio/mp4: { schema: { type: string, format: binary } }
+      responses:
+        '200': { description: Stored, content: { application/json: { schema: { type: object, required: [stored], properties: { stored: { type: boolean } } } } } }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+    get:
+      tags: [media]
+      operationId: storageGet
+      summary: Download target of a presigned GET URL when the server keeps files itself (ADR-036)
+      security: []
+      responses:
+        '200': { description: The file, with its stored content type, content: { '*/*': { schema: { type: string, format: binary } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
 
   /customers/{id}/notes:
     get:
