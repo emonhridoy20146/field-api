@@ -2,6 +2,16 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
+## [1.22.0] — contract 1.22.0 (live map shows staff on duty even indoors)
+### Fixed
+- **Live map stayed empty after work-in** (owner report 2026-11-19, ADR-041). The database showed the work-in saved (accuracy 200 m) but no location point: the phone indoors reports 100–500 m, and both the app and the server dropped every point worse than `location.maxAccuracyM` (50 m). The map lists only staff with a point today, so nobody showed.
+- Points worse than `location.maxAccuracyM` are now **kept, flagged `lowAccuracy`**, up to 5 km (`HARD_MAX_ACCURACY_M`; beyond that still `LOW_ACCURACY`). They move the live marker but are left out of the route, stops and distance. A rough point replaces a good marker only when no good point is newer than 5 minutes. Of two points at the same instant the more accurate one is kept.
+- `GET /location/latest` shows every staff member on duty: before the first tracked point of the day the marker is the position of their last attendance event (work-in).
+### Added
+- `LatestLocation.source` (`track` | `attendance`) and `LatestLocation.lowAccuracy`.
+- `attendance` public function `lastEventGeo(userIds, date)`; field `lowAccuracy` on `location_points` and `location_latest`.
+- Tests: rough points kept and flagged, never the speed reference, never on the route; work-in position on the map before the first point; a good point is not replaced by a rough one right after.
+
 ## [1.21.0] — contract 1.21.0 (attendance never waits for its photo)
 ### Fixed
 - **Attendance still showed "1 waiting" after staff-app 0.12.0** (owner report 2026-11-19, Vercel test deployment, ADR-040). The app held the work-in until its photo was on the server, so any failed upload (old server without the `db` driver, a wrong `PUBLIC_BASE_URL`, a slow network) kept the work-in off the server, and every location point after it was refused as off duty. The owner's rule: location must go every few minutes whether the photo uploads or not.

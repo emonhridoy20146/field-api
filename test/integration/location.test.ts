@@ -62,7 +62,7 @@ describe('ingest (FR-LOC-001/003/004)', () => {
       deviceId: DEV,
       points: [
         pt(at('02:50'), 22.7, 90.36), // before work-in
-        pt(at('03:29'), 22.7166, 90.3702, { acc: 80 }),
+        pt(at('03:29'), 22.7166, 90.3702, { acc: 6000 }), // beyond any use (rough points up to 5 km are kept, ADR-041)
         pt(at('03:28'), 22.7165, 90.3702), // already stored
         pt(at('04:10'), 22.7166, 90.3702), // 10 minutes ahead of the server clock
         pt(at('03:30'), 23.2, 90.3702), // ~54 km in two minutes
@@ -161,6 +161,27 @@ describe('heartbeat and latest map (FR-LOC-006/010)', () => {
     await fs2.post('/location/heartbeat', { gpsEnabled: false });
     expect(await watchdog()).toBe(0);
   });
+
+  it('a staff member on duty shows at the work-in position until the first point, and rough indoor points still move the marker (ADR-041)', async () => {
+    const bm = await as(t, '01700000002');
+    const mapOf = async () => ((await bm.get('/location/latest')).body as { userId: string }[]).find((m) => m.userId === s.fs2.id) as Record<string, unknown> | undefined;
+    const before = await mapOf();
+    expect(before).toMatchObject({ source: 'attendance', lat: pin.lat, lng: pin.lng, accuracyM: 8, recordedAt: '2026-11-15T03:05:00.000Z', lowAccuracy: false, freshness: 'lost' });
+    expectConforms('GET', '/location/latest', 200, [before]);
+
+    const fs2 = await as(t, '01700000004');
+    const rough = await fs2.post('/location/points', { deviceId: 'dev-01700000004', points: [pt(at('03:58'), 22.712, 90.371, { acc: 300 })] });
+    expect(rough.body).toMatchObject({ accepted: 1, rejected: [] });
+    expect(await mapOf()).toMatchObject({ source: 'track', lat: 22.712, accuracyM: 300, lowAccuracy: true, freshness: 'fresh' });
+    // a good point replaces it; a rough one right after does not take the marker back
+    await fs2.post('/location/points', { deviceId: 'dev-01700000004', points: [pt(at('03:59'), 22.7121, 90.3711, { acc: 12 })] });
+    await fs2.post('/location/points', { deviceId: 'dev-01700000004', points: [pt(at('03:59', '30'), 22.7125, 90.3713, { acc: 400 })] });
+    expect(await mapOf()).toMatchObject({ lat: 22.7121, accuracyM: 12, lowAccuracy: false });
+    // rough points never reach the route
+    const h = await bm.get(`/location/history?userId=${s.fs2.id}&date=2026-11-15`);
+    expect(await LocationPointModel.countDocuments({ 'meta.userId': s.fs2.id })).toBe(3);
+    expect(h.body.summary.distanceKm).toBe(0);
+  });
 });
 
 describe('history, stops, summary (FR-LOC-007/008/012)', () => {
@@ -197,9 +218,9 @@ describe('history, stops, summary (FR-LOC-007/008/012)', () => {
     const bm = await as(t, '01700000002');
     const h = await bm.get(`/location/history?userId=${s.fs1.id}&date=2026-11-15`);
     expect(h.body.events.map((e: { kind: string }) => e.kind)).toEqual(['visit']);
-    const l = await bm.get('/location/latest');
-    expect(l.body[0].todayVisits).toBe(1);
-    expect(l.body[0]).not.toHaveProperty('todayCollectedPoisha');
+    const l = (await bm.get('/location/latest')).body.find((m: { userId: string }) => m.userId === s.fs1.id);
+    expect(l.todayVisits).toBe(1);
+    expect(l).not.toHaveProperty('todayCollectedPoisha');
     await sa.put(`/rbac/overrides/branch/${s.branchA}`, { role: 'branch_manager', changes: [{ key: 'collection.view', effect: 'inherit' }], reason: 'Test: restore' });
     expect((await (await as(t, '01700000002')).get(`/location/history?userId=${s.fs1.id}&date=2026-11-15`)).body.events).toHaveLength(2);
   });
@@ -216,8 +237,8 @@ describe('history, stops, summary (FR-LOC-007/008/012)', () => {
   });
 
   it('nightly job keeps stops and summary, which still answer after raw points expire', async () => {
-    expect(await summarizeDay('2026-11-15')).toBe(1);
-    expect(await summarizeDay('2026-11-15')).toBe(1); // re-run replaces, never duplicates
+    expect(await summarizeDay('2026-11-15')).toBe(2); // fs1 and fs2 (who sent a good point in the ADR-041 test)
+    expect(await summarizeDay('2026-11-15')).toBe(2); // re-run replaces, never duplicates
     expect(await StopModel.countDocuments({ userId: s.fs1.id })).toBe(2);
     const sum = await DailySummaryModel.find({ userId: s.fs1.id }).lean();
     expect(sum).toHaveLength(1);

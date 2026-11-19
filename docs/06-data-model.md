@@ -190,6 +190,8 @@ db.createCollection('location_points', {
 Document: `{ recordedAt, meta: { userId, branchId, deviceId }, lat, lng, accuracyM, speedMps, headingDeg, altitudeM, activity: 'still'|'walking'|'on_bicycle'|'in_vehicle'|'unknown', battery: 0.64, charging, mock: false, receivedAt }`
 Secondary index: `{ 'meta.userId': 1, recordedAt: 1 }`.
 
+Since 1.22.0 a point may carry `lowAccuracy: true` (worse than `location.maxAccuracyM`): live marker only, excluded from route, stops and distance (ADR-041). `location_latest` has the same flag for its point.
+
 ### location_latest
 `{ _id: userId, branchId, point, accuracyM, recordedAt, battery, activity, mock, heartbeatAt, gpsEnabled, permission, bgRestricted, appVersion, trackingProvider, trackingProviderFallback }` · `{ branchId:1 }`. The marker only moves forward in time; "on break" is read from attendance when the map is requested, not stored.
 
