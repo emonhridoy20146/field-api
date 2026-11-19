@@ -152,7 +152,7 @@ paths:
       security: []
       operationId: health
       responses:
-        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [ok, degraded] }, version: { type: string }, mongo: { type: string }, erp: { type: string }, storage: { type: string, enum: [s3, db, memory], description: 'Added in 1.21.0. Where photos and exports are kept (ADR-039); memory = this instance only, phone uploads fail.' } } } } } }
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [ok, degraded] }, version: { type: string }, contract: { type: string, description: 'API contract version this build implements; use it to check a deploy (added in 1.20.1)' }, mongo: { type: string }, erp: { type: string }, storage: { type: string, enum: [s3, db, memory], description: 'Added in 1.21.0. Where photos and exports are kept (ADR-039); memory = this instance only, phone uploads fail.' } } } } } }
   /system/erp-status:
     get:
       tags: [system]
@@ -1564,7 +1564,7 @@ paths:
       parameters: [ { name: cursor, in: query, required: true, schema: { type: string } }, { name: limit, in: query, schema: { type: integer, default: 500, maximum: 500 } } ]
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SyncPullResponse' } } } }
-        '410': { $ref: '#/components/responses/Problem' }
+        '410': { description: 'CURSOR_EXPIRED: the cursor cannot be continued (ahead of the feed, older than 30 days, or taken before the server widened what the device may hold, e.g. ADR-038 in 1.20.1). Call GET /sync/bootstrap; keep the outbox.', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
   /sync/push:
     post:
       tags: [sync]

@@ -71,3 +71,35 @@ export async function currentSeq(): Promise<number> {
   const c = await CounterModel.findById('sync_seq').lean();
   return c?.value ?? 0;
 }
+
+/**
+ * Resync floor (ADR-038 addendum, contract 1.20.1): a pull cursor below it cannot be continued (`410 CURSOR_EXPIRED`),
+ * so the device takes a fresh snapshot and keeps its outbox. Raised once per reason, at the first boot of the code that
+ * widened what devices may hold: a feed entry only goes out when its record changes, so devices that took their
+ * snapshot under the old rule would never receive the records that came into their scope.
+ * On a database with history a new seq is allocated, so every snapshot taken from now on is at or above the floor and
+ * every cursor handed out before is below it. An empty database has no devices to reset (floor 0).
+ */
+export async function raiseResyncFloor(reason: string): Promise<number> {
+  const id = `sync_floor:${reason}`;
+  const have = await CounterModel.findById(id).lean();
+  if (have) return have.value;
+  const value = (await currentSeq()) > 0 ? await nextSeq('sync_seq') : 0;
+  // Two instances booting together: the first insert wins, the other reads it back.
+  await CounterModel.updateOne({ _id: id }, { $setOnInsert: { value } }, { upsert: true }).catch((e: { code?: number }) => {
+    if (e.code !== 11000) throw e;
+  });
+  return (await CounterModel.findById(id).lean())!.value;
+}
+
+/** Feed head and the highest resync floor, in one read. */
+export async function feedBounds(): Promise<{ head: number; floor: number }> {
+  const rows = await CounterModel.find({ $or: [{ _id: 'sync_seq' }, { _id: /^sync_floor:/ }] }).lean();
+  let head = 0;
+  let floor = 0;
+  for (const r of rows) {
+    if (r._id === 'sync_seq') head = r.value;
+    else floor = Math.max(floor, r.value);
+  }
+  return { head, floor };
+}

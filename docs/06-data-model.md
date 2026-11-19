@@ -210,7 +210,7 @@ Written by the nightly `location.summarize` job (re-runnable; replaces the day).
 - `inbox_items [ADDED] { key (dedupe, e.g. 'collection.conflict:6750…'), type, severity: 'low'|'medium'|'high'|'critical', branchId, entity, entityId, summary {bn,en}, status: 'open'|'snoozed'|'resolved', snoozedUntil, resolvedBy, resolvedAt, createdAt }` · `{ key:1 } unique`, `{ branchId:1, status:1, severity:-1, createdAt:-1 }`.
 - `sync_changes { seq (int64 from counters), userIds: [] (audience), branchId, fanoutBranchId (1.19.0: also every device of this branch, ADR-038), entity, entityId, op: 'upsert'|'delete', at }` · `{ userIds:1, seq:1 }`, `{ fanoutBranchId:1, seq:1 }` · TTL 30 days (devices older than 30 days get a full resync: `410 CURSOR_EXPIRED`).
 - `device_sync_state { deviceId, userId, branchId, lastPullSeq, lastPullAt, lastPushAt, pendingReported, lastError, appVersion }` · `{ deviceId:1, userId:1 } unique`, `{ branchId:1, lastPullAt:-1 }`.
-- `counters { _id: 'sync_seq', value }`.
+- `counters { _id: 'sync_seq', value }`; resync floors `{ _id: 'sync_floor:<reason>', value }` (1.20.1, ADR-038 addendum: a pull cursor below the highest floor answers `410 CURSOR_EXPIRED`; `sync_floor:customers-branch-wide` is set at the first boot of 1.20.1 on a database with history, 0 on an empty one).
 - `outbox`, `jobs` — see 04-architecture §6.5.
 - `audit_logs { at, actorId, actorRole, action, entity, entityId, branchId, before, after, reason, ip, deviceId, requestId, prevHash, hash }` · `{ at:-1 }`, `{ entity:1, entityId:1, at:-1 }`, `{ actorId:1, at:-1 }`, `{ branchId:1, action:1, at:-1 }`. Mongo user for the API has **insert + find only** on this collection (custom role). Retention: money actions 8 years, others 3 years (job, OD-09).
 

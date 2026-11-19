@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ctx } from '../../core/context/index.js';
 import { AppError, toProblem } from '../../core/errors/index.js';
-import { ChangeModel, currentSeq } from '../../core/changefeed/index.js';
+import { ChangeModel, currentSeq, feedBounds } from '../../core/changefeed/index.js';
 import { withIdempotency, payloadHash } from '../../core/idempotency/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import type { RequestMeta } from '../../core/http/router.js';
@@ -57,10 +57,11 @@ async function envelope(user: AuthUser) {
 
 export async function pull(user: AuthUser, q: { cursor: string; limit: number }) {
   const since = parseCursor(q.cursor);
-  const head = await currentSeq();
-  // A cursor ahead of the feed (database restored) or behind the retained window (30-day TTL) cannot be continued.
+  const { head, floor } = await feedBounds();
+  // A cursor ahead of the feed (database restored), behind the retained window (30-day TTL) or below a resync floor
+  // (taken before the server widened the scope, e.g. ADR-038) cannot be continued: the device takes a fresh snapshot.
   const oldest = await ChangeModel.findOne().sort({ seq: 1 }).select({ seq: 1 }).lean();
-  if (since > head || (since < head && (!oldest || since + 1 < oldest.seq))) throw new AppError('CURSOR_EXPIRED');
+  if (since > head || since < floor || (since < head && (!oldest || since + 1 < oldest.seq))) throw new AppError('CURSOR_EXPIRED');
 
   // Own changes, plus branch-wide ones of the user's branches (ADR-038); each loader still applies the user's scope.
   const audience = user.branchIds.length ? { $or: [{ userIds: user.id }, { fanoutBranchId: { $in: user.branchIds } }] } : { userIds: user.id };

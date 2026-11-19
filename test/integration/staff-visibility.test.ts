@@ -4,7 +4,7 @@ import { as, createTestApp, seedBasics, type Seeded, type TestApp } from '../hel
 import { expectConforms } from '../helpers/openapi.js';
 import { deltaSync } from '../../src/modules/erp-gateway/index.js';
 import { applyAssignments, getByErpId } from '../../src/modules/customers/index.js';
-import { ChangeModel } from '../../src/core/changefeed/index.js';
+import { ChangeModel, CounterModel, raiseResyncFloor } from '../../src/core/changefeed/index.js';
 
 /**
  * FR-CUS-015 / ADR-038 (contract 1.19.0): field staff see every customer of their branches, assigned or not, and a
@@ -147,5 +147,31 @@ describe('setting customers.staffVisibility = assigned (per branch)', () => {
     const back = await pullAll(fsPhone, dropped.next);
     expect(back.changes.filter((x) => x.op === 'upsert')).toHaveLength(4);
     expect((await fs.get('/customers')).body.items).toHaveLength(4);
+  });
+});
+
+describe('phones that took their snapshot before branch-wide visibility (1.20.1, ADR-038 addendum)', () => {
+  it('a cursor from before the resync floor is refused once; the fresh snapshot carries the whole branch', async () => {
+    // the test database was empty when the app booted: nothing to reset
+    expect((await CounterModel.findById('sync_floor:customers-branch-wide').lean())?.value).toBe(0);
+    const fs = await as(t, '01700000004');
+    const old = (await fs.get('/sync/bootstrap?limit=50')).body.pullCursor as string;
+    expect((await fs.get(`/sync/pull?cursor=${old}`)).status).toBe(200);
+
+    // first boot of 1.20.1 on a database with history
+    await CounterModel.deleteOne({ _id: 'sync_floor:customers-branch-wide' });
+    const floor = await raiseResyncFloor('customers-branch-wide');
+    expect(floor).toBeGreaterThan(Number(old.slice(2)));
+    expect(await raiseResyncFloor('customers-branch-wide')).toBe(floor); // raised once, later boots keep it
+
+    const r = await fs.get(`/sync/pull?cursor=${old}`);
+    expect(r.status).toBe(410);
+    expect(r.body.code).toBe('CURSOR_EXPIRED');
+    expectConforms('GET', '/sync/pull', 410, r.body);
+    const snap = await fs.get('/sync/bootstrap?limit=50');
+    expect(Number((snap.body.pullCursor as string).slice(2))).toBeGreaterThanOrEqual(floor);
+    const got = snap.body.items.filter((i: { entity: string }) => i.entity === 'customer').map((i: { data: { erpCustomerId: string } }) => i.data);
+    expect(erpIds(got)).toEqual(['100245', '100246', '100247', '100248']);
+    expect((await fs.get(`/sync/pull?cursor=${snap.body.pullCursor}`)).status).toBe(200);
   });
 });
