@@ -152,7 +152,7 @@ export async function branchTrends(user: AuthUser, q: z.infer<typeof trendsQuery
     byDate.set(d.date, d);
   }
   const overdue = [...byDate.values()];
-  if (q.to === t) overdue.push({ date: t, ...(await liveOverdue({ ...customerScope(user), ...(branchId ? branchQuery(user, branchId) : {}) })) });
+  if (q.to === t) overdue.push({ date: t, ...(await liveOverdue({ ...(await customerScope(user)), ...(branchId ? branchQuery(user, branchId) : {}) })) });
   return { from: q.from, to: q.to, granularity: g, collection: [...rows.values()], overdue };
 }
 
@@ -177,7 +177,7 @@ export async function reconciliation(user: AuthUser, q: z.infer<typeof reconcili
   if (!validRange(q.date, q.date, today(), 0)) throw bad('date', 'today or earlier (YYYY-MM-DD)');
   const branchId = branchInScope(user, q.branchId);
   const fos = await collectionRows(user, branchId, q.date, q.date);
-  const erp = await erpFieldPayments({ ...customerScope(user), ...(branchId ? branchQuery(user, branchId) : {}) }, q.date);
+  const erp = await erpFieldPayments({ ...(await customerScope(user)), ...(branchId ? branchQuery(user, branchId) : {}) }, q.date);
   const r = reconcileDay(fos, erp);
   const byId = new Map(fos.map((c) => [c.id, c]));
   const erpById = new Map(erp.map((p) => [p.erpPaymentId, p]));

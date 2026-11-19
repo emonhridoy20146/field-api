@@ -39,6 +39,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Pin corrections | FR-CUS-008 | ✅ API |
 | Map pins: manager sets on the map, staff map pins, pinless customers applied at once (ADR-031, contract 1.11.0) | FR-CUS-011 | ✅ API |
 | Pin colour by payment state, invoice filters and invoice viewer data (ADR-035, contract 1.14.0) | FR-CUS-012, FR-CUS-013 | ✅ API; screens in admin-web |
+| Staff see every customer of their branches, staff in several branches, branch on list rows (ADR-038, contract 1.19.0) | FR-CUS-015 | ✅ API |
 | Leave cancel and filters, holiday delete and branch filter, my shift, who read a notice, offline notice read, guarantor calls (ADR-032, contract 1.12.0) | FR-ATT-008, FR-SET-002/003, FR-NOT-005, FR-M-014 | ✅ API |
 | Devices binding/remote logout | FR-AUTH-006..008 | ✅ API |
 | Real ERP shape: plan = invoice, rolled lines, late fee, credit sales, ERP removals as reversed, warehouses, ERP employees picker, branch map point, real ERP posting rules (ADR-033, contract 1.13.0). Checked live against a sandbox copy of the ERP with the prototype API (1,441 customers, totals equal to the poisha) | FR-ERP-006, FR-BR-002 | ✅ API · ☐ ERP API installed in production (owner decision, erp-integration-spec v2 §8) |
@@ -62,7 +63,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Visit suggestion from dwell | FR-VIS-005 | ☐ |
 | Retention TTL + daily summaries | FR-LOC-009, 012 | ✅ |
 | Co-work: requests, joint visits, manager view, single / co-work statistics with credit weight (added 2026-11-16) | FR-CW-001..005 | ✅ API (ADR-029); screens in staff-app and admin-web |
-| Staff tasks: admin gives a task with a note, staff resolve request, admin verifies (added 2026-11-18) | FR-TASK-001..005 | ✅ API (contract 1.19.0, ADR-037, flag `module.tasks`); screens in admin-web and staff-app |
+| Staff tasks: admin gives a task with a note, staff resolve request, admin verifies (added 2026-11-18) | FR-TASK-001..005 | ✅ API (contract 1.20.0, ADR-037, flag `module.tasks`); screens in admin-web and staff-app |
 
 **Acceptance:** 9-hour duty day on a mid-range phone uses ≤ 12 % battery for tracking (bike + walking mix); no points outside duty; ≥ 90 % of 5-minute customer stops detected and matched; mock GPS app is flagged within one batch; route history renders a day in < 2 s on admin.
 

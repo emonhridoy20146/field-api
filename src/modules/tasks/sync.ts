@@ -5,7 +5,7 @@ import * as s from './service.js';
 
 export const syncMutations: SyncMutationDef[] = [
   {
-    // "I finished it" tapped offline (1.19.0). Only the assignee can do it: the service looks the task up by assignee.
+    // "I finished it" tapped offline (1.20.0). Only the assignee can do it: the service looks the task up by assignee.
     entity: 'task_resolve_request',
     permission: 'task.work',
     apply: async (user, payload, { meta }) => {

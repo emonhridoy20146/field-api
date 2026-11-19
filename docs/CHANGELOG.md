@@ -2,13 +2,23 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
-## [1.19.0] — contract 1.19.0 (admin tasks for staff)
+## [1.20.0] — contract 1.20.0 (admin tasks for staff)
 ### Added
 - **tasks module** (FR-TASK-001..005, owner request 2026-11-18, ADR-037): an admin or manager gives one field staff member a task with a title, a free-form note and an optional due date; it is not tied to a customer. `POST /tasks` (idempotent by `clientId`; `422 TASK_INVALID_ASSIGNEE`, `TASK_DUE_IN_PAST`), `GET /tasks` (filters `status`, `assigneeId`, `branchId`, `overdue`, `q`; `counts` per status and overdue), `GET /tasks/{id}` (with history), `PATCH /tasks/{id}` (while open), `POST /tasks/{id}/verify`, `POST /tasks/{id}/reject` (reason of at least 5 characters, `422 REASON_REQUIRED`), `POST /tasks/{id}/cancel`.
 - Staff side: `GET /tasks/mine`, `POST /tasks/{id}/resolve-request` (note, optional `requestedAt`), sync entity `task` (to the assignee only; bootstrap snapshot holds open tasks and those closed in the last 30 days) and sync mutation `task_resolve_request` `{ taskId, note?, requestedAt? }`. A resolve request moves the task to `resolve_requested`; only an admin verify makes it `resolved`; a reject sends it back to `open` with the reason.
 - Notifications `task.assigned`, `task.resolve_requested` (managers with `task.manage` in the task's branch), `task.decided` (verified / rejected / cancelled, to the assignee). Inbox item `task.resolve_requested` until the request is decided. Audited as `task.created`, `task.edited`, `task.resolve_requested`, `task.verified`, `task.rejected`, `task.cancelled`.
 - Permissions `task.view`, `task.manage`, `task.work`; flag `module.tasks` (off by default; super admin turns it on); collection `staff_tasks` (migration `tasks/20261118-0001-tasks-indexes`).
 - Additive only: no existing route, field or collection changed.
+## [1.19.0] — contract 1.19.0 (staff see the whole branch, staff in several branches)
+### Added
+- **Field staff see every customer of their branches** (owner request 2026-11-18, FR-CUS-015, ADR-038), assigned or not, so they can visit and collect from any of them. Assignment still says whose work a customer is (`assignedTo=me`, Today, targets, handovers). New setting `customers.staffVisibility` = `branch` (default) | `assigned` (the rule before 1.19.0), per branch and sent to the app.
+- **Staff in several branches:** `User.branchIds` documented as one or more for every role; the first is the home branch (attendance, cash, targets, app settings). Adding or removing a branch re-sends that branch's customers to the user's devices (they load the ones now in scope and drop the rest).
+- `branch { id, code, name }` on `CustomerListItem` / `CustomerDetail`, so a list spanning several branches says which one each customer is in.
+- Change feed: `sync_changes.fanoutBranchId` delivers a customer change to every device of the branch (each device's scope still applies); `/sync/pull` reads own and branch-wide entries. Index migration `sync/20261118-0001-sync-fanout-index`. Switching the setting re-sends the branch's customers the same way.
+### Changed
+- Reassigning a customer no longer sends a hard delete to the old assignee: the entry is an upsert and the loader turns it into a tombstone only when the customer left that device's scope (still the case under `assigned`).
+- `customers.scopeFilter` is async (reads the setting); reports await it. A customer moved to another branch is dropped from the old branch's devices.
+- Tests that check the assigned-only rule run with `customers.staffVisibility = assigned`; `test/integration/staff-visibility.test.ts` covers the branch-wide rule, multi-branch users and switching the setting.
 
 ## [1.18.0] — contract 1.18.0 (photos without S3: attendance and live map on the Vercel test)
 Numbered 1.18.0 / ADR-039 because 1.15.0–1.17.0 are taken by PRs #18 (staff in several branches), #17 (tasks) and #16 (pin delete, ERP sync, merged as 1.17.0 with ADR-036); #17 and #18 still use ADR-036 and need new ADR numbers when they merge.

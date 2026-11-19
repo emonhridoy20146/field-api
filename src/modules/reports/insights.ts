@@ -140,7 +140,7 @@ export const qualityItemsQuery = z.object({ branchId: z.string().max(64).optiona
 const maxKmOf = async (branchId?: string) => (await getSetting<number>('reports.dataQualityMaxBranchKm', branchId)) ?? 30;
 
 async function scan(user: AuthUser, branchId: string | undefined) {
-  return dataQualityScan({ ...customerScope(user), ...branchQuery(user, branchId) }, maxKmOf);
+  return dataQualityScan({ ...(await customerScope(user)), ...branchQuery(user, branchId) }, maxKmOf);
 }
 
 export async function dataQuality(user: AuthUser, q: z.infer<typeof qualityQuery>) {

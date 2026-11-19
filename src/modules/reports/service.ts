@@ -44,7 +44,7 @@ export async function overview(user: AuthUser, q: { branchId?: string | undefine
     attendance: on['module.attendance'] && date === today ? await attendanceCounts(user, branchId) : { present: 0, late: 0, absent: 0, onDutyNow: 0 },
     cash: on['module.cash'] ? await cashOverview(user, branchId) : { onHandPoisha: 0, overLimitStaff: 0, pendingDeposits: 0 },
     exceptions: on['module.inbox'] ? await inboxOpenCounts(user, branchId) : {},
-    overdue: await overdueSummary({ ...customerScope(user), ...(branchId ? branchQuery(user, branchId) : {}) }),
+    overdue: await overdueSummary({ ...(await customerScope(user)), ...(branchId ? branchQuery(user, branchId) : {}) }),
     erp: await erpStatus(),
     trend7d,
   };
