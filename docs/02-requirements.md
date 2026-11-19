@@ -279,7 +279,7 @@ Rules:
 
 | ID | Requirement | Status | Phase | Repos | Test |
 |---|---|---|---|---|---|
-| FR-ATT-001 | Events: `work_in`, `break_start`, `break_end`, `work_out` with GPS fix, mock flag, device and server time; front-camera photo at each event **[ADDED]** — required by default at all four (settings `attendance.selfieRequired`, `attendance.selfieEvents`; owner decision 2026-11-16); an event without one is stored and flagged `no_selfie`. | active | P1 | A M | U I D |
+| FR-ATT-001 | Events: `work_in`, `break_start`, `break_end`, `work_out` with GPS fix, mock flag, device and server time; front-camera photo at each event **[ADDED]** — required by default at all four (settings `attendance.selfieRequired`, `attendance.selfieEvents`; owner decision 2026-11-16); an event without one is stored and flagged `no_selfie`. The event never waits for its photo: the app sends it at once and links the photo afterwards with the sync mutation `attendance_selfie`, which clears the flag (1.21.0, ADR-040). | active | P1 | A M | U I D |
 | FR-ATT-002 | State machine prevents invalid sequences (e.g. break_end without break_start); offline events ordered by device time and validated on sync; anomalies flagged not rejected. | active | P1 | A M | U I |
 | FR-ATT-003 | Late = work_in after shift start + `attendance.lateGraceMin` (default 15). Absent = no work_in on a working day (not holiday/weekly off/approved leave) by shift end. | active | P1 | A | U |
 | FR-ATT-004 | Summary per staff/day/month: present, late (minutes), absent, total break minutes, over-break, duty minutes, first/last event. | active | P1 | A W | U I E |

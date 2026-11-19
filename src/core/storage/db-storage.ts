@@ -40,11 +40,16 @@ export class DbStorage implements ObjectStorage {
     },
   ) {}
 
-  private sign(g: Grant): string {
+  /**
+   * Links use the origin the caller reached the API on (the phone: the API host; admin-web through its proxy: the
+   * admin host, which forwards /api/v1), so a wrong or missing PUBLIC_BASE_URL can no longer break uploads.
+   */
+  private sign(g: Grant, origin?: string): string {
     const body = b64url(Buffer.from(JSON.stringify(g)));
     const sig = b64url(createHmac('sha256', this.opts.secret).update(body).digest());
+    const base = (origin ?? this.opts.baseUrl).replace(/\/+$/, '');
     // In the query, not the path: a signed grant is longer than Fastify's 100-character path parameters.
-    return `${this.opts.baseUrl}/api/v1/storage/o?t=${body}.${sig}`;
+    return `${base}/api/v1/storage/o?t=${body}.${sig}`;
   }
 
   /** The grant inside a URL token, or 403 when it is forged, for another method, or expired. */
@@ -69,12 +74,12 @@ export class DbStorage implements ObjectStorage {
     return Math.floor(this.opts.now().getTime() / 1000) + URL_TTL_SEC;
   }
 
-  async presignPut(key: string, contentType: string, sizeBytes: number, sha256Base64: string) {
-    return { url: this.sign({ k: key, m: 'PUT', e: this.exp(), t: contentType, n: sizeBytes, h: sha256Base64 }), headers: { 'Content-Type': contentType } };
+  async presignPut(key: string, contentType: string, sizeBytes: number, sha256Base64: string, origin?: string) {
+    return { url: this.sign({ k: key, m: 'PUT', e: this.exp(), t: contentType, n: sizeBytes, h: sha256Base64 }, origin), headers: { 'Content-Type': contentType } };
   }
 
-  async presignGet(key: string) {
-    return this.sign({ k: key, m: 'GET', e: this.exp() });
+  async presignGet(key: string, origin?: string) {
+    return this.sign({ k: key, m: 'GET', e: this.exp() }, origin);
   }
 
   async exists(key: string) {

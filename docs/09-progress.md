@@ -29,7 +29,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Handovers incl. temporary cover | FR-HO-001..006 | ✅ API |
 | Collections offline + idempotency + receipt blocks + ERP posting + conflicts | FR-COL-001..011, 013 | ✅ API |
 | Cash on hand, limits, deposits, closing | FR-CASH-* | ✅ API |
-| Visits + camera photos + media | FR-VIS-001..004, FR-MED-001 | ✅ API (thumbnails pending); storage driver `db` for hosts without S3 (1.18.0, ADR-039) |
+| Visits + camera photos + media | FR-VIS-001..004, FR-MED-001 | ✅ API (thumbnails pending); storage driver `db` for hosts without S3 (1.18.0, ADR-039); attendance sent before its photo, photo linked after (1.21.0, ADR-040) |
 | Notes, promises, reminders, nightly evaluation | FR-NOTE-001, FR-PRM-001..003 | ✅ API |
 | Tags + suggestion + review | FR-TAG-* | ✅ API |
 | Attendance + shifts + holidays + corrections | FR-ATT-001..007, FR-SET-002/003 | ✅ API (FR-ATT-007 geofence not built; leave FR-ATT-008 built early) |
