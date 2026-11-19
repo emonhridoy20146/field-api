@@ -131,7 +131,7 @@ const DATASETS: Record<ExportType, { permission?: string; check(user: AuthUser, 
     },
     async build(user, params, l) {
       const branchId = branchInScope(user, parseParams(branchParams, params).branchId);
-      const rows = await overdueRows({ ...customerScope(user), ...(branchId ? branchQuery(user, branchId) : {}) }, MAX_ROWS);
+      const rows = await overdueRows({ ...(await customerScope(user)), ...(branchId ? branchQuery(user, branchId) : {}) }, MAX_ROWS);
       const users = await getUsers(rows.map((r) => r.assigneeId ?? ''));
       const branches = await getBranches([...new Set(rows.map((r) => r.branchId))]);
       return {

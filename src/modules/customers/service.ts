@@ -57,23 +57,81 @@ export const registerTimelineSource = (s: TimelineSource) => void timelineSource
 
 // ---------------- scope (CLAUDE.md §2.7, 04-architecture §6.2) ----------------
 
-/** SA → all; field staff → their assigned customers; BM/viewer → their branches. */
-export function scopeFilter(user: AuthUser): Record<string, unknown> {
+export type StaffVisibility = 'branch' | 'assigned';
+
+/**
+ * Of these branches, the ones where field staff see every customer of the branch (setting
+ * `customers.staffVisibility` = `branch`, the default since 1.19.0, ADR-038) rather than only their own.
+ */
+export async function wholeBranchIds(branchIds: string[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const b of branchIds) if ((await getSetting<StaffVisibility>('customers.staffVisibility', b)) !== 'assigned') out.push(b);
+  return out;
+}
+
+/**
+ * SA → all; BM/viewer → their branches; field staff → every customer of their branches (one or more), or only
+ * the ones assigned to them in a branch set to `assigned` (the rule before 1.19.0). Assignment still decides whose
+ * work a customer is (Today, targets, handovers); it no longer hides the rest of the branch.
+ */
+export async function scopeFilter(user: AuthUser): Promise<Record<string, unknown>> {
   if (isSuperAdmin(user)) return {};
-  if (user.role === 'field_staff') return { 'fos.assigneeId': user.id, branchId: { $in: user.branchIds } };
-  return { branchId: { $in: user.branchIds } };
+  const inBranches = { branchId: { $in: user.branchIds } };
+  if (user.role !== 'field_staff') return inBranches;
+  const whole = await wholeBranchIds(user.branchIds);
+  if (whole.length === user.branchIds.length) return inBranches;
+  if (!whole.length) return { 'fos.assigneeId': user.id, ...inBranches };
+  return { ...inBranches, $or: [{ branchId: { $in: whole } }, { 'fos.assigneeId': user.id }] };
+}
+
+/** Change-feed entry for a customer: the given users, plus every device of the branch where staff see it whole. */
+async function customerFeed(
+  id: string,
+  branchId: string | null | undefined,
+  userIds: (string | null | undefined)[],
+  extra: Partial<ChangeInput> = {},
+): Promise<ChangeInput> {
+  const fanout = branchId && (await wholeBranchIds([branchId])).length ? branchId : null;
+  return { entity: 'customer', entityId: id, userIds: userIds.filter((u): u is string => !!u), branchId: branchId ?? null, fanoutBranchId: fanout, ...extra };
+}
+
+/**
+ * Re-send every customer of these branches through the change feed so devices converge: each device loads the
+ * ones now in its scope and drops the rest. `userId` = one user (their branches changed), else every device of
+ * each branch (the visibility setting changed).
+ */
+export async function refeedBranches(branchIds: string[], userId?: string): Promise<number> {
+  let n = 0;
+  for (const branchId of [...new Set(branchIds)]) {
+    const rows = (await CustomerModel.find({ branchId }).select({ _id: 1 }).lean()) as Doc[];
+    for (let i = 0; i < rows.length; i += 1000) {
+      const chunk = rows.slice(i, i + 1000);
+      await recordChanges(
+        chunk.map((r) => ({
+          entity: 'customer',
+          entityId: r._id.toHexString(),
+          userIds: userId ? [userId] : [],
+          branchId,
+          fanoutBranchId: userId ? null : branchId,
+          reason: 'out_of_scope',
+        })),
+      );
+      n += chunk.length;
+    }
+  }
+  return n;
 }
 
 async function loadInScope(user: AuthUser, id: string): Promise<Doc> {
   if (!isOid(id)) throw notFound('customer');
-  const c = (await CustomerModel.findOne({ _id: id, ...scopeFilter(user) }).lean()) as Doc | null;
+  const c = (await CustomerModel.findOne({ _id: id, ...(await scopeFilter(user)) }).lean()) as Doc | null;
   if (!c) throw notFound('customer'); // out of scope → 404 (ADR-022)
   return c;
 }
 
 export async function inScope(user: AuthUser, id: string): Promise<boolean> {
   if (!isOid(id)) return false;
-  return !!(await CustomerModel.exists({ _id: id, ...scopeFilter(user) }));
+  return !!(await CustomerModel.exists({ _id: id, ...(await scopeFilter(user)) }));
 }
 
 /** Minimal facts other modules need; null if missing or out of scope. */
@@ -128,7 +186,7 @@ function ref(c: Doc): CustomerRef {
 
 export async function getCustomerRef(user: AuthUser | null, id: string): Promise<CustomerRef | null> {
   if (!isOid(id)) return null;
-  const c = (await CustomerModel.findOne({ _id: id, ...(user ? scopeFilter(user) : {}) }).lean()) as Doc | null;
+  const c = (await CustomerModel.findOne({ _id: id, ...(user ? await scopeFilter(user) : {}) }).lean()) as Doc | null;
   return c ? ref(c) : null;
 }
 
@@ -267,8 +325,10 @@ export async function upsertFromErp(c: ErpCustomer, fetchedAt: Date): Promise<st
       isNew: !prev,
     });
   await ctx().bus.emit('customer.payments_synced', { customerId: id, payments: c.recentPayments });
-  if (doc.fos?.assigneeId)
-    await recordChange({ entity: 'customer', entityId: id, userIds: [doc.fos.assigneeId], branchId: branch.id });
+  const feed = [await customerFeed(id, branch.id, [doc.fos?.assigneeId])];
+  // Moved to another branch: the old branch's devices drop it (their loader finds it out of scope).
+  if (prev?.branchId && prev.branchId !== branch.id) feed.push(await customerFeed(id, prev.branchId, [], { reason: 'out_of_scope' }));
+  await recordChanges(feed);
   return id;
 }
 
@@ -293,18 +353,8 @@ export async function recomputeAllDerived(): Promise<number> {
     const prevBad = !!c.derived?.badSuggested;
     const derived = derivedFor(c.plans ?? [], date);
     await CustomerModel.updateOne({ _id: c._id }, { $set: { derived }, $inc: { version: 1 } });
-    if (
-      c.fos?.assigneeId &&
-      (prevBad !== derived.badSuggested ||
-        c.derived?.overdue !== derived.overdue ||
-        c.derived?.dueToday !== derived.dueToday)
-    )
-      await recordChange({
-        entity: 'customer',
-        entityId: c._id.toHexString(),
-        userIds: [c.fos.assigneeId],
-        branchId: c.branchId,
-      });
+    if (prevBad !== derived.badSuggested || c.derived?.overdue !== derived.overdue || c.derived?.dueToday !== derived.dueToday)
+      await recordChange(await customerFeed(c._id.toHexString(), c.branchId, [c.fos?.assigneeId]));
     n++;
   }
   return n;
@@ -318,7 +368,10 @@ export interface AssignmentChange {
   areaId?: string | null;
 }
 
-/** assignment.changed → denormalize primary assignee; tombstone to old device, upsert to new. */
+/**
+ * assignment.changed → denormalize primary assignee. The old and new assignee (and, where staff see the whole
+ * branch, every device of it) reload the customer; a device it left the scope of gets a tombstone from the loader.
+ */
 export async function applyAssignments(changes: AssignmentChange[]): Promise<void> {
   const feed: ChangeInput[] = [];
   for (const ch of changes) {
@@ -329,17 +382,8 @@ export async function applyAssignments(changes: AssignmentChange[]): Promise<voi
     const set: Record<string, unknown> = { 'fos.assigneeId': ch.assigneeId };
     if (ch.areaId !== undefined) set['fos.areaId'] = ch.areaId;
     await CustomerModel.updateOne({ _id: ch.customerId }, { $set: set, $inc: { version: 1 } });
-    if (before && before !== ch.assigneeId)
-      feed.push({
-        entity: 'customer',
-        entityId: ch.customerId,
-        op: 'delete',
-        userIds: [before],
-        branchId: prev.branchId,
-        reason: 'unassigned',
-      });
-    if (ch.assigneeId)
-      feed.push({ entity: 'customer', entityId: ch.customerId, userIds: [ch.assigneeId], branchId: prev.branchId });
+    const moved = !!before && before !== ch.assigneeId;
+    if (moved || ch.assigneeId) feed.push(await customerFeed(ch.customerId, prev.branchId, [before, ch.assigneeId], moved ? { reason: 'unassigned' } : {}));
   }
   await recordChanges(feed);
 }
@@ -351,8 +395,7 @@ export async function setTag(customerId: string, tag: Record<string, unknown> | 
     { $set: { 'fos.tag': tag }, $inc: { version: 1 } },
     { new: true },
   ).lean()) as Doc | null;
-  if (c?.fos?.assigneeId)
-    await recordChange({ entity: 'customer', entityId: customerId, userIds: [c.fos.assigneeId], branchId: c.branchId });
+  if (c) await recordChange(await customerFeed(customerId, c.branchId, [c.fos?.assigneeId]));
 }
 
 export async function setOpenPromiseDates(customerId: string, dates: string[]): Promise<void> {
@@ -438,6 +481,7 @@ async function listItems(rows: Doc[], user: AuthUser, near: LatLng | null) {
   const ids = rows.map((r) => r._id.toHexString());
   const date = today();
   const assignees = await getUsers(rows.map((r) => r.fos?.assigneeId).filter(Boolean));
+  const branches = await getBranches([...new Set(rows.map((r) => r.branchId).filter(Boolean) as string[])]);
   const extras = new Map<string, ListExtras>();
   for (const e of enrichers) {
     const m = await e(ids, user);
@@ -448,6 +492,7 @@ async function listItems(rows: Doc[], user: AuthUser, near: LatLng | null) {
     const loc = locationView(c);
     const x = extras.get(id) ?? {};
     const a = c.fos?.assigneeId ? assignees.get(c.fos.assigneeId) : undefined;
+    const b = c.branchId ? branches.get(c.branchId) : undefined;
     return {
       id,
       erpCustomerId: c.erpCustomerId,
@@ -472,6 +517,8 @@ async function listItems(rows: Doc[], user: AuthUser, near: LatLng | null) {
       overduePoisha: c.derived?.overdueAmountPoisha ?? 0,
       areaName: x.areaName ?? null,
       branchId: c.branchId ?? null,
+      // 1.19.0: staff may work in several branches, so every row says which one it belongs to.
+      ...(b ? { branch: { id: b.id, code: b.code, name: { bn: b.name.bn || b.name.en, en: b.name.en || b.name.bn } } } : {}),
       ...(a ? { assignee: { id: a.id, name: a.name.en || a.name.bn } } : {}),
       erpFetchedAt: (c.erpFetchedAt as Date).toISOString(),
     };
@@ -534,8 +581,8 @@ function invoiceKindFilter(kind: 'installment' | 'credit'): Record<string, unkno
   };
 }
 
-function buildFilter(user: AuthUser, q: ListQuery): Record<string, unknown> {
-  const and: Record<string, unknown>[] = [scopeFilter(user)];
+async function buildFilter(user: AuthUser, q: ListQuery): Promise<Record<string, unknown>> {
+  const and: Record<string, unknown>[] = [await scopeFilter(user)];
   if (q.branchId) and.push(branchQuery(user, q.branchId));
   // Status filters combine with OR ("due today or overdue"); other params narrow with AND.
   const ors = q.filter.filter((f) => STATUS_FILTERS[f]).map((f) => STATUS_FILTERS[f]!(today()));
@@ -572,7 +619,7 @@ const SORTS: Record<string, Record<string, 1 | -1>> = {
 
 /** Offset cursor: lists are scoped and small (≤ a few thousand per user); documented in 05-api-contract. */
 export async function list(user: AuthUser, q: ListQuery) {
-  const filter = buildFilter(user, q);
+  const filter = await buildFilter(user, q);
   const offset = decodeCursor<{ o: number }>(q.cursor)?.o ?? 0;
   let rows: Doc[];
   let hasMore: boolean;
@@ -777,7 +824,7 @@ export async function detail(user: AuthUser, id: string) {
 
 /** For sync: list-item + plans + recent notes for the mobile local DB. */
 export async function syncLoad(ids: string[], user: AuthUser): Promise<Map<string, Record<string, unknown>>> {
-  const rows = (await CustomerModel.find({ _id: { $in: ids.filter(isOid) }, ...scopeFilter(user) }).lean()) as Doc[];
+  const rows = (await CustomerModel.find({ _id: { $in: ids.filter(isOid) }, ...(await scopeFilter(user)) }).lean()) as Doc[];
   const out = new Map<string, Record<string, unknown>>();
   for (const r of rows) out.set(r._id.toHexString(), await detailOf(r, user));
   return out;
@@ -785,7 +832,7 @@ export async function syncLoad(ids: string[], user: AuthUser): Promise<Map<strin
 
 export async function syncSnapshot(user: AuthUser, cursor: string | null, limit: number) {
   const c = decodeCursor<{ id: string }>(cursor ?? undefined);
-  const rows = (await CustomerModel.find({ ...scopeFilter(user), ...(c ? { _id: { $gt: c.id } } : {}) })
+  const rows = (await CustomerModel.find({ ...(await scopeFilter(user)), ...(c ? { _id: { $gt: c.id } } : {}) })
     .sort({ _id: 1 })
     .limit(limit + 1)
     .lean()) as Doc[];
@@ -855,7 +902,7 @@ export async function map(
   const box = parseBbox(q.bbox);
   if (!box)
     throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'bbox', message: 'minLng,minLat,maxLng,maxLat' }] });
-  const filter = buildFilter(user, {
+  const filter = await buildFilter(user, {
     filter: q.filter,
     radiusM: 0,
     limit: 0,
@@ -960,8 +1007,7 @@ async function applyPin(customerId: string, point: { type: 'Point'; coordinates:
     },
     { new: true },
   ).lean()) as Doc;
-  if (c.fos?.assigneeId)
-    await recordChange({ entity: 'customer', entityId: customerId, userIds: [c.fos.assigneeId], branchId: c.branchId });
+  await recordChange(await customerFeed(customerId, c.branchId, [c.fos?.assigneeId]));
   // Before 1.11.0 an approved pin did not recompute polygon areas until the next area edit.
   if (c.branchId)
     await ctx().bus.emit('customer.placed', { customerId, branchId: c.branchId, areaCode: c.areaCode ?? null, isNew: false });
@@ -1134,8 +1180,7 @@ export async function clearLocation(user: AuthUser, customerId: string, meta: Re
     },
     { new: true },
   ).lean()) as Doc;
-  if (after.fos?.assigneeId)
-    await recordChange({ entity: 'customer', entityId: customerId, userIds: [after.fos.assigneeId], branchId: after.branchId });
+  await recordChange(await customerFeed(customerId, after.branchId, [after.fos?.assigneeId]));
   await audit.record({
     actor: user,
     action: 'customer.location.cleared',

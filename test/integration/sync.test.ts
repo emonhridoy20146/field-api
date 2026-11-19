@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { setSystem } from '../../src/modules/settings/index.js';
 import { as, createTestApp, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
 import { expectConforms } from '../helpers/openapi.js';
 import { deltaSync } from '../../src/modules/erp-gateway/index.js';
@@ -19,6 +20,8 @@ const visitClientId = randomUUID();
 beforeAll(async () => {
   t = await createTestApp();
   s = await seedBasics(t);
+  // These cases cover the assigned-only rule (customers.staffVisibility = assigned); branch-wide scope: staff-visibility.test.ts.
+  await setSystem('customers.staffVisibility', 'assigned');
   await deltaSync();
   for (const e of ['100245', '100246', '100248']) ids[e] = (await getByErpId(e))!.id;
   await applyAssignments([
