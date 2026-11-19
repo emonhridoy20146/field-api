@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { as, createTestApp, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
 import { expectConforms } from '../helpers/openapi.js';
 import { deltaSync } from '../../src/modules/erp-gateway/index.js';
-import { applyAssignments, getByErpId } from '../../src/modules/customers/index.js';
+import { applyAssignments, getByErpId, registerDetailContributor } from '../../src/modules/customers/index.js';
 import { ChangeModel, CounterModel, raiseResyncFloor } from '../../src/core/changefeed/index.js';
 
 /**
@@ -173,5 +173,29 @@ describe('phones that took their snapshot before branch-wide visibility (1.20.1,
     const got = snap.body.items.filter((i: { entity: string }) => i.entity === 'customer').map((i: { data: { erpCustomerId: string } }) => i.data);
     expect(erpIds(got)).toEqual(['100245', '100246', '100247', '100248']);
     expect((await fs.get(`/sync/pull?cursor=${snap.body.pullCursor}`)).status).toBe(200);
+  });
+});
+
+describe('first load of a whole branch (2026-11-19)', () => {
+  it('pages through small bootstrap pages, and a customer whose extra data fails still reaches the phone', async () => {
+    registerDetailContributor(async (c) => {
+      if (c.id === ids['100247']) throw new Error('broken extra data');
+      return {};
+    });
+    const fs = await as(t, '01700000004');
+    const got: { erpCustomerId: string; plans: unknown[] }[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      const r: { status: number; body: { items: { entity: string; data: { erpCustomerId: string; plans: unknown[] } }[]; nextCursor: string | null } } = await fs.get(`/sync/bootstrap?limit=2${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+      expect(r.status).toBe(200);
+      expectConforms('GET', '/sync/bootstrap', 200, r.body);
+      got.push(...r.body.items.filter((i) => i.entity === 'customer').map((i) => i.data));
+      cursor = r.body.nextCursor;
+      pages++;
+    } while (cursor && pages < 50);
+    expect(erpIds(got)).toEqual(['100245', '100246', '100247', '100248']);
+    expect(got.find((c) => c.erpCustomerId === '100247')?.plans).toEqual([]);
+    expect(got.find((c) => c.erpCustomerId === '100245')?.plans.length).toBeGreaterThan(0);
   });
 });

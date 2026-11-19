@@ -747,16 +747,38 @@ function optionalMoney(p: LooseObject, keys: string[]): Record<string, number> {
 }
 
 /** ERP branch id → FOS branch id for the branches the customer's invoices were sold at (usually one). */
-async function invoiceBranchIds(c: Doc): Promise<Map<string, string>> {
+type ErpBranchLookup = (erpBranchId: string) => Promise<{ id: string } | null>;
+
+async function invoiceBranchIds(c: Doc, lookup: ErpBranchLookup = getByErpBranchId): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const erpIds = [...new Set(((c.plans ?? []) as LooseObject[]).map((p) => p.erpBranchId as string).filter(Boolean))];
   for (const e of erpIds) {
     if (e === c.erpBranchId && c.branchId) out.set(e, c.branchId as string);
     else {
-      const b = await getByErpBranchId(e);
+      const b = await lookup(e);
       if (b) out.set(e, b.id);
     }
   }
+  return out;
+}
+
+/** One branch lookup per ERP branch for a whole page, not one per customer. */
+function cachedErpBranchLookup(): ErpBranchLookup {
+  const cache = new Map<string, Promise<{ id: string } | null>>();
+  return (e) => {
+    if (!cache.has(e)) cache.set(e, getByErpBranchId(e));
+    return cache.get(e)!;
+  };
+}
+
+/** Runs `fn` over `items` with at most `limit` in flight; keeps the order. */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (x: T, i: number) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    for (let i = next++; i < items.length; i = next++) out[i] = await fn(items[i]!, i);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return out;
 }
 
@@ -771,7 +793,30 @@ function fmtDate(d: string, lang: 'bn' | 'en') {
 
 async function detailOf(c: Doc, user: AuthUser) {
   const [item] = await listItems([c], user, null);
-  const branchIdOf = await invoiceBranchIds(c);
+  return detailFrom(c, item!, user);
+}
+
+/**
+ * Sync payload for a page of customers (bootstrap, pull). The list part is built once for the page and the rest
+ * runs a few customers at a time: a whole branch is hundreds of customers, and one-by-one queries made the
+ * snapshot outlast a 60 s serverless call, so the phone never finished its first load (2026-11-19).
+ * One customer whose extra data fails still goes to the phone with its list data, instead of failing the page.
+ */
+async function detailsOf(rows: Doc[], user: AuthUser): Promise<Record<string, unknown>[]> {
+  const items = await listItems(rows, user, null);
+  const lookup = cachedErpBranchLookup();
+  return mapLimit(rows, 8, async (c, i) => {
+    try {
+      return await detailFrom(c, items[i]!, user, lookup);
+    } catch (err) {
+      ctx().logger.warn({ err, customerId: c._id.toHexString() }, 'customer detail for sync failed; sending list data only');
+      return { ...items[i]!, phones: c.phones ?? [], plans: [], payments: [], pendingCollections: [], recentNotes: [], lastVisit: null, badSuggestion: null, version: c.version ?? 1 };
+    }
+  });
+}
+
+async function detailFrom(c: Doc, item: Awaited<ReturnType<typeof listItems>>[number], user: AuthUser, lookup?: ErpBranchLookup) {
+  const branchIdOf = await invoiceBranchIds(c, lookup);
   const dPlans = new Map<string, LooseObject>(
     (c.derived?.plans ?? []).map((p: LooseObject) => [p.erpPlanId, p]),
   );
@@ -783,7 +828,7 @@ async function detailOf(c: Doc, user: AuthUser) {
       await contrib({ id: c._id.toHexString(), erpCustomerId: c.erpCustomerId, branchId: c.branchId }, user),
     );
   return {
-    ...item!,
+    ...item,
     phones: c.phones ?? [],
     ...(c.guarantor ? { guarantor: c.guarantor } : {}),
     plans: (c.plans ?? []).map((p: LooseObject) => planView(p, dPlans.get(p.erpPlanId), branchIdOf)),
@@ -825,9 +870,8 @@ export async function detail(user: AuthUser, id: string) {
 /** For sync: list-item + plans + recent notes for the mobile local DB. */
 export async function syncLoad(ids: string[], user: AuthUser): Promise<Map<string, Record<string, unknown>>> {
   const rows = (await CustomerModel.find({ _id: { $in: ids.filter(isOid) }, ...(await scopeFilter(user)) }).lean()) as Doc[];
-  const out = new Map<string, Record<string, unknown>>();
-  for (const r of rows) out.set(r._id.toHexString(), await detailOf(r, user));
-  return out;
+  const details = await detailsOf(rows, user);
+  return new Map(rows.map((r, i) => [r._id.toHexString(), details[i]!]));
 }
 
 export async function syncSnapshot(user: AuthUser, cursor: string | null, limit: number) {
@@ -837,8 +881,7 @@ export async function syncSnapshot(user: AuthUser, cursor: string | null, limit:
     .limit(limit + 1)
     .lean()) as Doc[];
   const page = rows.slice(0, limit);
-  const items: Record<string, unknown>[] = [];
-  for (const r of page) items.push(await detailOf(r, user));
+  const items = await detailsOf(page, user);
   return {
     items,
     nextCursor: rows.length > limit ? encodeCursor({ id: page[page.length - 1]!._id.toHexString() }) : null,
