@@ -146,6 +146,10 @@ Retention: permanent (≥ 8 years, OD-09).
 `{ branchId, businessDate, status: 'open'|'ended', createdBy, note, members: [{ userId, status: 'invited'|'accepted'|'rejected'|'left', invitedBy, invitedAt, respondedAt, leftAt }], clientIds[], createdAt, endedAt }` · `{ 'members.userId':1, businessDate:-1 }`, `{ branchId:1, businessDate:-1 }`, `{ status:1, businessDate:1 }`, `{ clientIds:1 }`.
 - One document per group and business day. Members keep their accept and leave times, so the participants of any visit can be worked out later from `checkInAt` alone. `clientIds` holds the request ids that built the session (idempotent retries).
 
+### staff_tasks [ADDED]
+`{ branchId, assigneeId, createdBy, title, note | null, dueDate: 'YYYY-MM-DD' | null, status: 'open'|'resolve_requested'|'resolved'|'cancelled', resolveNote | null, resolveRequestedAt | null, decisionNote | null, decidedBy | null, decidedAt | null, events: [{ type: 'created'|'edited'|'resolve_requested'|'verified'|'rejected'|'cancelled', by, at, note | null }], clientId | null, createdAt, updatedAt }` · `{ assigneeId:1, status:1, _id:-1 }`, `{ branchId:1, status:1, _id:-1 }`, `{ status:1, dueDate:1 }`, `{ createdBy:1, clientId:1 } unique, partial on string clientId`.
+- Free-form job for one field staff member, not tied to a customer (FR-TASK-001). `branchId` is one of the assignee's branches. `events` is the history shown in the drawer; a reject clears `resolveNote` / `resolveRequestedAt` (the event keeps them). Sync entity `task` goes only to `assigneeId`.
+
 ### notes
 `{ clientId, branchId, customerId, authorId, category: 'general'|'payment'|'complaint'|'address'|'family', text, voiceMediaId?, visitClientId?, editableUntil, createdAt }` · `{ clientId:1 } unique`, `{ customerId:1, createdAt:-1 }`.
 

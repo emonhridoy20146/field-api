@@ -83,6 +83,9 @@ Defaults: SA = super_admin, BM = branch_manager, FS = field_staff, VW = viewer. 
 | `cowork.view` **[ADDED]** | See co-work sessions in scope | ● | ● | ○ | ● | cowork |
 | `target.view` **[ADDED]** | See daily targets in scope | ● | ● | ○ | ● | targets |
 | `target.manage` **[ADDED]** | Set daily targets for staff and branch defaults | ● | ● | ○ | ○ | targets |
+| `task.view` **[ADDED]** | See staff tasks in scope | ● | ● | ○ | ● | tasks |
+| `task.manage` **[ADDED]** | Give tasks to staff with a note; edit, cancel, verify or reject a resolve request | ● | ● | ○ | ○ | tasks |
+| `task.work` **[ADDED]** | See own tasks and ask for them to be resolved | ○ | ○ | ● | ○ | tasks |
 | `inbox.view` **[ADDED]** | "Needs attention" exceptions inbox | ● | ● | ○ | ○ | inbox |
 | `leave.request` **[ADDED]** | Request leave | ○ | ○ | ● | ○ | attendance |
 | `microfinance.view` | **RESERVED** — not grantable until MF-001 unblocked | — | — | — | — | microfinance |
@@ -262,6 +265,15 @@ Rules:
 | FR-CW-003 | A visit sent with `coWorkSessionId` is stored as a co-work visit with the session members accepted at check-in time as participants. It stays one record by the recorder. A recorder who was not an accepted member then gets a single visit flagged `cowork_invalid`. | active | P2 | A M | U I D |
 | FR-CW-004 | Managers see co-work sessions (members, times, visits) and can filter visits by single / co-work. | active | P2 | A W | I |
 | FR-CW-005 | Staff statistics separate single visits from co-work visits. Every participant gets credit for a joint visit, weighted for targets by `cowork.visitCredit` (0–1, default 1). **Collections and cash are never shared:** they count only for the person who recorded them (cash accountability). | active | P2 | A W | U I |
+
+### 4.9b Staff tasks **[ADDED 2026-11-18, owner request]** (module `tasks`)
+| ID | Requirement | Status | Phase | Repos | Test |
+|---|---|---|---|---|---|
+| FR-TASK-001 | An admin or manager gives one field staff member a task: title, note (free text), optional due date (Dhaka date, today or later). It is **not tied to a customer**. The task belongs to one of the assignee's branches (the caller picks it, or the first one the caller can see); a staff member in several branches still gets one task. The assignee is notified. Idempotent by `clientId`. Online only (admin). | active | P4 | A W M | U I E |
+| FR-TASK-002 | The assignee sees own tasks in the app (offline, through sync) and sends a **resolve request** with an optional note; it works offline (sync mutation `task_resolve_request`) and a repeat changes nothing. Managers with `task.manage` in the branch are notified and the request appears in the inbox. | active | P4 | A W M | U I D |
+| FR-TASK-003 | An admin **verifies** a resolve request (task becomes `resolved`) or **rejects** it with a reason of at least 5 characters (task is `open` again and the assignee sees the reason). Only a verified task counts as resolved; the staff member cannot resolve a task alone. An admin can cancel a task that is not resolved. Every step notifies the assignee and is audited (`task.created/edited/resolve_requested/verified/rejected/cancelled`). | active | P4 | A W M | U I E |
+| FR-TASK-004 | Managers list tasks in scope by status, assignee, branch, overdue and title words, with counts per status; each task shows its history (who did what, when, note). Out-of-scope tasks are 404. | active | P4 | A W | I E |
+| FR-TASK-005 | Tasks are additive: nothing existing changes. Module flag `module.tasks` (default off); hidden in both apps when off. | active | P4 | A W M | I |
 
 ### 4.10 Attendance (module `attendance`)
 

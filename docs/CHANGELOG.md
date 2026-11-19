@@ -2,6 +2,13 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
+## [1.20.0] — contract 1.20.0 (admin tasks for staff)
+### Added
+- **tasks module** (FR-TASK-001..005, owner request 2026-11-18, ADR-037): an admin or manager gives one field staff member a task with a title, a free-form note and an optional due date; it is not tied to a customer. `POST /tasks` (idempotent by `clientId`; `422 TASK_INVALID_ASSIGNEE`, `TASK_DUE_IN_PAST`), `GET /tasks` (filters `status`, `assigneeId`, `branchId`, `overdue`, `q`; `counts` per status and overdue), `GET /tasks/{id}` (with history), `PATCH /tasks/{id}` (while open), `POST /tasks/{id}/verify`, `POST /tasks/{id}/reject` (reason of at least 5 characters, `422 REASON_REQUIRED`), `POST /tasks/{id}/cancel`.
+- Staff side: `GET /tasks/mine`, `POST /tasks/{id}/resolve-request` (note, optional `requestedAt`), sync entity `task` (to the assignee only; bootstrap snapshot holds open tasks and those closed in the last 30 days) and sync mutation `task_resolve_request` `{ taskId, note?, requestedAt? }`. A resolve request moves the task to `resolve_requested`; only an admin verify makes it `resolved`; a reject sends it back to `open` with the reason.
+- Notifications `task.assigned`, `task.resolve_requested` (managers with `task.manage` in the task's branch), `task.decided` (verified / rejected / cancelled, to the assignee). Inbox item `task.resolve_requested` until the request is decided. Audited as `task.created`, `task.edited`, `task.resolve_requested`, `task.verified`, `task.rejected`, `task.cancelled`.
+- Permissions `task.view`, `task.manage`, `task.work`; flag `module.tasks` (off by default; super admin turns it on); collection `staff_tasks` (migration `tasks/20261118-0001-tasks-indexes`).
+- Additive only: no existing route, field or collection changed.
 ## [1.19.0] — contract 1.19.0 (staff see the whole branch, staff in several branches)
 ### Added
 - **Field staff see every customer of their branches** (owner request 2026-11-18, FR-CUS-015, ADR-038), assigned or not, so they can visit and collect from any of them. Assignment still says whose work a customer is (`assignedTo=me`, Today, targets, handovers). New setting `customers.staffVisibility` = `branch` (default) | `assigned` (the rule before 1.19.0), per branch and sent to the app.

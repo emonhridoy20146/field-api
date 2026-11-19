@@ -41,6 +41,7 @@ const RAISE: Raise[] = [
   { event: 'location.mock_detected', type: 'location.mock', id: (p) => `${str(p.userId)}:${str(p.businessDate)}`, entity: 'user', summary: (p) => t(`${str(p.businessDate)} তারিখে নকল GPS ধরা পড়েছে`, `Mock GPS detected on ${str(p.businessDate)}`), link: (p) => `/location/history?userId=${str(p.userId)}&date=${str(p.businessDate)}` },
   { event: 'location.tracking_lost', type: 'location.tracking_lost', id: (p) => `${str(p.userId)}:${str(p.businessDate)}`, entity: 'user', summary: () => t('ডিউটিতে থাকা অবস্থায় ট্র্যাকিং বন্ধ', 'Tracking stopped while on duty'), link: (p) => `/location/latest?userId=${str(p.userId)}` },
   { event: 'leave.requested', type: 'leave.requested', id: (p) => str(p.leaveId), entity: 'leave_request', summary: () => t('ছুটির আবেদন অপেক্ষমাণ', 'Leave request pending'), link: () => '/leave-requests?status=pending' },
+  { event: 'task.resolve_requested', type: 'task.resolve_requested', id: (p) => str(p.taskId), entity: 'task', summary: (p) => t(`কাজ যাচাইয়ের অপেক্ষায়: ${str(p.title)}`, `Task waiting for verification: ${str(p.title)}`), link: () => '/tasks?status=resolve_requested' },
 ];
 
 /** Events that close an item without a human: [event, item type, id from payload]. */
@@ -62,6 +63,9 @@ const RESOLVE: [string, string, (p: P) => string][] = [
   ['customer.location.decided', 'location.proposal', (p) => str(p.proposalId)],
   ['leave.decided', 'leave.requested', (p) => str(p.leaveId)],
   ['leave.cancelled', 'leave.requested', (p) => str(p.leaveId)],
+  ['task.verified', 'task.resolve_requested', (p) => str(p.taskId)],
+  ['task.rejected', 'task.resolve_requested', (p) => str(p.taskId)],
+  ['task.cancelled', 'task.resolve_requested', (p) => str(p.taskId)],
 ];
 
 export const CONSUMED_EVENTS = [...new Set([...RAISE.map((r) => r.event), ...RESOLVE.map((r) => r[0])])];
