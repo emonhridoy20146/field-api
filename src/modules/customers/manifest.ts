@@ -37,7 +37,7 @@ export const manifest: ModuleManifest = {
       default: 'branch',
       branchOverridable: true,
       exposeToApp: true,
-      description: 'FR-CUS-015 / ADR-037: branch = field staff see every customer of their branches (owner request 2026-11-18); assigned = only customers assigned to them (the rule before 1.18.0)',
+      description: 'FR-CUS-015 / ADR-038: branch = field staff see every customer of their branches (owner request 2026-11-18); assigned = only customers assigned to them (the rule before 1.19.0)',
     },
   ],
   events: {
@@ -71,7 +71,7 @@ export const manifest: ModuleManifest = {
     const bus = ctx().bus;
     bus.on('erp.customer.synced', async (p) => void (await upsertFromErp(p.customer as ErpCustomer, p.fetchedAt as Date)));
     bus.on('erp.reconcile.completed', async (p) => void (await markMissing(p.erpBranchId as string, p.seenErpCustomerIds as string[])));
-    // ADR-037: a staff member's devices get the customers of a branch they joined and drop those of one they left.
+    // ADR-038: a staff member's devices get the customers of a branch they joined and drop those of one they left.
     bus.on('user.updated', async (p) => {
       if (!p.branchesChanged) return;
       const before = (p.previousBranchIds as string[] | undefined) ?? [];

@@ -171,6 +171,9 @@ Derived, rebuildable from events. `{ userId, branchId, businessDate, status: 'no
 `{ branchId, userId | null, kind: 'set'|'cleared', amountPoisha | null, visits | null, effectiveFrom: 'YYYY-MM-DD', reason, setBy, setAt }` · `{ userId:1, effectiveFrom:1 }`, `{ branchId:1, userId:1, effectiveFrom:1 }`.
 - Append-only (ADR-030). `userId: null` is the branch default. The value for a person on a day is the latest personal record with `effectiveFrom ≤ day` (same day: later `setAt`), unless it is `cleared` or missing, in which case the latest branch default applies; no record means 0. `visits` may be fractional (co-work credit). Days that are not working days for the person (weekly off, holiday, approved leave) have no target. Planning values only: never money truth.
 
+### storage_objects (driver `db` only, ADR-039)
+`{ _id: <object key, e.g. selfie/<userId>/<sha256>.jpg>, contentType, sizeBytes, body: Binary, storedAt }`. Used only when the host has no S3 (Vercel test deployments); with S3 this collection stays empty. No extra index (lookups are by `_id`). Media ≤ 1 MB, exports below the 16 MB document limit.
+
 ## 5. Location
 
 ### location_points (time-series collection)
@@ -201,7 +204,7 @@ Written by the nightly `location.summarize` job (re-runnable; replaces the day).
 - `push_tokens` → stored on `devices.fcmToken` (one per device).
 - `broadcasts [ADDED] { title {bn,en}, body {bn,en}, branchIds[], roles[], requireAck, createdBy, createdAt, recipientIds[], ackedBy[], acks: [{userId, at}] }` · `{ recipientIds:1, _id:-1 }`. `ackedBy` is the membership list; `acks` (1.12.0) keeps when each recipient read it (the phone's tap time for offline reads, kept between sending and receipt). Broadcasts sent before 1.12.0 have no times.
 - `inbox_items [ADDED] { key (dedupe, e.g. 'collection.conflict:6750…'), type, severity: 'low'|'medium'|'high'|'critical', branchId, entity, entityId, summary {bn,en}, status: 'open'|'snoozed'|'resolved', snoozedUntil, resolvedBy, resolvedAt, createdAt }` · `{ key:1 } unique`, `{ branchId:1, status:1, severity:-1, createdAt:-1 }`.
-- `sync_changes { seq (int64 from counters), userIds: [] (audience), branchId, fanoutBranchId (1.18.0: also every device of this branch, ADR-037), entity, entityId, op: 'upsert'|'delete', at }` · `{ userIds:1, seq:1 }`, `{ fanoutBranchId:1, seq:1 }` · TTL 30 days (devices older than 30 days get a full resync: `410 CURSOR_EXPIRED`).
+- `sync_changes { seq (int64 from counters), userIds: [] (audience), branchId, fanoutBranchId (1.19.0: also every device of this branch, ADR-038), entity, entityId, op: 'upsert'|'delete', at }` · `{ userIds:1, seq:1 }`, `{ fanoutBranchId:1, seq:1 }` · TTL 30 days (devices older than 30 days get a full resync: `410 CURSOR_EXPIRED`).
 - `device_sync_state { deviceId, userId, branchId, lastPullSeq, lastPullAt, lastPushAt, pendingReported, lastError, appVersion }` · `{ deviceId:1, userId:1 } unique`, `{ branchId:1, lastPullAt:-1 }`.
 - `counters { _id: 'sync_seq', value }`.
 - `outbox`, `jobs` — see 04-architecture §6.5.

@@ -272,7 +272,7 @@ One installment line in `GET /customers/{id}` → `plans[].schedule[]`:
 ```
 A credit plan has `kind: "credit"`, `creditDueDate`, one schedule line on that date, and no `penalty`.
 
-### 3.10b Staff see the whole branch, staff in several branches (1.18.0)
+### 3.10b Staff see the whole branch, staff in several branches (1.19.0)
 An admin lets a Barishal staff member also work in Patuakhali (the first branch stays the home branch):
 ```http
 PATCH /api/v1/users/6740…

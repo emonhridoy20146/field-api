@@ -7,7 +7,7 @@ import { applyAssignments, getByErpId } from '../../src/modules/customers/index.
 import { ChangeModel } from '../../src/core/changefeed/index.js';
 
 /**
- * FR-CUS-015 / ADR-037 (contract 1.18.0): field staff see every customer of their branches, assigned or not, and a
+ * FR-CUS-015 / ADR-038 (contract 1.19.0): field staff see every customer of their branches, assigned or not, and a
  * staff member can work in several branches. The assigned-only rule (setting = assigned) is covered by the older
  * customers / sync / assignments / fieldwork suites.
  */

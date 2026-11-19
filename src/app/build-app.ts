@@ -11,7 +11,8 @@ import { AppError, toProblem } from '../core/errors/index.js';
 import { EventBus } from '../core/events/bus.js';
 import { createLogger, type Logger } from '../core/logger/index.js';
 import { initJwtKeys, verifyAccessToken } from '../core/security/jwt.js';
-import { setStorage, storageFromConfig } from '../core/storage/index.js';
+import { setStorage, storage, storageFromConfig } from '../core/storage/index.js';
+import { DbStorage, storageRoutes } from '../core/storage/db-storage.js';
 import { systemClock, type Clock } from '../core/time/index.js';
 import { compareVersions, parseClientHeader } from '../core/http/index.js';
 import { topoSort, validateManifests } from '../core/module/validate.js';
@@ -40,13 +41,14 @@ export async function bootModules(opts: BuildOptions): Promise<AppContext> {
   const ctx: AppContext = { config: opts.config, clock: opts.clock ?? systemClock, logger, bus: new EventBus(logger), ports: {}, manifests };
   setContext(ctx);
   await initJwtKeys(opts.config);
-  setStorage(storageFromConfig(opts.config));
+  setStorage(storageFromConfig(opts.config, () => ctx.clock.now()));
   for (const m of manifests) await m.init?.();
   if (opts.migrate) await runMigrations(manifests.map((m) => ({ module: m.name, migrations: m.migrations ?? [] })), (msg) => logger.info(msg));
   return ctx;
 }
 
-const NO_VERSION_GATE = /^\/api\/v1\/(meta\/|system\/health)/;
+// Storage URLs are file transfers, not API calls: an old app must still finish its uploads.
+const NO_VERSION_GATE = /^\/api\/v1\/(meta\/|system\/health|storage\/)/;
 
 export async function buildApp(opts: BuildOptions): Promise<Built> {
   const ctx = await bootModules(opts);
@@ -156,6 +158,9 @@ export async function buildApp(opts: BuildOptions): Promise<Built> {
     },
     { prefix: '/api/v1' },
   );
+  // Signed upload/download URLs when files live in the database (ADR-039).
+  const store = storage();
+  if (store instanceof DbStorage) await app.register(storageRoutes(store), { prefix: '/api/v1' });
 
   return { app, ctx };
 }

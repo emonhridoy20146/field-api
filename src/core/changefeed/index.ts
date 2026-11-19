@@ -13,7 +13,7 @@ const changeSchema = new Schema(
     seq: { type: Number, required: true, unique: true },
     userIds: { type: [String], index: true },
     branchId: { type: String, default: null },
-    /** 1.18.0 (ADR-037): also for every device of this branch (staff who see the whole branch's customers). */
+    /** 1.19.0 (ADR-038): also for every device of this branch (staff who see the whole branch's customers). */
     fanoutBranchId: { type: String, default: null },
     entity: { type: String, required: true },
     entityId: { type: String, required: true },

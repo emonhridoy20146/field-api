@@ -62,7 +62,7 @@ export async function pull(user: AuthUser, q: { cursor: string; limit: number })
   const oldest = await ChangeModel.findOne().sort({ seq: 1 }).select({ seq: 1 }).lean();
   if (since > head || (since < head && (!oldest || since + 1 < oldest.seq))) throw new AppError('CURSOR_EXPIRED');
 
-  // Own changes, plus branch-wide ones of the user's branches (ADR-037); each loader still applies the user's scope.
+  // Own changes, plus branch-wide ones of the user's branches (ADR-038); each loader still applies the user's scope.
   const audience = user.branchIds.length ? { $or: [{ userIds: user.id }, { fanoutBranchId: { $in: user.branchIds } }] } : { userIds: user.id };
   const rows = await ChangeModel.find({ ...audience, seq: { $gt: since } }).sort({ seq: 1 }).limit(q.limit + 1).lean();
   const page = rows.slice(0, q.limit);

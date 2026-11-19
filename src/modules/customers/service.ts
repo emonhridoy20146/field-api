@@ -61,7 +61,7 @@ export type StaffVisibility = 'branch' | 'assigned';
 
 /**
  * Of these branches, the ones where field staff see every customer of the branch (setting
- * `customers.staffVisibility` = `branch`, the default since 1.18.0, ADR-037) rather than only their own.
+ * `customers.staffVisibility` = `branch`, the default since 1.19.0, ADR-038) rather than only their own.
  */
 export async function wholeBranchIds(branchIds: string[]): Promise<string[]> {
   const out: string[] = [];
@@ -71,7 +71,7 @@ export async function wholeBranchIds(branchIds: string[]): Promise<string[]> {
 
 /**
  * SA → all; BM/viewer → their branches; field staff → every customer of their branches (one or more), or only
- * the ones assigned to them in a branch set to `assigned` (the rule before 1.18.0). Assignment still decides whose
+ * the ones assigned to them in a branch set to `assigned` (the rule before 1.19.0). Assignment still decides whose
  * work a customer is (Today, targets, handovers); it no longer hides the rest of the branch.
  */
 export async function scopeFilter(user: AuthUser): Promise<Record<string, unknown>> {
@@ -517,7 +517,7 @@ async function listItems(rows: Doc[], user: AuthUser, near: LatLng | null) {
       overduePoisha: c.derived?.overdueAmountPoisha ?? 0,
       areaName: x.areaName ?? null,
       branchId: c.branchId ?? null,
-      // 1.18.0: staff may work in several branches, so every row says which one it belongs to.
+      // 1.19.0: staff may work in several branches, so every row says which one it belongs to.
       ...(b ? { branch: { id: b.id, code: b.code, name: { bn: b.name.bn || b.name.en, en: b.name.en || b.name.bn } } } : {}),
       ...(a ? { assignee: { id: a.id, name: a.name.en || a.name.bn } } : {}),
       erpFetchedAt: (c.erpFetchedAt as Date).toISOString(),

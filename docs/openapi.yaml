@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.18.0
+  version: 1.19.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -504,7 +504,7 @@ paths:
       operationId: listCustomers
       description: |
         Scope (FR-CUS-001, FR-CUS-015): super admin = all; branch manager / viewer = their branches; field staff =
-        every customer of their branches (one or more) since 1.18.0, or only the ones assigned to them in a branch whose
+        every customer of their branches (one or more) since 1.19.0, or only the ones assigned to them in a branch whose
         setting `customers.staffVisibility` is `assigned`. `assignedTo=me` gives the caller's own work list.
       parameters:
         - { name: filter, in: query, style: form, explode: false, schema: { type: array, items: { type: string, enum: [overdue, due_today, promised_today, bad_suggested, tagged_bad, no_location, unassigned, paid_up] } } }
@@ -1160,6 +1160,39 @@ paths:
       responses:
         '200': { description: Signed GET URL (5 min), content: { application/json: { schema: { type: object, properties: { url: { type: string }, expiresAt: { type: string } } } } } }
 
+  /storage/o:
+    parameters: [ { name: t, in: query, required: true, schema: { type: string, maxLength: 4096 }, description: Signed grant (key, method, expiry; for PUT also type, size and sha256) } ]
+    put:
+      tags: [media]
+      operationId: storagePut
+      summary: Upload target of a presigned URL when the server keeps files itself (ADR-039)
+      description: |
+        Only exists when the server has no S3 (`STORAGE_DRIVER=db`, the default on Vercel test deployments).
+        Clients never build this URL: they PUT to `uploadUrl` from `/media/upload-url` as for S3. No bearer
+        token; the signature in the path is the permission and expires after 5 minutes. The body must match
+        the signed content type, size and sha256.
+      security: []
+      requestBody:
+        required: true
+        content:
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
+          audio/aac: { schema: { type: string, format: binary } }
+          audio/mp4: { schema: { type: string, format: binary } }
+      responses:
+        '200': { description: Stored, content: { application/json: { schema: { type: object, required: [stored], properties: { stored: { type: boolean } } } } } }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+    get:
+      tags: [media]
+      operationId: storageGet
+      summary: Download target of a presigned GET URL when the server keeps files itself (ADR-039)
+      security: []
+      responses:
+        '200': { description: The file, with its stored content type, content: { '*/*': { schema: { type: string, format: binary } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
   /customers/{id}/notes:
     get:
       tags: [notes]
@@ -1709,7 +1742,7 @@ components:
         phone: { type: string }
         username: { type: string }
         role: { $ref: '#/components/schemas/Role' }
-        branchIds: { type: array, items: { type: string }, description: 'One or more branches; field staff may work in several since 1.18.0 (FR-CUS-015). The first is the home branch (attendance, cash, targets, app settings); the others widen whose customers they see.' }
+        branchIds: { type: array, items: { type: string }, description: 'One or more branches; field staff may work in several since 1.19.0 (FR-CUS-015). The first is the home branch (attendance, cash, targets, app settings); the others widen whose customers they see.' }
         employeeCode: { type: string }
         erpEmployeeId: { type: [string, 'null'] }
         shiftId: { type: [string, 'null'] }
@@ -1727,7 +1760,7 @@ components:
         phone: { type: string }
         username: { type: string }
         role: { $ref: '#/components/schemas/Role' }
-        branchIds: { type: array, items: { type: string }, minItems: 1, description: 'One or more branches; field staff may work in several since 1.18.0 (FR-CUS-015). The first is the home branch (attendance, cash, targets, app settings); the others widen whose customers they see.' }
+        branchIds: { type: array, items: { type: string }, minItems: 1, description: 'One or more branches; field staff may work in several since 1.19.0 (FR-CUS-015). The first is the home branch (attendance, cash, targets, app settings); the others widen whose customers they see.' }
         employeeCode: { type: string }
         erpEmployeeId: { type: string }
         shiftId: { type: string }
@@ -1738,7 +1771,7 @@ components:
         name: { $ref: '#/components/schemas/I18nText' }
         phone: { type: string }
         role: { $ref: '#/components/schemas/Role' }
-        branchIds: { type: array, items: { type: string }, minItems: 1, description: 'One or more branches; field staff may work in several since 1.18.0 (FR-CUS-015). The first is the home branch (attendance, cash, targets, app settings); the others widen whose customers they see.' }
+        branchIds: { type: array, items: { type: string }, minItems: 1, description: 'One or more branches; field staff may work in several since 1.19.0 (FR-CUS-015). The first is the home branch (attendance, cash, targets, app settings); the others widen whose customers they see.' }
         shiftId: { type: string }
         cashLimitPoisha: { type: integer }
         erpEmployeeId: { type: [string, 'null'], description: 'Documented in 1.13.0 (already accepted). Links the user to an ERP employee (GET /system/erp-employees); null unlinks' }
@@ -1867,7 +1900,7 @@ components:
         branch:
           type: object
           description: |
-            Added in 1.18.0 (FR-CUS-015). The customer's branch, so a list that spans several branches can say which
+            Added in 1.19.0 (FR-CUS-015). The customer's branch, so a list that spans several branches can say which
             one each row belongs to. Absent when the customer has no FOS branch.
           properties:
             id: { type: string }
