@@ -98,6 +98,9 @@ export async function pull(user: AuthUser, q: { cursor: string; limit: number })
 
 // ---------------- bootstrap (FR-SYNC-006) ----------------
 
+const BOOTSTRAP_CHUNK = 50;
+const BOOTSTRAP_PAGE_BUDGET_MS = 15_000;
+
 interface BootCursor extends Record<string, unknown> {
   i: number; // index into the snapshot-capable entities
   c: string | null; // that entity's own cursor
@@ -113,13 +116,16 @@ export async function bootstrap(user: AuthUser, q: { cursor?: string | undefined
 
   const items: { entity: string; op: 'upsert'; id: string; data: Record<string, unknown> }[] = [];
   let next: BootCursor | null = cur;
-  while (next && items.length < q.limit) {
+  // Small chunks and a time budget keep every page well inside a 60 s serverless call (Vercel test, ADR-034): a
+  // field staff member's first load is now the whole branch. The app simply asks for the next page.
+  const started = performance.now();
+  while (next && items.length < q.limit && (items.length === 0 || performance.now() - started < BOOTSTRAP_PAGE_BUDGET_MS)) {
     const s: (typeof snaps)[number] | undefined = snaps[next.i];
     if (!s) {
       next = null;
       break;
     }
-    const page: { items: Record<string, unknown>[]; nextCursor: string | null } = await s.def.snapshot!(user, next.c, q.limit - items.length);
+    const page: { items: Record<string, unknown>[]; nextCursor: string | null } = await s.def.snapshot!(user, next.c, Math.min(BOOTSTRAP_CHUNK, q.limit - items.length));
     for (const d of page.items) items.push({ entity: s.def.entity, op: 'upsert', id: String(d.id), data: d });
     cur = next;
     next = page.nextCursor ? { ...cur, c: page.nextCursor } : cur.i + 1 < snaps.length ? { i: cur.i + 1, c: null, seq: cur.seq } : null;
