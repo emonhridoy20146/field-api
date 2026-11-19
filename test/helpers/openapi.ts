@@ -43,3 +43,6 @@ export function expectConforms(method: string, url: string, status: number, body
   const ok = validate(body);
   expect(ok, `${method} ${tpl!.p} ${status} does not conform: ${ajv.errorsText(validate.errors)}`).toBe(true);
 }
+
+/** `info.version` of docs/openapi.yaml. */
+export const contractVersion = (): string => (doc.info as { version: string }).version;
