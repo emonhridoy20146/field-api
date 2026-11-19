@@ -384,6 +384,52 @@ describe('map pins (FR-CUS-011, contract 1.11.0)', () => {
     expect((await t.app.inject({ method: 'POST', url: `/api/v1/customers/${ids['100245']}/location`, payload: body })).statusCode).toBe(401);
   });
 
+  it('delete pin (1.17.0): ERP pin removed, idempotent, audited, stays removed after an ERP resync, a new pin brings it back', async () => {
+    const sa = await as(t, '01700000001');
+    const before = events.length;
+    expect((await sa.get(`/customers/${ids['200301']}`)).body.location.status).toBe('ok'); // the ERP knows this pin
+    const r = await sa.delete(`/customers/${ids['200301']}/location`);
+    expect(r.status).toBe(200);
+    expectConforms('DELETE', '/customers/{id}/location', 200, r.body);
+    expect(r.body).toMatchObject({ removed: true, location: { lat: null, lng: null, status: 'missing', source: 'overlay' } });
+    expect(events.slice(before).some((e) => e.name === 'customer.placed' && (e.payload as { customerId: string }).customerId === ids['200301'])).toBe(true);
+    // the assignee's phone hears about it
+    const pull = await (await as(t, '01700000005')).get('/sync/pull?cursor=s_0');
+    expect(pull.body.changes.some((c: { entity: string; id: string }) => c.entity === 'customer' && c.id === ids['200301'])).toBe(true);
+    // not on the map, in the "no location" list
+    expect((await sa.get(`/customers?filter=no_location&branchId=${s.branchB}`)).body.items.some((x: { erpCustomerId: string }) => x.erpCustomerId === '200301')).toBe(true);
+
+    // idempotent: nothing left to remove
+    const again = await sa.delete(`/customers/${ids['200301']}/location`);
+    expect(again.status).toBe(200);
+    expect(again.body.removed).toBe(false);
+
+    // the nightly full reconcile and a delta sync must not bring the ERP coordinates back
+    await reconcile();
+    await deltaSync();
+    const det = await sa.get(`/customers/${ids['200301']}`);
+    expect(det.body.location).toMatchObject({ lat: null, lng: null, status: 'missing' });
+
+    const audit = await sa.get(`/audit?entity=customer&entityId=${ids['200301']}`);
+    expect(JSON.stringify(audit.body)).toContain('customer.location.cleared');
+
+    // a new pin replaces the deletion
+    const set = await sa.post(`/customers/${ids['200301']}/location`, { clientId: randomUUID(), lat: 22.6501, lng: 90.3601 });
+    expect(set.status).toBe(201);
+    expect((await sa.get(`/customers/${ids['200301']}`)).body.location).toMatchObject({ status: 'overridden', source: 'overlay' });
+  });
+
+  it('delete pin: 403 for staff and viewer, 404 out of scope or unknown, 401 without a token', async () => {
+    expect((await (await as(t, '01700000003')).delete(`/customers/${ids['100245']}/location`)).status).toBe(403);
+    expect((await (await as(t, '01700000006')).delete(`/customers/${ids['100245']}/location`)).status).toBe(403);
+    const bm = await as(t, '01700000002');
+    expect((await bm.delete(`/customers/${ids['200301']}/location`)).status).toBe(404); // branch B
+    expect((await bm.delete('/customers/not-an-id/location')).status).toBe(404);
+    expect((await t.app.inject({ method: 'DELETE', url: `/api/v1/customers/${ids['100245']}/location` })).statusCode).toBe(401);
+    // a branch manager deletes a pin in their own branch
+    expect((await bm.delete(`/customers/${ids['100245']}/location`)).body.removed).toBe(true);
+  });
+
   it('the customer timeline lists direct assignments (FR-ASG-004)', async () => {
     const bm = await as(t, '01700000002');
     const a = await bm.post('/assignments', { userId: s.fs2.id, type: 'customer', customerId: ids['100248'], reason: 'Lives next to Sumon' });
