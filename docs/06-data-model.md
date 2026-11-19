@@ -89,10 +89,10 @@ Derived fields are recomputed on each sync **and** nightly at 00:05 Dhaka (becau
 
 ### location_proposals
 `{ clientId, customerId, branchId, proposedBy, point, accuracyM, photoMediaId, note, method: gps|map, devicePoint?, deviceAccuracyM?, deviceMock, autoApplied, direct, status: pending|approved|rejected, decidedBy, decidedAt, decisionReason }`.
-1.11.0 (ADR-031): `method`, `devicePoint`, `deviceAccuracyM`, `deviceMock`, `autoApplied` and `direct` added with defaults (`gps`, none, none, false, false, false), so older documents read unchanged and no migration is needed. A pin a manager sets on the map is a record with `direct: true`, `status: approved`, `proposedBy = decidedBy`. `locationOverride` on the customer gains `autoApplied` / `direct` flags.
+1.11.0 (ADR-031): `method`, `devicePoint`, `deviceAccuracyM`, `deviceMock`, `autoApplied` and `direct` added with defaults (`gps`, none, none, false, false, false), so older documents read unchanged and no migration is needed. A pin a manager sets on the map is a record with `direct: true`, `status: approved`, `proposedBy = decidedBy`. `locationOverride` on the customer gains `autoApplied` / `direct` flags. 1.17.0 (ADR-036): a deleted pin is `locationOverride: { cleared: true, clearedBy, clearedAt }` with `locationStatus: missing`, no `location`; the ERP sync honours it until a new pin replaces it.
 
 ### erp_sync_state
-`{ _id: 'customers:branch:6731…', cursor, lastSuccessAt, lastErrorAt, lastError, consecutiveFailures, lagSec }`.
+`{ _id: 'customers:branch:6731…', cursor, lastSuccessAt, lastErrorAt, lastError, consecutiveFailures, lagSec, resume? }`. 1.17.0: `resume: { cursor, since, serverTime }` is set while a budgeted pull (the manual sync) stopped mid-branch; the next run continues there and only then moves `cursor`. A second document `{ _id: 'manual-sync', lockedUntil }` is the lock of the "Sync from ERP" button. Both are optional (no migration).
 
 ## 4. Field operations
 
@@ -201,7 +201,7 @@ Written by the nightly `location.summarize` job (re-runnable; replaces the day).
 - `push_tokens` → stored on `devices.fcmToken` (one per device).
 - `broadcasts [ADDED] { title {bn,en}, body {bn,en}, branchIds[], roles[], requireAck, createdBy, createdAt, recipientIds[], ackedBy[], acks: [{userId, at}] }` · `{ recipientIds:1, _id:-1 }`. `ackedBy` is the membership list; `acks` (1.12.0) keeps when each recipient read it (the phone's tap time for offline reads, kept between sending and receipt). Broadcasts sent before 1.12.0 have no times.
 - `inbox_items [ADDED] { key (dedupe, e.g. 'collection.conflict:6750…'), type, severity: 'low'|'medium'|'high'|'critical', branchId, entity, entityId, summary {bn,en}, status: 'open'|'snoozed'|'resolved', snoozedUntil, resolvedBy, resolvedAt, createdAt }` · `{ key:1 } unique`, `{ branchId:1, status:1, severity:-1, createdAt:-1 }`.
-- `sync_changes { seq (int64 from counters), userIds: [] (audience), branchId, fanoutBranchId (1.15.0: also every device of this branch, ADR-036), entity, entityId, op: 'upsert'|'delete', at }` · `{ userIds:1, seq:1 }`, `{ fanoutBranchId:1, seq:1 }` · TTL 30 days (devices older than 30 days get a full resync: `410 CURSOR_EXPIRED`).
+- `sync_changes { seq (int64 from counters), userIds: [] (audience), branchId, fanoutBranchId (1.18.0: also every device of this branch, ADR-037), entity, entityId, op: 'upsert'|'delete', at }` · `{ userIds:1, seq:1 }`, `{ fanoutBranchId:1, seq:1 }` · TTL 30 days (devices older than 30 days get a full resync: `410 CURSOR_EXPIRED`).
 - `device_sync_state { deviceId, userId, branchId, lastPullSeq, lastPullAt, lastPushAt, pendingReported, lastError, appVersion }` · `{ deviceId:1, userId:1 } unique`, `{ branchId:1, lastPullAt:-1 }`.
 - `counters { _id: 'sync_seq', value }`.
 - `outbox`, `jobs` — see 04-architecture §6.5.

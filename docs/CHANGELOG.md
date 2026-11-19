@@ -2,9 +2,9 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
-## [1.15.0] — contract 1.15.0 (staff see the whole branch, staff in several branches)
+## [1.18.0] — contract 1.18.0 (staff see the whole branch, staff in several branches)
 ### Added
-- **Field staff see every customer of their branches** (owner request 2026-11-18, FR-CUS-014, ADR-036), assigned or not, so they can visit and collect from any of them. Assignment still says whose work a customer is (`assignedTo=me`, Today, targets, handovers). New setting `customers.staffVisibility` = `branch` (default) | `assigned` (the rule before 1.15.0), per branch and sent to the app.
+- **Field staff see every customer of their branches** (owner request 2026-11-18, FR-CUS-015, ADR-037), assigned or not, so they can visit and collect from any of them. Assignment still says whose work a customer is (`assignedTo=me`, Today, targets, handovers). New setting `customers.staffVisibility` = `branch` (default) | `assigned` (the rule before 1.18.0), per branch and sent to the app.
 - **Staff in several branches:** `User.branchIds` documented as one or more for every role; the first is the home branch (attendance, cash, targets, app settings). Adding or removing a branch re-sends that branch's customers to the user's devices (they load the ones now in scope and drop the rest).
 - `branch { id, code, name }` on `CustomerListItem` / `CustomerDetail`, so a list spanning several branches says which one each customer is in.
 - Change feed: `sync_changes.fanoutBranchId` delivers a customer change to every device of the branch (each device's scope still applies); `/sync/pull` reads own and branch-wide entries. Index migration `sync/20261118-0001-sync-fanout-index`. Switching the setting re-sends the branch's customers the same way.
@@ -12,6 +12,15 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 - Reassigning a customer no longer sends a hard delete to the old assignee: the entry is an upsert and the loader turns it into a tombstone only when the customer left that device's scope (still the case under `assigned`).
 - `customers.scopeFilter` is async (reads the setting); reports await it. A customer moved to another branch is dropped from the old branch's devices.
 - Tests that check the assigned-only rule run with `customers.staffVisibility = assigned`; `test/integration/staff-visibility.test.ts` covers the branch-wide rule, multi-branch users and switching the setting.
+
+## [1.17.0] — contract 1.17.0 (delete a pin, "Sync from ERP")
+### Added
+- **Delete a pin** (FR-CUS-014, owner request 2026-11-18, ADR-036). `DELETE /customers/{id}/location` (`customer.location.approve`): a manager deletes any in-scope customer's pin, from the ERP, the field or the map. The customer shows as "no location", the assignee's phone and polygon areas are updated, and the ERP sync keeps the pin deleted until a new pin is set. Audited `customer.location.cleared`; idempotent (`removed: false` when there was no pin).
+- **"Sync from ERP"** (FR-ERP-007, owner request 2026-11-18, ADR-036). `POST /system/erp-sync` with the new permission `erp.sync` (super admin and branch manager): pulls the customers changed in the ERP now. One run at a time (lock in `erp_sync_state`), at most ~40 s per call; `partial: true` = call again. `429 RATE_LIMITED` (`SYNC_RUNNING`), `503 ERP_UNAVAILABLE`.
+### Changed
+- `deltaSync({ budgetMs })` keeps the page it stopped at (`erp_sync_state.resume`), always does at least one page per run, and the scheduled job honours the same `resume`.
+### Checked
+- New integration tests: pin delete (ERP pin, idempotent, audit, sync feed, stays deleted after `reconcile` and `deltaSync`, 403/404/401), manual sync (200, lock 429, ERP down 503, permission 403, budget + resume).
 
 ## [1.14.0] — contract 1.14.0 (map pin colours, invoice viewer)
 ### Added

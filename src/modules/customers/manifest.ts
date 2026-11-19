@@ -17,7 +17,7 @@ export const manifest: ModuleManifest = {
     { key: 'customer.view', description: { en: 'View customers in scope', bn: 'গ্রাহক দেখা' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
     { key: 'customer.export', description: { en: 'Export customer lists', bn: 'গ্রাহক তালিকা এক্সপোর্ট' }, defaults: { super_admin: true, branch_manager: true } },
     { key: 'customer.location.propose', description: { en: 'Propose a corrected pin', bn: 'সঠিক পিন প্রস্তাব' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
-    { key: 'customer.location.approve', description: { en: 'Approve/reject pin corrections; set a pin on the map', bn: 'পিন সংশোধন অনুমোদন; ম্যাপে পিন বসানো' }, defaults: { super_admin: true, branch_manager: true } },
+    { key: 'customer.location.approve', description: { en: 'Approve/reject pin corrections; set or delete a pin on the map', bn: 'পিন সংশোধন অনুমোদন; ম্যাপে পিন বসানো বা মুছে ফেলা' }, defaults: { super_admin: true, branch_manager: true } },
   ],
   routes: customerRoutes,
   settings: [
@@ -37,11 +37,11 @@ export const manifest: ModuleManifest = {
       default: 'branch',
       branchOverridable: true,
       exposeToApp: true,
-      description: 'FR-CUS-014 / ADR-036: branch = field staff see every customer of their branches (owner request 2026-11-18); assigned = only customers assigned to them (the rule before 1.15.0)',
+      description: 'FR-CUS-015 / ADR-037: branch = field staff see every customer of their branches (owner request 2026-11-18); assigned = only customers assigned to them (the rule before 1.18.0)',
     },
   ],
   events: {
-    emits: ['customer.balance_cleared', 'customer.placed', 'customer.payments_synced', 'customer.location.proposed', 'customer.location.approved', 'customer.location.decided'],
+    emits: ['customer.balance_cleared', 'customer.placed', 'customer.payments_synced', 'customer.location.proposed', 'customer.location.approved', 'customer.location.cleared', 'customer.location.decided'],
     consumes: ['erp.customer.synced', 'erp.reconcile.completed', 'user.updated', 'settings.changed'],
   },
   jobs: [{ name: 'customers.recompute-derived', schedule: '5 0 * * *', handler: async () => void (await recomputeAllDerived()) }],
@@ -71,7 +71,7 @@ export const manifest: ModuleManifest = {
     const bus = ctx().bus;
     bus.on('erp.customer.synced', async (p) => void (await upsertFromErp(p.customer as ErpCustomer, p.fetchedAt as Date)));
     bus.on('erp.reconcile.completed', async (p) => void (await markMissing(p.erpBranchId as string, p.seenErpCustomerIds as string[])));
-    // ADR-036: a staff member's devices get the customers of a branch they joined and drop those of one they left.
+    // ADR-037: a staff member's devices get the customers of a branch they joined and drop those of one they left.
     bus.on('user.updated', async (p) => {
       if (!p.branchesChanged) return;
       const before = (p.previousBranchIds as string[] | undefined) ?? [];

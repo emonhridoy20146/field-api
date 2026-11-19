@@ -39,7 +39,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Pin corrections | FR-CUS-008 | ✅ API |
 | Map pins: manager sets on the map, staff map pins, pinless customers applied at once (ADR-031, contract 1.11.0) | FR-CUS-011 | ✅ API |
 | Pin colour by payment state, invoice filters and invoice viewer data (ADR-035, contract 1.14.0) | FR-CUS-012, FR-CUS-013 | ✅ API; screens in admin-web |
-| Staff see every customer of their branches, staff in several branches, branch on list rows (ADR-036, contract 1.15.0) | FR-CUS-014 | ✅ API |
+| Staff see every customer of their branches, staff in several branches, branch on list rows (ADR-037, contract 1.18.0) | FR-CUS-015 | ✅ API |
 | Leave cancel and filters, holiday delete and branch filter, my shift, who read a notice, offline notice read, guarantor calls (ADR-032, contract 1.12.0) | FR-ATT-008, FR-SET-002/003, FR-NOT-005, FR-M-014 | ✅ API |
 | Devices binding/remote logout | FR-AUTH-006..008 | ✅ API |
 | Real ERP shape: plan = invoice, rolled lines, late fee, credit sales, ERP removals as reversed, warehouses, ERP employees picker, branch map point, real ERP posting rules (ADR-033, contract 1.13.0). Checked live against a sandbox copy of the ERP with the prototype API (1,441 customers, totals equal to the poisha) | FR-ERP-006, FR-BR-002 | ✅ API · ☐ ERP API installed in production (owner decision, erp-integration-spec v2 §8) |
@@ -78,6 +78,8 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 
 ## Phase 4 — Premium & hardening (as approved)
 SMS receipts (FR-COL-012), broadcasts (FR-NOT-005), leave (FR-ATT-008), staff-initiated handover (FR-HO-007), manager digest (FR-REP-006), offline map packs, Bluetooth printing, payment verification module, ASVS L2 review, performance tuning to 200 staff.
+
+**2026-11-18 (contract 1.17.0):** delete a map pin (FR-CUS-014) and the "Sync from ERP" button (FR-ERP-007) are done in the API, ADR-036; admin-web screens follow in its own PR.
 
 **Test hosting:** Vercel serverless test deployment ready (ADR-034, README "Test deployment on Vercel"); production host still OD-08.
 

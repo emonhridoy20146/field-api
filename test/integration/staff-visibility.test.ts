@@ -7,7 +7,7 @@ import { applyAssignments, getByErpId } from '../../src/modules/customers/index.
 import { ChangeModel } from '../../src/core/changefeed/index.js';
 
 /**
- * FR-CUS-014 / ADR-036 (contract 1.15.0): field staff see every customer of their branches, assigned or not, and a
+ * FR-CUS-015 / ADR-037 (contract 1.18.0): field staff see every customer of their branches, assigned or not, and a
  * staff member can work in several branches. The assigned-only rule (setting = assigned) is covered by the older
  * customers / sync / assignments / fieldwork suites.
  */
@@ -45,7 +45,7 @@ beforeAll(async () => {
 });
 afterAll(async () => t.close());
 
-describe('branch-wide visibility for field staff (FR-CUS-014)', () => {
+describe('branch-wide visibility for field staff (FR-CUS-015)', () => {
   it('lists every customer of the branch, assigned or not, and says which branch each is in', async () => {
     const fs = await as(t, '01700000003');
     const res = await fs.get('/customers');
@@ -97,7 +97,7 @@ describe('branch-wide visibility for field staff (FR-CUS-014)', () => {
   });
 });
 
-describe('staff in several branches (FR-USER-001, FR-CUS-014)', () => {
+describe('staff in several branches (FR-USER-001, FR-CUS-015)', () => {
   it('adding a branch sends its customers to the device; removing it drops them', async () => {
     const sa = await as(t, '01700000001');
     const head = (await (await as(t, '01700000003')).get('/sync/bootstrap?limit=50')).body.pullCursor as string;

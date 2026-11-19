@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.15.0
+  version: 1.18.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -158,6 +158,23 @@ paths:
       operationId: erpStatus
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ErpStatus' } } } }
+  /system/erp-sync:
+    post:
+      tags: [system]
+      operationId: erpSync
+      description: |
+        Added in 1.17.0 (owner request 2026-11-18). The admin panel's "Sync from ERP" button: pulls the customers
+        that changed in the ERP since the last sync (all of them on the first run) into FOS now, instead of waiting for
+        the 5-minute job. Permission `erp.sync` (super admin and branch manager by default). One run at a time.
+        A call stops after about 40 s and answers `partial: true`; the caller calls again until it is `false`
+        (the next call continues where the last one stopped). Never changes money; the ERP stays the truth.
+        `429 RATE_LIMITED` (`details.reason: SYNC_RUNNING`) while another run is in progress; `503 ERP_UNAVAILABLE`
+        when the ERP cannot be reached.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ErpSyncResult' } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
   /system/erp-employees:
     get:
       tags: [system]
@@ -486,8 +503,8 @@ paths:
       tags: [customers]
       operationId: listCustomers
       description: |
-        Scope (FR-CUS-001, FR-CUS-014): super admin = all; branch manager / viewer = their branches; field staff =
-        every customer of their branches (one or more) since 1.15.0, or only the ones assigned to them in a branch whose
+        Scope (FR-CUS-001, FR-CUS-015): super admin = all; branch manager / viewer = their branches; field staff =
+        every customer of their branches (one or more) since 1.18.0, or only the ones assigned to them in a branch whose
         setting `customers.staffVisibility` is `assigned`. `assignedTo=me` gives the caller's own work list.
       parameters:
         - { name: filter, in: query, style: form, explode: false, schema: { type: array, items: { type: string, enum: [overdue, due_today, promised_today, bad_suggested, tagged_bad, no_location, unassigned, paid_up] } } }
@@ -630,6 +647,22 @@ paths:
         '404': { $ref: '#/components/responses/Problem' }
         '409': { description: 'INVALID_STATE CLIENT_ID_REUSED: the clientId belongs to another pin', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
         '422': { description: 'BUSINESS_RULE OUTSIDE_BANGLADESH', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    delete:
+      tags: [customers]
+      operationId: deleteCustomerLocation
+      description: |
+        1.17.0 (owner request 2026-11-18): a manager deletes the customer's map pin, whatever its source (ERP, field or
+        map). The customer has no pin afterwards (`location.status: missing`, `source: overlay`), so it shows in the
+        "no location" list and staff can drop a new pin, which applies at once under the default policy. The ERP
+        coordinates are not shown again: the sync keeps the pin deleted until a new pin is set. Audited as
+        `customer.location.cleared`, reaches the assignee's phone through sync, recomputes polygon areas. Pending staff
+        proposals stay pending. Idempotent: when there is no pin, nothing changes and `removed` is `false`.
+        Permission `customer.location.approve`; out of scope → 404.
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DeleteLocationResult' } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
   /location-proposals:
     get:
       tags: [customers]
@@ -1676,7 +1709,7 @@ components:
         phone: { type: string }
         username: { type: string }
         role: { $ref: '#/components/schemas/Role' }
-        branchIds: { type: array, items: { type: string }, description: 'One or more branches; field staff may work in several since 1.15.0 (FR-CUS-014). The first is the home branch (attendance, cash, targets, app settings); the others widen whose customers they see.' }
+        branchIds: { type: array, items: { type: string }, description: 'One or more branches; field staff may work in several since 1.18.0 (FR-CUS-015). The first is the home branch (attendance, cash, targets, app settings); the others widen whose customers they see.' }
         employeeCode: { type: string }
         erpEmployeeId: { type: [string, 'null'] }
         shiftId: { type: [string, 'null'] }
@@ -1694,7 +1727,7 @@ components:
         phone: { type: string }
         username: { type: string }
         role: { $ref: '#/components/schemas/Role' }
-        branchIds: { type: array, items: { type: string }, minItems: 1, description: 'One or more branches; field staff may work in several since 1.15.0 (FR-CUS-014). The first is the home branch (attendance, cash, targets, app settings); the others widen whose customers they see.' }
+        branchIds: { type: array, items: { type: string }, minItems: 1, description: 'One or more branches; field staff may work in several since 1.18.0 (FR-CUS-015). The first is the home branch (attendance, cash, targets, app settings); the others widen whose customers they see.' }
         employeeCode: { type: string }
         erpEmployeeId: { type: string }
         shiftId: { type: string }
@@ -1705,7 +1738,7 @@ components:
         name: { $ref: '#/components/schemas/I18nText' }
         phone: { type: string }
         role: { $ref: '#/components/schemas/Role' }
-        branchIds: { type: array, items: { type: string }, minItems: 1, description: 'One or more branches; field staff may work in several since 1.15.0 (FR-CUS-014). The first is the home branch (attendance, cash, targets, app settings); the others widen whose customers they see.' }
+        branchIds: { type: array, items: { type: string }, minItems: 1, description: 'One or more branches; field staff may work in several since 1.18.0 (FR-CUS-015). The first is the home branch (attendance, cash, targets, app settings); the others widen whose customers they see.' }
         shiftId: { type: string }
         cashLimitPoisha: { type: integer }
         erpEmployeeId: { type: [string, 'null'], description: 'Documented in 1.13.0 (already accepted). Links the user to an ERP employee (GET /system/erp-employees); null unlinks' }
@@ -1834,7 +1867,7 @@ components:
         branch:
           type: object
           description: |
-            Added in 1.15.0 (FR-CUS-014). The customer's branch, so a list that spans several branches can say which
+            Added in 1.18.0 (FR-CUS-015). The customer's branch, so a list that spans several branches can say which
             one each row belongs to. Absent when the customer has no FOS branch.
           properties:
             id: { type: string }
@@ -2236,6 +2269,23 @@ components:
       properties:
         id: { type: string }
         status: { type: string, enum: [pending, approved, rejected], description: '`approved` when it was applied at once' }
+    DeleteLocationResult:
+      type: object
+      description: Added in 1.17.0
+      required: [removed, location]
+      properties:
+        removed: { type: boolean, description: 'false when the customer had no pin (nothing changed)' }
+        location: { $ref: '#/components/schemas/CustomerLocation' }
+    ErpSyncResult:
+      type: object
+      description: Added in 1.17.0
+      required: [customers, branches, partial, finishedAt]
+      properties:
+        customers: { type: integer, description: 'Customers pulled and updated by this call' }
+        branches: { type: integer, description: 'ERP branches seen' }
+        partial: { type: boolean, description: 'true = stopped for time; call again to continue' }
+        durationMs: { type: integer }
+        finishedAt: { type: string, format: date-time }
     SetLocationResult:
       type: object
       description: Added in 1.11.0
