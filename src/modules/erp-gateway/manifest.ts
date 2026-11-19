@@ -9,7 +9,9 @@ export const manifest: ModuleManifest = {
   core: true,
   description: 'The only integration point with the Laravel ERP (ADR-005)',
   dependsOn: ['settings'],
-  permissions: [],
+  permissions: [
+    { key: 'erp.sync', description: { en: 'Pull the latest customer data from the ERP now ("Sync from ERP")', bn: 'ERP থেকে এখনই সর্বশেষ গ্রাহক তথ্য আনা' }, defaults: { super_admin: true, branch_manager: true } },
+  ],
   routes: erpRoutes,
   events: {
     emits: [

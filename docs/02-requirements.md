@@ -42,12 +42,13 @@ Defaults: SA = super_admin, BM = branch_manager, FS = field_staff, VW = viewer. 
 | `rbac.manage` | Change branch/user permission overrides | ● | ○ | ○ | ○ | rbac |
 | `branch.view` | View branches | ● | ● | ● | ● | branches |
 | `settings.manage` | Org settings, duty hours, thresholds, holidays | ● | ○ | ○ | ○ | settings |
+| `erp.sync` | "Sync from ERP": pull the latest customer data from the ERP now (1.17.0) | ● | ● | ○ | ○ | erp-gateway |
 | `flag.manage` | Toggle feature flags (global / per branch) | ● | ○ | ○ | ○ | flags |
 | `device.manage` | View devices, revoke sessions, unbind device | ● | ● | ○ | ○ | devices |
 | `customer.view` | View customers in scope (list, detail, plan, schedule, payments) | ● | ● | ● | ● | customers |
 | `customer.export` | Export customer lists | ● | ● | ○ | ○ | customers |
 | `customer.location.propose` | Propose a corrected pin | ● | ● | ● | ○ | customers |
-| `customer.location.approve` | Approve/reject pin corrections; set a pin on the map (1.11.0) | ● | ● | ○ | ○ | customers |
+| `customer.location.approve` | Approve/reject pin corrections; set a pin on the map (1.11.0); delete a pin (1.17.0) | ● | ● | ○ | ○ | customers |
 | `tag.view` | See bad-customer suggestion, tag and history | ● | ● | ● | ● | tags |
 | `tag.set` | Tag/untag (reason required) | ● | ● | ● | ○ | tags |
 | `tag.approve` | Review queue: approve/revert staff-set tags, act on "balance cleared" prompts | ● | ● | ○ | ○ | tags |
@@ -156,6 +157,7 @@ Rules:
 | FR-ERP-004 | ERP status indicator: last successful sync time, lag, failure count; exposed at `/system/erp-status` and shown in admin header when lag > 15 min. | active | P1 | A W | I E |
 | FR-ERP-005 | "Record-only mode" fallback (setting): if Laravel write endpoint is unavailable, collections remain `received` and an export for manual office entry is available. | active | P1 | A W | I E |
 | FR-ERP-006 | Real ERP shape (contract 1.13.0, ADR-033): plan = ERP invoice (installment or credit) with invoice number, items, guarantor, frequency, late fee and rolled lines; reversed payments from ERP removals; ERP directions and risk on the customer; ERP employees list to link staff (`GET /system/erp-employees`); conflicts `PLAN_CLOSED`, `DUPLICATE_SAME_DAY`, `METHOD_NOT_AVAILABLE`, `COLLECTOR_NOT_LINKED`. | active | P0 | A W M | U C I |
+| FR-ERP-007 **[ADDED 2026-11-18, owner request]** | "Sync from ERP" button: `POST /system/erp-sync` (permission `erp.sync`) pulls the customers changed in the ERP since the last sync now (everything on the first run), one run at a time (Mongo lock), at most ~40 s per call; `partial: true` means call again (the next call continues where the last stopped). Never changes money; ERP down → `503 ERP_UNAVAILABLE`. | active | P1 | A W | I |
 | FR-CUS-001 | Customer list scoped by role: FS = assigned (direct + area); BM = their branches; SA = all. Cursor-paginated (default 25, max 100). | active | P1 | A W M | I E |
 | FR-CUS-002 | Filters: `overdue`, `due_today`, `promised_today`, `assigned_to_me`, `branchId`, `areaId`, `assigneeId`, `bad_suggested`, `tagged_bad`, `no_location`, `q` (name/phone/ERP code), `near` (lat,lng,radius) with sort by distance. | active | P1 | A W M | I E |
 | FR-CUS-003 | Customer detail: profile, all plans with schedule, payment history (ERP + pending field collections, visually distinct), outstanding balance per plan and total, next due, days overdue, assignment, tag + suggestion, last visit, open promise, notes. | active | P1 | A W M | I E |
@@ -168,6 +170,7 @@ Rules:
 | FR-CUS-010 **[ADDED]** | "As of" freshness: every balance shown with `erpFetchedAt`; app warns when > 24 h old. | proposed | P1 | A W M | U D |
 | FR-CUS-012 **[ADDED 2026-11-18, owner request]** | Map pin colour by payment state (ADR-035): red = tagged bad/legal or a plan's full term over with money left; orange = two or more missed installments; yellow = one missed installment; blue = due today; green = everything due so far paid; grey = nothing left to pay. Pins, clusters (worst colour + count per colour), list items and filters (`payState`). | active | P1 | A W | I E |
 | FR-CUS-013 **[ADDED 2026-11-18, owner request]** | Invoice viewer data: each installment and credit invoice with header money (subtotal, discounts, tax, total, down payment, financed, paid, settlement discount, written off, refunded, due), items with unit price and line total, credit due date, and for installments every line with due date, amount, late fee, paid, left, status, the ERP payments that paid it (date, receipt, amount), paid-on date and days late. Customer list filter `invoiceKind` (open installment / credit invoice). | active | P1 | A W | I E |
+| FR-CUS-014 **[ADDED 2026-11-18, owner request]** | Delete a map pin: a manager or super admin deletes any in-scope customer's pin, whatever its source (`DELETE /customers/{id}/location`, permission `customer.location.approve`, audited `customer.location.cleared`). The customer then has no pin (`missing`), is in the "no location" list, the assignee's phone and polygon areas are updated, and the ERP sync keeps it deleted until a new pin is set (ADR-036). Idempotent. The admin panel asks the user to type a confirm word first. | active | P1 | A W M | I E |
 | FR-CUS-011 **[ADDED 2026-11-17, owner request]** | Map pin (Uber style): admin/manager drops or drags a pin on a map to set any in-scope customer's coordinates directly (`POST /customers/{id}/location`, permission `customer.location.approve`, audited `customer.location.set`, kept in pin history as `direct`). Field staff pick a pin on the map too (`method: map`, with the phone position for the reviewer). A staff pin for a customer **without** a usable pin is applied at once (owner decision 2026-11-17; setting `customers.staffPinApproval` = `when_missing` default \| `always`, per branch); moving an existing pin still needs a manager. Every applied pin recomputes polygon areas and the assignee. | active | P1 | A W M | I E |
 
 **Overdue definitions** (rule module `customers/domain/status.ts`, plan length never hardcoded):

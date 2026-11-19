@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.16.0
+  version: 1.18.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -159,6 +159,23 @@ paths:
       operationId: erpStatus
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ErpStatus' } } } }
+  /system/erp-sync:
+    post:
+      tags: [system]
+      operationId: erpSync
+      description: |
+        Added in 1.17.0 (owner request 2026-11-18). The admin panel's "Sync from ERP" button: pulls the customers
+        that changed in the ERP since the last sync (all of them on the first run) into FOS now, instead of waiting for
+        the 5-minute job. Permission `erp.sync` (super admin and branch manager by default). One run at a time.
+        A call stops after about 40 s and answers `partial: true`; the caller calls again until it is `false`
+        (the next call continues where the last one stopped). Never changes money; the ERP stays the truth.
+        `429 RATE_LIMITED` (`details.reason: SYNC_RUNNING`) while another run is in progress; `503 ERP_UNAVAILABLE`
+        when the ERP cannot be reached.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ErpSyncResult' } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
   /system/erp-employees:
     get:
       tags: [system]
@@ -627,6 +644,22 @@ paths:
         '404': { $ref: '#/components/responses/Problem' }
         '409': { description: 'INVALID_STATE CLIENT_ID_REUSED: the clientId belongs to another pin', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
         '422': { description: 'BUSINESS_RULE OUTSIDE_BANGLADESH', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    delete:
+      tags: [customers]
+      operationId: deleteCustomerLocation
+      description: |
+        1.17.0 (owner request 2026-11-18): a manager deletes the customer's map pin, whatever its source (ERP, field or
+        map). The customer has no pin afterwards (`location.status: missing`, `source: overlay`), so it shows in the
+        "no location" list and staff can drop a new pin, which applies at once under the default policy. The ERP
+        coordinates are not shown again: the sync keeps the pin deleted until a new pin is set. Audited as
+        `customer.location.cleared`, reaches the assignee's phone through sync, recomputes polygon areas. Pending staff
+        proposals stay pending. Idempotent: when there is no pin, nothing changes and `removed` is `false`.
+        Permission `customer.location.approve`; out of scope → 404.
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DeleteLocationResult' } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
   /location-proposals:
     get:
       tags: [customers]
@@ -963,7 +996,7 @@ paths:
       tags: [tasks]
       operationId: myTasks
       description: |
-        The caller's own tasks (1.16.0, FR-TASK-003): everything still going plus what was closed in the last 30 days, newest first.
+        The caller's own tasks (1.18.0, FR-TASK-003): everything still going plus what was closed in the last 30 days, newest first.
         Permission task.work. The app mostly gets the same tasks as sync entity `task`; this call is for refreshing online.
       responses:
         '200': { description: OK, content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/Task' } } } } } } }
@@ -972,7 +1005,7 @@ paths:
       tags: [tasks]
       operationId: requestTaskResolve
       description: |
-        The assignee says the work is done (1.16.0, FR-TASK-002). open → resolve_requested and every manager with task.manage in the task's
+        The assignee says the work is done (1.18.0, FR-TASK-002). open → resolve_requested and every manager with task.manage in the task's
         branch is notified. Idempotent: a repeat answers 200 with the task as it is. Offline phones use the sync mutation `task_resolve_request`.
         Permission task.work; a task of someone else is 404. 409 INVALID_STATE: TASK_RESOLVED, TASK_CANCELLED.
       parameters: [ { $ref: '#/components/parameters/Id' } ]
@@ -987,7 +1020,7 @@ paths:
       tags: [tasks]
       operationId: listTasks
       description: |
-        Tasks in scope, newest first (1.16.0, FR-TASK-004). Permission task.view. `counts` are for the same branch, person and search whatever
+        Tasks in scope, newest first (1.18.0, FR-TASK-004). Permission task.view. `counts` are for the same branch, person and search whatever
         `status` is, so tab badges stay right; `counts.overdue` = still going and past the due date.
       parameters:
         - { name: status, in: query, schema: { $ref: '#/components/schemas/TaskStatus' } }
@@ -1003,7 +1036,7 @@ paths:
       tags: [tasks]
       operationId: createTask
       description: |
-        Give a task to one field staff member, with a note (1.16.0, FR-TASK-001). Not tied to a customer. The assignee is notified. Idempotent by clientId
+        Give a task to one field staff member, with a note (1.18.0, FR-TASK-001). Not tied to a customer. The assignee is notified. Idempotent by clientId
         (a repeat answers 200). Permission task.manage. `branchId` must be one of the assignee's branches that the caller can see; default: the first such branch.
         422 BUSINESS_RULE: TASK_INVALID_ASSIGNEE (unknown, inactive, not field staff, or out of the caller's scope), TASK_DUE_IN_PAST.
       requestBody:
@@ -1018,14 +1051,14 @@ paths:
     get:
       tags: [tasks]
       operationId: getTask
-      description: 'One task with its history (1.16.0). Permission task.view; out of scope is 404.'
+      description: 'One task with its history (1.18.0). Permission task.view; out of scope is 404.'
       parameters: [ { $ref: '#/components/parameters/Id' } ]
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Task' } } } }
     patch:
       tags: [tasks]
       operationId: editTask
-      description: 'Change title, note or due date while the task is open (1.16.0). Permission task.manage. 409 INVALID_STATE: TASK_RESOLVE_REQUESTED, TASK_RESOLVED, TASK_CANCELLED, TASK_CHANGED. 422 TASK_DUE_IN_PAST.'
+      description: 'Change title, note or due date while the task is open (1.18.0). Permission task.manage. 409 INVALID_STATE: TASK_RESOLVE_REQUESTED, TASK_RESOLVED, TASK_CANCELLED, TASK_CHANGED. 422 TASK_DUE_IN_PAST.'
       parameters: [ { $ref: '#/components/parameters/Id' } ]
       requestBody:
         required: true
@@ -1038,7 +1071,7 @@ paths:
     post:
       tags: [tasks]
       operationId: verifyTask
-      description: 'The admin agrees the work is done: resolve_requested → resolved; the assignee is notified (1.16.0, FR-TASK-003). Idempotent. Permission task.manage. 409 INVALID_STATE: TASK_OPEN (no resolve request yet), TASK_CANCELLED, TASK_CHANGED.'
+      description: 'The admin agrees the work is done: resolve_requested → resolved; the assignee is notified (1.18.0, FR-TASK-003). Idempotent. Permission task.manage. 409 INVALID_STATE: TASK_OPEN (no resolve request yet), TASK_CANCELLED, TASK_CHANGED.'
       parameters: [ { $ref: '#/components/parameters/Id' } ]
       requestBody:
         content:
@@ -1050,7 +1083,7 @@ paths:
     post:
       tags: [tasks]
       operationId: rejectTask
-      description: 'The admin says the work is not done: resolve_requested → open, with a reason (at least 5 characters) the assignee sees (1.16.0, FR-TASK-003). Permission task.manage. 422 REASON_REQUIRED. 409 INVALID_STATE: TASK_OPEN, TASK_RESOLVED, TASK_CANCELLED, TASK_CHANGED.'
+      description: 'The admin says the work is not done: resolve_requested → open, with a reason (at least 5 characters) the assignee sees (1.18.0, FR-TASK-003). Permission task.manage. 422 REASON_REQUIRED. 409 INVALID_STATE: TASK_OPEN, TASK_RESOLVED, TASK_CANCELLED, TASK_CHANGED.'
       parameters: [ { $ref: '#/components/parameters/Id' } ]
       requestBody:
         required: true
@@ -1063,7 +1096,7 @@ paths:
     post:
       tags: [tasks]
       operationId: cancelTask
-      description: 'The admin withdraws a task that is open or waiting for verification (1.16.0). Idempotent; the assignee is notified. Permission task.manage. 409 INVALID_STATE: TASK_RESOLVED, TASK_CHANGED.'
+      description: 'The admin withdraws a task that is open or waiting for verification (1.18.0). Idempotent; the assignee is notified. Permission task.manage. 409 INVALID_STATE: TASK_RESOLVED, TASK_CHANGED.'
       parameters: [ { $ref: '#/components/parameters/Id' } ]
       requestBody:
         content:
@@ -1486,7 +1519,7 @@ paths:
       operationId: syncBootstrap
       parameters: [ { $ref: '#/components/parameters/Cursor' }, { name: limit, in: query, schema: { type: integer, default: 100, minimum: 1, maximum: 200 } } ]
       responses:
-        '200': { description: "Paged snapshot for a fresh device; the final page has nextCursor null and returns pullCursor (schema declared in 1.5.0). Entities, in this order (1.9.1): attendance_day (today, id userId:date), cowork_session (today's), customer (whole scope), location_proposal (own pending), promise (own open), visit (today's, own and joint). Since 1.16.0 also task (open ones and those closed in the last 30 days). Older history is not included; it is read online.", content: { application/json: { schema: { $ref: '#/components/schemas/SyncBootstrapResponse' } } } }
+        '200': { description: "Paged snapshot for a fresh device; the final page has nextCursor null and returns pullCursor (schema declared in 1.5.0). Entities, in this order (1.9.1): attendance_day (today, id userId:date), cowork_session (today's), customer (whole scope), location_proposal (own pending), promise (own open), visit (today's, own and joint). Since 1.18.0 also task (open ones and those closed in the last 30 days). Older history is not included; it is read online.", content: { application/json: { schema: { $ref: '#/components/schemas/SyncBootstrapResponse' } } } }
   /sync/pull:
     get:
       tags: [sync]
@@ -2260,7 +2293,7 @@ components:
         createdAt: { type: string, format: date-time }
         endedAt: { type: [string, 'null'] }
         visitsCount: { type: integer, description: 'Co-work visits recorded in this session (manager list and detail only)' }
-    TaskStatus: { type: string, enum: [open, resolve_requested, resolved, cancelled], description: '1.16.0. open → resolve_requested (staff) → resolved (admin verifies) or back to open (admin rejects with a reason); cancelled by an admin.' }
+    TaskStatus: { type: string, enum: [open, resolve_requested, resolved, cancelled], description: '1.18.0. open → resolve_requested (staff) → resolved (admin verifies) or back to open (admin rejects with a reason); cancelled by an admin.' }
     TaskCounts:
       type: object
       required: [open, resolve_requested, resolved, cancelled, overdue]
@@ -2289,7 +2322,7 @@ components:
         note: { type: [string, 'null'] }
     Task:
       type: object
-      description: 'A free-form job an admin gave to one field staff member (1.16.0). Sync entity `task`, sent only to the assignee.'
+      description: 'A free-form job an admin gave to one field staff member (1.18.0). Sync entity `task`, sent only to the assignee.'
       required: [id, branchId, assignee, createdBy, title, status, overdue, events, createdAt, updatedAt]
       properties:
         id: { type: string }
@@ -2386,6 +2419,23 @@ components:
       properties:
         id: { type: string }
         status: { type: string, enum: [pending, approved, rejected], description: '`approved` when it was applied at once' }
+    DeleteLocationResult:
+      type: object
+      description: Added in 1.17.0
+      required: [removed, location]
+      properties:
+        removed: { type: boolean, description: 'false when the customer had no pin (nothing changed)' }
+        location: { $ref: '#/components/schemas/CustomerLocation' }
+    ErpSyncResult:
+      type: object
+      description: Added in 1.17.0
+      required: [customers, branches, partial, finishedAt]
+      properties:
+        customers: { type: integer, description: 'Customers pulled and updated by this call' }
+        branches: { type: integer, description: 'ERP branches seen' }
+        partial: { type: boolean, description: 'true = stopped for time; call again to continue' }
+        durationMs: { type: integer }
+        finishedAt: { type: string, format: date-time }
     SetLocationResult:
       type: object
       description: Added in 1.11.0
@@ -2496,7 +2546,7 @@ components:
             cash_closing → { businessDate, note? } · handover_decision → { handoverId, decision: accept|reject, reason? (required to reject) } ·
             tag payload may carry `ifMatch` (customer version).
             1.12.0: broadcast_ack → { broadcastId, at? } (when the staff tapped "read"; kept between sending and now).
-            1.16.0: task_resolve_request → { taskId, note?, requestedAt? } (the staff member says the task is done; idempotent, a repeat is a replay). Needs permission task.work.
+            1.18.0: task_resolve_request → { taskId, note?, requestedAt? } (the staff member says the task is done; idempotent, a repeat is a replay). Needs permission task.work.
             Every mutation is idempotent by mutationId; the same id with a different payload is rejected with IDEMPOTENCY_MISMATCH.
         createdAt: { type: string, format: date-time }
     SyncPushRequest:
@@ -2542,7 +2592,7 @@ components:
             attendance_day → AttendanceDay · notification → Notification · broadcast → Broadcast · setting → { key, value } ·
             contact_attempt → ContactAttempt · location_proposal → OwnLocationProposal (1.7.0; sent only to the staff member who proposed, on create and on the manager's decision) ·
             cowork_session → CoworkSession (1.9.0; sent to every invited or member user on each change)
-            task → Task (1.16.0; sent to the assignee on every change; the bootstrap snapshot holds open tasks and those closed in the last 30 days)
+            task → Task (1.18.0; sent to the assignee on every change; the bootstrap snapshot holds open tasks and those closed in the last 30 days)
         reason: { type: string }
     ContactAttemptCreate:
       type: object

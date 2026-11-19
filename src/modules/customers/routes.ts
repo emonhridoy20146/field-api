@@ -103,6 +103,8 @@ export const customerRoutes = defineRoutes((r) => {
     reply.code(res.replayed ? 200 : 201);
     return { id: res.id, status: res.status, location: res.location };
   });
+  // 1.17.0: delete the pin (ERP, field or map) so it is no longer shown; see clearLocation.
+  r.delete('/customers/:id/location', { access: perm('customer.location.approve') }, async (req) => s.clearLocation(requireUser(req), idOf(req), requestMeta(req)));
   // Plain array, as the contract has declared since 1.4.0.
   r.get('/location-proposals', { access: perm('customer.location.approve') }, async (req) => s.listProposals(requireUser(req), parse(proposalsQuery, req.query)));
   r.get('/location-proposals/mine', { access: perm('customer.location.propose') }, async (req) =>

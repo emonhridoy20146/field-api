@@ -62,7 +62,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Visit suggestion from dwell | FR-VIS-005 | ☐ |
 | Retention TTL + daily summaries | FR-LOC-009, 012 | ✅ |
 | Co-work: requests, joint visits, manager view, single / co-work statistics with credit weight (added 2026-11-16) | FR-CW-001..005 | ✅ API (ADR-029); screens in staff-app and admin-web |
-| Staff tasks: admin gives a task with a note, staff resolve request, admin verifies (added 2026-11-18) | FR-TASK-001..005 | ✅ API (contract 1.16.0, ADR-036, flag `module.tasks`); screens in admin-web and staff-app |
+| Staff tasks: admin gives a task with a note, staff resolve request, admin verifies (added 2026-11-18) | FR-TASK-001..005 | ✅ API (contract 1.18.0, ADR-037, flag `module.tasks`); screens in admin-web and staff-app |
 
 **Acceptance:** 9-hour duty day on a mid-range phone uses ≤ 12 % battery for tracking (bike + walking mix); no points outside duty; ≥ 90 % of 5-minute customer stops detected and matched; mock GPS app is flagged within one batch; route history renders a day in < 2 s on admin.
 
@@ -78,6 +78,8 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 
 ## Phase 4 — Premium & hardening (as approved)
 SMS receipts (FR-COL-012), broadcasts (FR-NOT-005), leave (FR-ATT-008), staff-initiated handover (FR-HO-007), manager digest (FR-REP-006), offline map packs, Bluetooth printing, payment verification module, ASVS L2 review, performance tuning to 200 staff.
+
+**2026-11-18 (contract 1.17.0):** delete a map pin (FR-CUS-014) and the "Sync from ERP" button (FR-ERP-007) are done in the API, ADR-036; admin-web screens follow in its own PR.
 
 **Test hosting:** Vercel serverless test deployment ready (ADR-034, README "Test deployment on Vercel"); production host still OD-08.
 

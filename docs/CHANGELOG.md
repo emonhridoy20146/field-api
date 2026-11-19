@@ -2,13 +2,22 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
-## [1.16.0] — contract 1.16.0 (admin tasks for staff)
+## [1.18.0] — contract 1.18.0 (admin tasks for staff)
 ### Added
-- **tasks module** (FR-TASK-001..005, owner request 2026-11-18, ADR-036): an admin or manager gives one field staff member a task with a title, a free-form note and an optional due date; it is not tied to a customer. `POST /tasks` (idempotent by `clientId`; `422 TASK_INVALID_ASSIGNEE`, `TASK_DUE_IN_PAST`), `GET /tasks` (filters `status`, `assigneeId`, `branchId`, `overdue`, `q`; `counts` per status and overdue), `GET /tasks/{id}` (with history), `PATCH /tasks/{id}` (while open), `POST /tasks/{id}/verify`, `POST /tasks/{id}/reject` (reason of at least 5 characters, `422 REASON_REQUIRED`), `POST /tasks/{id}/cancel`.
+- **tasks module** (FR-TASK-001..005, owner request 2026-11-18, ADR-037): an admin or manager gives one field staff member a task with a title, a free-form note and an optional due date; it is not tied to a customer. `POST /tasks` (idempotent by `clientId`; `422 TASK_INVALID_ASSIGNEE`, `TASK_DUE_IN_PAST`), `GET /tasks` (filters `status`, `assigneeId`, `branchId`, `overdue`, `q`; `counts` per status and overdue), `GET /tasks/{id}` (with history), `PATCH /tasks/{id}` (while open), `POST /tasks/{id}/verify`, `POST /tasks/{id}/reject` (reason of at least 5 characters, `422 REASON_REQUIRED`), `POST /tasks/{id}/cancel`.
 - Staff side: `GET /tasks/mine`, `POST /tasks/{id}/resolve-request` (note, optional `requestedAt`), sync entity `task` (to the assignee only; bootstrap snapshot holds open tasks and those closed in the last 30 days) and sync mutation `task_resolve_request` `{ taskId, note?, requestedAt? }`. A resolve request moves the task to `resolve_requested`; only an admin verify makes it `resolved`; a reject sends it back to `open` with the reason.
 - Notifications `task.assigned`, `task.resolve_requested` (managers with `task.manage` in the task's branch), `task.decided` (verified / rejected / cancelled, to the assignee). Inbox item `task.resolve_requested` until the request is decided. Audited as `task.created`, `task.edited`, `task.resolve_requested`, `task.verified`, `task.rejected`, `task.cancelled`.
 - Permissions `task.view`, `task.manage`, `task.work`; flag `module.tasks` (off by default; super admin turns it on); collection `staff_tasks` (migration `tasks/20261118-0001-tasks-indexes`).
 - Additive only: no existing route, field or collection changed.
+
+## [1.17.0] — contract 1.17.0 (delete a pin, "Sync from ERP")
+### Added
+- **Delete a pin** (FR-CUS-014, owner request 2026-11-18, ADR-036). `DELETE /customers/{id}/location` (`customer.location.approve`): a manager deletes any in-scope customer's pin, from the ERP, the field or the map. The customer shows as "no location", the assignee's phone and polygon areas are updated, and the ERP sync keeps the pin deleted until a new pin is set. Audited `customer.location.cleared`; idempotent (`removed: false` when there was no pin).
+- **"Sync from ERP"** (FR-ERP-007, owner request 2026-11-18, ADR-036). `POST /system/erp-sync` with the new permission `erp.sync` (super admin and branch manager): pulls the customers changed in the ERP now. One run at a time (lock in `erp_sync_state`), at most ~40 s per call; `partial: true` = call again. `429 RATE_LIMITED` (`SYNC_RUNNING`), `503 ERP_UNAVAILABLE`.
+### Changed
+- `deltaSync({ budgetMs })` keeps the page it stopped at (`erp_sync_state.resume`), always does at least one page per run, and the scheduled job honours the same `resume`.
+### Checked
+- New integration tests: pin delete (ERP pin, idempotent, audit, sync feed, stays deleted after `reconcile` and `deltaSync`, 403/404/401), manual sync (200, lock 429, ERP down 503, permission 403, budget + resume).
 
 ## [1.14.0] — contract 1.14.0 (map pin colours, invoice viewer)
 ### Added

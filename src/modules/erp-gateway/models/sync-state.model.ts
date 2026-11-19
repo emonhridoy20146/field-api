@@ -9,6 +9,9 @@ const syncStateSchema = new Schema(
     lastError: { type: String, default: null },
     consecutiveFailures: { type: Number, default: 0 },
     lagSec: { type: Number, default: null },
+    // 1.17.0: a customer pull that ran out of time (manual sync button) continues here on the next run.
+    resume: { type: Schema.Types.Mixed, default: null }, // { cursor, since, serverTime }
+    lockedUntil: { type: Date, default: null }, // manual sync lock (_id 'manual-sync')
   },
   { collection: 'erp_sync_state', versionKey: false },
 );

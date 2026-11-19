@@ -191,6 +191,9 @@ export async function idsAssignedTo(userId: string): Promise<string[]> {
 
 function locationFields(c: ErpCustomer, override: LooseObject | null) {
   if (override?.point) return { location: override.point, locationStatus: 'overridden', locationSource: 'overlay' };
+  // 1.17.0: a manager deleted the pin. The ERP coordinates stay in `erpLocation`, but they are not shown again
+  // until someone sets a new pin (which replaces this override).
+  if (override?.cleared) return { location: undefined, locationStatus: 'missing', locationSource: 'overlay' };
   const status = classifyCoords(c.lat, c.lng);
   return {
     location: status === 'ok' ? { type: 'Point', coordinates: [c.lng!, c.lat!] } : undefined,
@@ -1104,6 +1107,51 @@ export async function setLocation(
   });
   await ctx().bus.emit('customer.location.approved', { customerId, branchId: c.branchId, proposalId: id, direct: true });
   return { id, status: 'approved', replayed: false, location: locationView(after) };
+}
+
+/**
+ * 1.17.0 (owner request 2026-11-18): a manager deletes a customer's pin, whether it came from the ERP, the field or
+ * the map. It is an overlay, not a data delete: `fos.locationOverride = { cleared: true }` keeps the ERP sync from
+ * bringing the old coordinates back (ADR-036). The customer then counts as "no location" (data-quality list, staff
+ * can drop a new pin that applies at once). Audited; pending staff proposals stay pending. Idempotent: deleting
+ * a pin that is already gone changes nothing and says `removed: false`.
+ */
+export async function clearLocation(user: AuthUser, customerId: string, meta: RequestMeta) {
+  const c = await loadInScope(user, customerId);
+  const hadPin = hasUsablePin(c) || !!c.location?.coordinates?.length;
+  if (!hadPin) return { removed: false, location: locationView(c) };
+  const now = ctx().clock.now();
+  const after = (await CustomerModel.findByIdAndUpdate(
+    customerId,
+    {
+      $set: {
+        'fos.locationOverride': { cleared: true, clearedBy: user.id, clearedAt: now },
+        locationStatus: 'missing',
+        locationSource: 'overlay',
+      },
+      $unset: { location: 1 },
+      $inc: { version: 1 },
+    },
+    { new: true },
+  ).lean()) as Doc;
+  if (after.fos?.assigneeId)
+    await recordChange({ entity: 'customer', entityId: customerId, userIds: [after.fos.assigneeId], branchId: after.branchId });
+  await audit.record({
+    actor: user,
+    action: 'customer.location.cleared',
+    entity: 'customer',
+    entityId: customerId,
+    branchId: c.branchId,
+    before: { location: c.location ?? null, status: c.locationStatus, source: c.locationSource ?? 'erp' },
+    after: { location: null, status: 'missing' },
+    reason: null,
+    meta,
+  });
+  await ctx().bus.emit('customer.location.cleared', { customerId, branchId: c.branchId });
+  // A customer without a pin leaves its polygon area; the assignments module recomputes.
+  if (after.branchId)
+    await ctx().bus.emit('customer.placed', { customerId, branchId: after.branchId, areaCode: after.areaCode ?? null, isNew: false });
+  return { removed: true, location: locationView(after) };
 }
 
 export async function listProposals(user: AuthUser, q: { branchId?: string; status?: string }) {
