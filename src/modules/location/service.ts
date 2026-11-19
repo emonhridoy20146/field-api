@@ -7,7 +7,7 @@ import { addDays, businessDate, endOfBusinessDay, isIsoDate, startOfBusinessDay 
 import { canSeeBranch, type AuthUser } from '../../core/security/types.js';
 import { getSetting } from '../settings/index.js';
 import { getUser, listByRole, type UserView } from '../users/index.js';
-import { allOnDutyNow, dutyStateAt, dutyWindows, onDutyNow } from '../attendance/index.js';
+import { allOnDutyNow, dutyStateAt, dutyWindows, lastEventGeo, onDutyNow } from '../attendance/index.js';
 import { getCustomerRefs, nearestCustomer } from '../customers/index.js';
 import { can } from '../rbac/index.js';
 import { visitCountsOfDay, visitsOfUserDay } from '../visits/index.js';
@@ -48,6 +48,9 @@ function checkDevice(user: AuthUser, deviceId: string) {
  * them). Bad points are reported per index, never stored; the batch itself always answers 200 so the
  * app can drop what was refused and keep going.
  */
+/** A rough point (worse than `location.maxAccuracyM`) moves the live marker only when no good point is this recent. */
+const ROUGH_AFTER_MS = 5 * 60_000;
+
 export async function ingest(user: AuthUser, input: z.infer<typeof ingestSchema>) {
   checkDevice(user, input.deviceId);
   const branchId = user.branchIds[0] ?? null;
@@ -61,7 +64,7 @@ export async function ingest(user: AuthUser, input: z.infer<typeof ingestSchema>
   const windows = await dutyWindows(user.id, from, to);
   const duringBreak = (await getSetting<boolean>('location.trackDuringBreak', branchId)) ?? false;
   const stored = (await LocationPointModel.find({ 'meta.userId': user.id, recordedAt: { $gte: from, $lte: to } }).select({ recordedAt: 1, lat: 1, lng: 1, accuracyM: 1 }).lean()) as LeanDoc[];
-  const before = (await LocationPointModel.findOne({ 'meta.userId': user.id, recordedAt: { $lt: from } }).sort({ recordedAt: -1 }).lean()) as LeanDoc | null;
+  const before = (await LocationPointModel.findOne({ 'meta.userId': user.id, recordedAt: { $lt: from }, lowAccuracy: { $ne: true } }).sort({ recordedAt: -1 }).lean()) as LeanDoc | null;
 
   const r = filterPoints(points, {
     now: now(),
@@ -92,14 +95,22 @@ export async function ingest(user: AuthUser, input: z.infer<typeof ingestSchema>
         battery: p.src.bat ?? null,
         charging: p.src.chg ?? null,
         mock: p.src.mock ?? false,
+        ...(r.lowAccuracy.has(p) ? { lowAccuracy: true } : {}),
         receivedAt,
       })),
     );
+    // The marker shows the newest point; a rough one only replaces a good one older than ROUGH_AFTER_MS (ADR-041).
     const newest = r.accepted[r.accepted.length - 1]!;
+    const good = [...r.accepted].reverse().find((p) => !r.lowAccuracy.has(p));
+    const pick = good && newest.t.getTime() - good.t.getTime() <= ROUGH_AFTER_MS ? good : newest;
+    const rough = r.lowAccuracy.has(pick);
+    const ahead = rough
+      ? [{ recordedAt: null }, { recordedAt: { $lt: pick.t }, lowAccuracy: true }, { recordedAt: { $lt: new Date(pick.t.getTime() - ROUGH_AFTER_MS) } }]
+      : [{ recordedAt: null }, { recordedAt: { $lt: pick.t } }];
     // Only move the marker forward: a late upload of old points must not rewind it.
     await LocationLatestModel.updateOne(
-      { _id: user.id, $or: [{ recordedAt: null }, { recordedAt: { $lt: newest.t } }] },
-      { $set: { branchId, point: { type: 'Point', coordinates: [newest.lng, newest.lat] }, accuracyM: newest.acc, recordedAt: newest.t, activity: newest.src.act ?? 'unknown', mock: newest.src.mock ?? false, ...(newest.src.bat !== undefined ? { battery: newest.src.bat } : {}) } },
+      { _id: user.id, $or: ahead },
+      { $set: { branchId, point: { type: 'Point', coordinates: [pick.lng, pick.lat] }, accuracyM: pick.acc, lowAccuracy: rough, recordedAt: pick.t, activity: pick.src.act ?? 'unknown', mock: pick.src.mock ?? false, ...(pick.src.bat !== undefined ? { battery: pick.src.bat } : {}) } },
       { upsert: true },
     ).catch((e: { code?: number }) => {
       if (e.code !== 11000) throw e; // upsert raced with a newer point already stored
@@ -132,33 +143,49 @@ export async function heartbeat(user: AuthUser, input: z.infer<typeof heartbeatS
   await LocationLatestModel.updateOne({ _id: user.id }, { $set: set }, { upsert: true });
 }
 
-/** FR-LOC-006: one marker per staff member who is on duty now and has sent a point today. */
+/**
+ * FR-LOC-006: one marker per staff member who is on duty now. The position is the newest point of today; before the
+ * first point arrives it is where they started work (`source: attendance`, ADR-041), so a staff member on duty is
+ * never missing from the map just because the phone has not sent a point yet.
+ */
 export async function latest(user: AuthUser, branchId?: string) {
   if (branchId && !canSeeBranch(user, branchId)) return [];
   const onDuty = await onDutyNow(user, branchId);
   if (!onDuty.size) return [];
-  const rows = (await LocationLatestModel.find({ _id: { $in: [...onDuty.keys()] }, recordedAt: { $gte: startOfBusinessDay(today()) } }).lean()) as LooseObject[];
+  const dayStart = startOfBusinessDay(today());
+  const all = (await LocationLatestModel.find({ _id: { $in: [...onDuty.keys()] } }).lean()) as LooseObject[];
+  const byId = new Map(all.map((r) => [r._id as string, r]));
+  const tracked = new Set(all.filter((r) => r.recordedAt && (r.recordedAt as Date) >= dayStart).map((r) => r._id as string));
+  const startGeo = await lastEventGeo([...onDuty.keys()].filter((id) => !tracked.has(id)), today());
+  const maxAcc = (await getSetting<number>('location.maxAccuracyM', branchId ?? null)) ?? 50;
   const at = now().getTime();
+  const ids = [...onDuty.keys()].filter((id) => tracked.has(id) || startGeo.has(id));
   // Today's activity on the marker, each part only for callers who may see that data anyway.
-  const ids = rows.map((r) => r._id as string);
   const visits = (await can(user, 'visit.view')) ? await visitCountsOfDay(ids, today()) : null;
   const collected = (await can(user, 'collection.view')) ? await collectedOfDay(ids, today()) : null;
-  return rows.map((r) => {
-    const d = onDuty.get(r._id as string)!;
+  return ids.map((id) => {
+    const d = onDuty.get(id)!;
+    const r = byId.get(id) ?? {};
+    const g = tracked.has(id) ? null : startGeo.get(id)!;
+    const pos = g
+      ? { lat: g.lat, lng: g.lng, accuracyM: g.accuracyM, recordedAt: g.at, mock: g.mock, lowAccuracy: g.accuracyM > maxAcc }
+      : { lat: r.point.coordinates[1] as number, lng: r.point.coordinates[0] as number, accuracyM: r.accuracyM as number, recordedAt: r.recordedAt as Date, mock: !!r.mock, lowAccuracy: !!r.lowAccuracy };
     return {
-      userId: r._id as string,
+      userId: id,
       name: d.name,
-      lat: r.point.coordinates[1] as number,
-      lng: r.point.coordinates[0] as number,
-      accuracyM: r.accuracyM as number,
-      recordedAt: (r.recordedAt as Date).toISOString(),
-      freshness: freshness(at - (r.recordedAt as Date).getTime()),
+      lat: pos.lat,
+      lng: pos.lng,
+      accuracyM: pos.accuracyM,
+      recordedAt: pos.recordedAt.toISOString(),
+      freshness: freshness(at - pos.recordedAt.getTime()),
+      source: g ? 'attendance' : 'track',
+      lowAccuracy: pos.lowAccuracy,
       ...(r.battery !== null && r.battery !== undefined ? { battery: r.battery as number } : {}),
       onBreak: d.onBreak,
-      mock: !!r.mock,
-      activity: (r.activity as string) ?? 'unknown',
-      ...(visits ? { todayVisits: visits.get(r._id as string) ?? 0 } : {}),
-      ...(collected ? { todayCollectedPoisha: collected.get(r._id as string) ?? 0 } : {}),
+      mock: pos.mock,
+      activity: g ? 'unknown' : ((r.activity as string) ?? 'unknown'),
+      ...(visits ? { todayVisits: visits.get(id) ?? 0 } : {}),
+      ...(collected ? { todayCollectedPoisha: collected.get(id) ?? 0 } : {}),
       ...(r.trackingProvider ? { trackingProvider: r.trackingProvider as string } : {}),
       ...(r.trackingProviderFallback !== null && r.trackingProviderFallback !== undefined ? { trackingProviderFallback: r.trackingProviderFallback as boolean } : {}),
     };
@@ -174,7 +201,8 @@ async function staffInScope(user: AuthUser, userId: string): Promise<UserView> {
 }
 
 async function trackOf(userId: string, date: string): Promise<TrackPoint[]> {
-  const rows = (await LocationPointModel.find({ 'meta.userId': userId, recordedAt: { $gte: startOfBusinessDay(date), $lte: endOfBusinessDay(date) } }).sort({ recordedAt: 1 }).lean()) as LeanDoc[];
+  // Rough points (ADR-041) are for the live marker only: they would draw zig-zags and false distance on the route.
+  const rows = (await LocationPointModel.find({ 'meta.userId': userId, recordedAt: { $gte: startOfBusinessDay(date), $lte: endOfBusinessDay(date) }, lowAccuracy: { $ne: true } }).sort({ recordedAt: 1 }).lean()) as LeanDoc[];
   return rows.map((r) => ({ t: r.recordedAt as Date, lat: r.lat as number, lng: r.lng as number, mock: !!r.mock }));
 }
 

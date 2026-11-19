@@ -2,6 +2,16 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
+## [1.22.0] — contract 1.22.0 (live map shows staff on duty even indoors)
+### Fixed
+- **Live map stayed empty after work-in** (owner report 2026-11-19, ADR-041). The database showed the work-in saved (accuracy 200 m) but no location point: the phone indoors reports 100–500 m, and both the app and the server dropped every point worse than `location.maxAccuracyM` (50 m). The map lists only staff with a point today, so nobody showed.
+- Points worse than `location.maxAccuracyM` are now **kept, flagged `lowAccuracy`**, up to 5 km (`HARD_MAX_ACCURACY_M`; beyond that still `LOW_ACCURACY`). They move the live marker but are left out of the route, stops and distance. A rough point replaces a good marker only when no good point is newer than 5 minutes. Of two points at the same instant the more accurate one is kept.
+- `GET /location/latest` shows every staff member on duty: before the first tracked point of the day the marker is the position of their last attendance event (work-in).
+### Added
+- `LatestLocation.source` (`track` | `attendance`) and `LatestLocation.lowAccuracy`.
+- `attendance` public function `lastEventGeo(userIds, date)`; field `lowAccuracy` on `location_points` and `location_latest`.
+- Tests: rough points kept and flagged, never the speed reference, never on the route; work-in position on the map before the first point; a good point is not replaced by a rough one right after.
+
 ## [1.21.0] — contract 1.21.0 (attendance never waits for its photo)
 ### Fixed
 - **Staff customer list empty after login** (owner report 2026-11-19, Vercel test): since 1.19.0 a field staff member's first load is the whole branch, and the customer snapshot built each customer one by one (about ten queries each), so a bootstrap page could outlast the 60 s serverless limit and the phone never finished loading. Sync now builds the list part once per page and the rest eight customers at a time (bootstrap and pull), bootstrap fills a page in chunks of 50 and returns after about 15 s with a `nextCursor`, and one customer whose extra data fails is sent with its list data instead of failing the page. No contract change.

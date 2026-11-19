@@ -294,7 +294,7 @@ Rules:
 |---|---|---|---|---|---|
 | FR-LOC-001 | Tracking runs **only** between work_in and work_out, and only within shift window + 3 h. During lunch break tracking pauses when `location.trackDuringBreak = false` (default **false**, see OD-05). Server rejects points outside duty (`422 OFF_DUTY`). | active | P2 | A M | U I D |
 | FR-LOC-002 | Adaptive sampling: speed > 15 km/h (bike) → every 15–20 s / 50 m; 3–15 km/h (walk) → 30–60 s; stationary (activity still, or < 1 km/h for 2 min) → 2–5 min; near customer pin and stationary → 3 min. All values in settings. | active | P2 | M | U D |
-| FR-LOC-003 | Discard on device and server: accuracy > 50 m, implied speed > 120 km/h from previous accepted point, timestamp in future (> 2 min), duplicates. | active | P2 | A M | U |
+| FR-LOC-003 | Discard on device and server: implied speed > 120 km/h from previous accepted point, timestamp in future (> 2 min), duplicates, accuracy > 5 km. A point less accurate than `location.maxAccuracyM` (50 m) is kept, flagged `lowAccuracy`, for the live map only, not the route (1.22.0, ADR-041). | active | P2 | A M | U |
 | FR-LOC-004 | Offline queue (local DB), batch upload up to 500 points / request, gzip; oldest first; queue cap 20,000 points. | active | P2 | M A | U I D |
 | FR-LOC-005 | Mock-location detection (Android `isMock`/`isFromMockProvider`, developer options on, known mock apps) → flag point and event; inbox alert once per day per staff. | active | P2 | M A | D I |
 | FR-LOC-006 | Latest location map: one marker per on-duty staff with last-seen age (fresh < 5 min, stale 5–30, lost > 30), battery %, on break, mock flag. Not live-streaming; refresh on open + manual + 60 s polling while page visible. | active | P2 | A W | I E |

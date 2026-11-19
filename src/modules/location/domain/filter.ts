@@ -9,9 +9,15 @@ export interface RawPoint {
 }
 export type RejectReason = 'LOW_ACCURACY' | 'IMPOSSIBLE_SPEED' | 'FUTURE_TIME' | 'DUPLICATE' | 'OFF_DUTY';
 
+/**
+ * Points less accurate than `maxAccuracyM` are kept, flagged, for the live map only (ADR-041): indoors a phone often
+ * reports 100–500 m, and dropping those left the map empty for staff on duty. Beyond this they are noise (a cell tower).
+ */
+export const HARD_MAX_ACCURACY_M = 5000;
+
 export interface FilterOptions {
   now: Date;
-  maxAccuracyM: number; // 50
+  maxAccuracyM: number; // 50: above this a point is kept but flagged `lowAccuracy`
   maxSpeedKmh: number; // 120
   futureToleranceMs: number; // 2 min
   /** Is this instant inside duty hours (and, when breaks pause tracking, outside a break)? */
@@ -24,6 +30,8 @@ export interface FilterOptions {
 
 export interface FilterResult<T extends RawPoint> {
   accepted: T[];
+  /** The accepted points less accurate than `maxAccuracyM` (live map only, not the route). */
+  lowAccuracy: Set<T>;
   rejected: { index: number; reason: RejectReason }[];
 }
 
@@ -32,9 +40,11 @@ export interface FilterResult<T extends RawPoint> {
  * point, so one GPS jump does not poison the points after it.
  */
 export function filterPoints<T extends RawPoint>(points: T[], o: FilterOptions): FilterResult<T> {
-  const order = points.map((p, index) => ({ p, index })).sort((a, b) => a.p.t.getTime() - b.p.t.getTime() || a.index - b.index);
+  // Same instant twice: the more accurate one wins, the other is a duplicate.
+  const order = points.map((p, index) => ({ p, index })).sort((a, b) => a.p.t.getTime() - b.p.t.getTime() || a.p.acc - b.p.acc || a.index - b.index);
   const accepted: T[] = [];
   const rejected: FilterResult<T>['rejected'] = [];
+  const lowAccuracy = new Set<T>();
   const stored = [...o.known].sort((a, b) => a.t.getTime() - b.t.getTime());
   const seen = new Set(stored.map((k) => k.t.getTime()));
   let prev = o.previous;
@@ -42,12 +52,12 @@ export function filterPoints<T extends RawPoint>(points: T[], o: FilterOptions):
   for (const { p, index } of order) {
     const ms = p.t.getTime();
     // A batch may arrive after newer points were stored: compare with the nearest earlier point, stored or just accepted.
-    for (; k < stored.length && stored[k]!.t.getTime() < ms; k++) if (!prev || stored[k]!.t.getTime() >= prev.t.getTime()) prev = stored[k]!;
+    for (; k < stored.length && stored[k]!.t.getTime() < ms; k++) if (stored[k]!.acc <= o.maxAccuracyM && (!prev || stored[k]!.t.getTime() >= prev.t.getTime())) prev = stored[k]!;
     let reason: RejectReason | null = null;
     if (ms - o.now.getTime() > o.futureToleranceMs) reason = 'FUTURE_TIME';
     else if (!o.onDuty(p.t)) reason = 'OFF_DUTY';
+    else if (p.acc > HARD_MAX_ACCURACY_M) reason = 'LOW_ACCURACY';
     else if (seen.has(ms)) reason = 'DUPLICATE';
-    else if (p.acc > o.maxAccuracyM) reason = 'LOW_ACCURACY';
     else if (prev && ms > prev.t.getTime()) {
       const hours = (ms - prev.t.getTime()) / 3_600_000;
       const km = haversineM(prev, p) / 1000;
@@ -61,8 +71,10 @@ export function filterPoints<T extends RawPoint>(points: T[], o: FilterOptions):
     }
     seen.add(ms);
     accepted.push(p);
-    if (!prev || ms >= prev.t.getTime()) prev = p;
+    // A rough fix is kept for the live map but never becomes the reference for the speed check.
+    if (p.acc > o.maxAccuracyM) lowAccuracy.add(p);
+    else if (!prev || ms >= prev.t.getTime()) prev = p;
   }
   rejected.sort((a, b) => a.index - b.index);
-  return { accepted, rejected };
+  return { accepted, rejected, lowAccuracy };
 }

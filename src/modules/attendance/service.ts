@@ -278,6 +278,18 @@ export async function onDutyNow(user: AuthUser, branchId?: string): Promise<Map<
   return out;
 }
 
+/**
+ * Where each person's last attendance event of the day was taken (work-in, break end…), for the live map before the
+ * phone's first tracked point arrives (ADR-041). Events without a position are skipped.
+ */
+export async function lastEventGeo(userIds: string[], date: string): Promise<Map<string, { lat: number; lng: number; accuracyM: number; mock: boolean; at: Date }>> {
+  const out = new Map<string, { lat: number; lng: number; accuracyM: number; mock: boolean; at: Date }>();
+  if (!userIds.length) return out;
+  const rows = (await AttendanceEventModel.find({ userId: { $in: userIds }, businessDate: date, 'geo.lat': { $type: 'number' } }).sort({ at: 1 }).lean()) as Lean[];
+  for (const r of rows) out.set(r.userId as string, { lat: r.geo.lat as number, lng: r.geo.lng as number, accuracyM: (r.geo.accuracyM as number) ?? 0, mock: !!r.geo.mock, at: r.at as Date });
+  return out;
+}
+
 /** Every active field staff member who is on duty right now (system jobs; no caller scope). */
 export async function allOnDutyNow(): Promise<{ userId: string; branchId: string | null; onBreak: boolean }[]> {
   const now = ctx().clock.now();
