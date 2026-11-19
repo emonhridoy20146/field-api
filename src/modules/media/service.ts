@@ -19,7 +19,7 @@ const ext: Record<string, string> = { 'image/jpeg': 'jpg', 'image/webp': 'webp',
 const b64 = (hex: string) => Buffer.from(hex, 'hex').toString('base64');
 
 /** FR-MED-001: presigned PUT; the same file (sha256) from the same owner is uploaded once. */
-export async function uploadUrl(user: AuthUser, input: z.infer<typeof uploadSchema>) {
+export async function uploadUrl(user: AuthUser, input: z.infer<typeof uploadSchema>, origin?: string) {
   const sha = input.sha256.toLowerCase();
   const kindOk = input.kind === 'voice_note' ? input.contentType.startsWith('audio/') : input.contentType.startsWith('image/');
   if (!kindOk) throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'contentType', message: `not allowed for ${input.kind}` }] });
@@ -40,7 +40,7 @@ export async function uploadUrl(user: AuthUser, input: z.infer<typeof uploadSche
       geo: input.geo ? { lat: input.geo.lat, lng: input.geo.lng, accuracyM: input.geo.accuracyM } : null,
       createdAt: now,
     }));
-  const signed = await storage().presignPut(doc.key, doc.contentType, doc.sizeBytes, b64(sha));
+  const signed = await storage().presignPut(doc.key, doc.contentType, doc.sizeBytes, b64(sha), origin);
   return { mediaId: doc._id.toHexString(), uploadUrl: signed.url, headers: signed.headers, expiresAt: new Date(now.getTime() + URL_TTL_SEC * 1000).toISOString(), alreadyExists: false };
 }
 
@@ -55,12 +55,12 @@ export async function confirm(user: AuthUser, id: string) {
 }
 
 /** Owner, or anyone who is not field staff in the media's branch. Out of scope → 404. Never log the URL. */
-export async function signedUrl(user: AuthUser, id: string) {
+export async function signedUrl(user: AuthUser, id: string, origin?: string) {
   if (!isOid(id)) throw notFound('media');
   const m = await MediaModel.findById(id).lean();
   const visible = m && (m.ownerId === user.id || (user.role !== 'field_staff' && canSeeBranch(user, m.branchId)));
   if (!m || !visible || m.status !== 'uploaded') throw notFound('media');
-  return { url: await storage().presignGet(m.key), expiresAt: new Date(ctx().clock.now().getTime() + URL_TTL_SEC * 1000).toISOString() };
+  return { url: await storage().presignGet(m.key, origin), expiresAt: new Date(ctx().clock.now().getTime() + URL_TTL_SEC * 1000).toISOString() };
 }
 
 export async function isUploadedBy(id: string, ownerId: string): Promise<boolean> {

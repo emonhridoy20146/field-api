@@ -165,6 +165,29 @@ export async function recordEvent(user: AuthUser, input: z.infer<typeof eventSch
   return { statusCode: 201 as const, body: day };
 }
 
+export const attachSelfieSchema = z.object({
+  eventClientId: z.string().uuid(),
+  selfieMediaId: z.string().max(64),
+});
+
+/**
+ * Adds the photo to an attendance event that reached the server without it (contract 1.21.0, owner request
+ * 2026-11-19: "image upload or not does not matter"). The app now sends every event at once and the photo after
+ * it, so duty, attendance and location never wait for an upload. Only the person's own event and own uploaded photo;
+ * an event that already has a photo keeps it. Removes the `no_selfie` flag.
+ */
+export async function attachSelfie(user: AuthUser, input: z.infer<typeof attachSelfieSchema>) {
+  const ev = (await AttendanceEventModel.findOne({ clientId: input.eventClientId }).lean()) as Lean | null;
+  if (!ev || ev.userId !== user.id) throw notFound('attendance_event');
+  if (!(await isUploadedBy(input.selfieMediaId, user.id))) throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'selfieMediaId', message: 'not a photo you uploaded' }] });
+  if (!ev.selfieMediaId) await AttendanceEventModel.updateOne({ _id: ev._id, selfieMediaId: null }, { $set: { selfieMediaId: input.selfieMediaId }, $pull: { flags: 'no_selfie' } });
+  const u = await getUser(user.id);
+  if (!u) throw notFound('user');
+  const day = await recompute(u, ev.businessDate as string);
+  await recordChange({ entity: 'attendance_day', entityId: `${user.id}:${ev.businessDate}`, userIds: [user.id], branchId: u.branchIds[0] ?? null });
+  return day;
+}
+
 /** Event types that need a photo in this branch (FR-ATT-001). Unknown values in the setting are ignored. */
 export async function photoEvents(branchId: string | null): Promise<Set<string>> {
   if (!(await getSetting<boolean>('attendance.selfieRequired', branchId))) return new Set();

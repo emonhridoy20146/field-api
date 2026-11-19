@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { defineRoutes, perm, requestMeta, requireUser } from '../../core/http/router.js';
+import { requestOrigin } from '../../core/http/origin.js';
 import { parse } from '../../core/http/index.js';
 import * as s from './service.js';
 import * as t from './trends.js';
@@ -20,5 +21,5 @@ export const reportRoutes = defineRoutes((r) => {
     reply.code(202);
     return x.createExport(requireUser(req), parse(x.exportSchema, req.body), requestMeta(req));
   });
-  r.get('/reports/exports/:id', { access: perm('report.export') }, async (req) => x.getExport(requireUser(req), (req.params as { id: string }).id));
+  r.get('/reports/exports/:id', { access: perm('report.export') }, async (req) => x.getExport(requireUser(req), (req.params as { id: string }).id, requestOrigin(req)));
 });

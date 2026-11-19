@@ -20,9 +20,12 @@ afterAll(async () => t.close());
 
 const jpeg = (n: number) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(2_000 + n, n % 251), Buffer.from([0xff, 0xd9])]);
 const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
+// Links use the origin the caller reached the API on (inject requests arrive on localhost), not PUBLIC_BASE_URL.
 const pathOf = (url: string) => {
-  expect(url.startsWith(`${BASE}/api/v1/storage/o?t=`)).toBe(true);
-  return url.slice(BASE.length);
+  const u = new URL(url);
+  expect(u.pathname).toBe('/api/v1/storage/o');
+  expect(u.searchParams.get('t')).toBeTruthy();
+  return `${u.pathname}${u.search}`;
 };
 
 async function uploadSelfie(c: Awaited<ReturnType<typeof as>>, body: Buffer) {
@@ -44,6 +47,19 @@ describe('files in the database when there is no S3 (ADR-039)', () => {
   it('uses the Vercel production host when PUBLIC_BASE_URL is not set', () => {
     expect(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', VERCEL_PROJECT_PRODUCTION_URL: 'fos.example.test' }).PUBLIC_BASE_URL).toBe('https://fos.example.test');
     expect(loadConfig({ NODE_ENV: 'development' }).PUBLIC_BASE_URL).toBe('http://localhost:4000');
+  });
+
+  it('signs links for the host the caller used, so a wrong PUBLIC_BASE_URL cannot break uploads', async () => {
+    const fs = await as(t, '01700000003');
+    const body = jpeg(9);
+    const ask = (h: Record<string, string>) => fs.post('/media/upload-url', { kind: 'selfie', contentType: 'image/jpeg', sizeBytes: body.length, sha256: sha(body) }, h);
+    const viaProxy = await ask({ 'x-forwarded-host': 'fos-live.example.test', 'x-forwarded-proto': 'https' });
+    expect(viaProxy.status).toBe(201);
+    expect((viaProxy.body.uploadUrl as string).startsWith('https://fos-live.example.test/api/v1/storage/o?t=')).toBe(true);
+    const odd = await ask({ 'x-forwarded-host': 'bad host/<x>' });
+    expect((odd.body.uploadUrl as string).startsWith(`${BASE}/api/v1/storage/o?t=`)).toBe(true); // a malformed host falls back to the setting
+    const health = await t.app.inject({ method: 'GET', url: '/api/v1/system/health' });
+    expect(health.json().storage).toBe('db');
   });
 
   it('upload, confirm and read back a photo through signed URLs', async () => {
@@ -93,5 +109,41 @@ describe('files in the database when there is no S3 (ADR-039)', () => {
     const bm = await as(t, '01700000002');
     const live = await bm.get(`/location/latest?branchId=${s.branchA}`);
     expect(live.body.map((m: { userId: string }) => m.userId)).toContain(s.fs1.id);
+  });
+
+  it('a work-in sent before its photo counts at once; the photo is linked after it (attendance_selfie, 1.21.0)', async () => {
+    t.clock.set('2026-11-17T03:10:00Z'); // 09:10 Dhaka, a fresh day
+    const fs = await as(t, '01700000003');
+    const mut = (entity: string, payload: Record<string, unknown>, dependsOn?: string[]) => ({ mutationId: randomUUID(), entity, op: 'create', payload, ...(dependsOn ? { dependsOn } : {}) });
+    const push = (c: typeof fs, mutations: unknown[], deviceId = 'dev-01700000003') => c.post('/sync/push', { deviceId, mutations });
+    const event = mut('attendance_event', { clientId: randomUUID(), type: 'work_in', at: '2026-11-17T03:05:00Z', geo: { lat: 22.7, lng: 90.37, accuracyM: 8, mock: false } });
+    const eventId = (event.payload as { clientId: string }).clientId;
+    const first = await push(fs, [event]);
+    expect(first.status).toBe(200);
+    expect(first.body.results[0].result).toBe('applied');
+    expect((await fs.post('/location/points', { deviceId: 'dev-01700000003', points: [{ t: '2026-11-17T03:08:00Z', lat: 22.7, lng: 90.37, acc: 10 }] })).body.accepted).toBe(1);
+    const sa = await as(t, '01700000001');
+    const flagsOf = async () => ((await sa.get(`/attendance/events?userId=${s.fs1.id}&date=2026-11-17`)).body as { selfieMediaId: string | null; flags: string[] }[])[0]!;
+    expect((await flagsOf()).flags).toContain('no_selfie');
+
+    const body = jpeg(5);
+    const { mediaId } = await uploadSelfie(fs, body);
+    await fs.post(`/media/${mediaId}/confirm`);
+    const attach = mut('attendance_selfie', { eventClientId: eventId, selfieMediaId: mediaId }, [event.mutationId]);
+    const linked = await push(fs, [attach]);
+    expect(linked.body.results[0].result).toBe('applied');
+    expect(await flagsOf()).toMatchObject({ selfieMediaId: mediaId });
+    expect((await flagsOf()).flags).not.toContain('no_selfie');
+    expect((await push(fs, [attach])).body.results[0].result).toBe('replayed'); // replay is harmless
+
+    // a second photo never replaces the first; somebody else's photo or event is refused
+    const { mediaId: later } = await uploadSelfie(fs, jpeg(6));
+    await push(fs, [mut('attendance_selfie', { eventClientId: eventId, selfieMediaId: later })]);
+    expect((await flagsOf()).selfieMediaId).toBe(mediaId);
+    const fs2 = await as(t, '01700000004');
+    const { mediaId: theirs } = await uploadSelfie(fs2, jpeg(7));
+    expect((await push(fs, [mut('attendance_selfie', { eventClientId: eventId, selfieMediaId: theirs })])).body.results[0].result).toBe('rejected');
+    expect((await push(fs2, [mut('attendance_selfie', { eventClientId: eventId, selfieMediaId: theirs })], 'dev-01700000004')).body.results[0].result).toBe('rejected');
+    expect((await push(fs, [mut('attendance_selfie', { eventClientId: 'not-a-uuid', selfieMediaId: mediaId })])).body.results[0].result).toBe('rejected');
   });
 });

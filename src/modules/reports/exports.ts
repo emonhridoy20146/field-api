@@ -239,10 +239,10 @@ export async function createExport(user: AuthUser, input: z.infer<typeof exportS
 }
 
 /** Only the person who asked can see an export; anyone else gets 404. The link lives 5 minutes. */
-export async function getExport(user: AuthUser, id: string) {
+export async function getExport(user: AuthUser, id: string, origin?: string) {
   const e = isOid(id) ? ((await ExportModel.findOne({ _id: id, requestedBy: user.id }).lean()) as LeanDoc | null) : null;
   if (!e || e.expiresAt <= now()) throw notFound('export');
-  return { id, status: e.status as string, ...(e.status === 'ready' && e.storageKey ? { downloadUrl: await storage().presignGet(e.storageKey) } : {}) };
+  return { id, status: e.status as string, ...(e.status === 'ready' && e.storageKey ? { downloadUrl: await storage().presignGet(e.storageKey, origin) } : {}) };
 }
 
 /**

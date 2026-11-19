@@ -2,6 +2,16 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
+## [1.21.0] — contract 1.21.0 (attendance never waits for its photo)
+### Fixed
+- **Attendance still showed "1 waiting" after staff-app 0.12.0** (owner report 2026-11-19, Vercel test deployment, ADR-040). The app held the work-in until its photo was on the server, so any failed upload (old server without the `db` driver, a wrong `PUBLIC_BASE_URL`, a slow network) kept the work-in off the server, and every location point after it was refused as off duty. The owner's rule: location must go every few minutes whether the photo uploads or not.
+- Storage links (`uploadUrl`, `/media/{id}/url`, export downloads) are built from the host the caller reached the API on (`X-Forwarded-Host` / `Host`, `X-Forwarded-Proto`), falling back to `PUBLIC_BASE_URL` only when the host header is missing or malformed (`src/core/http/origin.ts`). A `PUBLIC_BASE_URL` copied from `.env.example` (localhost) can no longer break uploads.
+### Added
+- Sync mutation `attendance_selfie` `{ eventClientId, selfieMediaId }` (permission `attendance.record`): links a photo to an attendance event that was sent without one, and removes its `no_selfie` flag. Only the person's own event and own uploaded photo; an event that already has a photo keeps it; replay-safe. The app sends it after the event (`dependsOn`).
+- `GET /system/health` returns `storage` (`s3` | `db` | `memory`) so a deployment can be checked from a browser (`memory` on Vercel means uploads cannot work).
+- Tests in `test/integration/storage-db.test.ts`: links follow the forwarded host and ignore a malformed one; health reports the driver; a work-in pushed without a photo is applied at once and location points after it are kept; the photo linked later clears `no_selfie`; a second photo, another person's photo or event, and a bad id are refused or ignored.
+- Additive only: no route, field or meaning changed for existing clients (the old app still holds the work-in for its photo and still works).
+
 ## [1.20.1] — contract 1.20.1 (phones from before branch-wide visibility reload once; health shows the contract)
 ### Fixed
 - Staff phones that took their snapshot while the server still showed staff only their assigned customers kept seeing only those after the server moved to 1.19.0: a feed entry goes out only when a customer changes, so the rest of the branch never arrived. The customers module now raises a **resync floor** (`counters` `sync_floor:customers-branch-wide`) at its first boot on a database with history; `GET /sync/pull` answers `410 CURSOR_EXPIRED` once for any cursor below it, and the app takes a fresh snapshot (it keeps its outbox, so a waiting attendance or collection is not lost). No reinstall, no admin step. A fresh database gets floor 0 (ADR-038 addendum).
