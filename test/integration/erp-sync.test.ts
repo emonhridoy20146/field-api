@@ -1,0 +1,99 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { as, createTestApp, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
+import { expectConforms } from '../helpers/openapi.js';
+import { deltaSync } from '../../src/modules/erp-gateway/index.js';
+import { ErpSyncStateModel } from '../../src/modules/erp-gateway/models/sync-state.model.js';
+import { CustomerModel } from '../../src/modules/customers/models/customer.model.js';
+
+// "Sync from ERP" button (contract 1.17.0).
+let t: TestApp;
+let s: Seeded;
+
+beforeAll(async () => {
+  t = await createTestApp();
+  s = await seedBasics(t);
+});
+afterAll(async () => t.close());
+
+describe('POST /system/erp-sync (1.17.0)', () => {
+  it('pulls the customers from the ERP now; a second run finds nothing new', async () => {
+    expect(await CustomerModel.countDocuments()).toBe(0);
+    const sa = await as(t, '01700000001');
+    const r = await sa.post('/system/erp-sync', {});
+    expect(r.status).toBe(200);
+    expectConforms('POST', '/system/erp-sync', 200, r.body);
+    expect(r.body.partial).toBe(false);
+    expect(r.body.customers).toBeGreaterThan(0);
+    expect(await CustomerModel.countDocuments()).toBe(r.body.customers);
+    // the ERP status in the header now has a fresh "last sync"
+    const st = await sa.get('/system/erp-status');
+    expect(st.body.lagSec).toBeLessThan(30);
+    // the lock is released, so the next press works
+    const next = await sa.post('/system/erp-sync', {});
+    expect(next.status).toBe(200);
+    expect(next.body.customers).toBeLessThanOrEqual(r.body.customers);
+  });
+
+  it('a branch manager may press it; field staff and viewers may not (403); no token is 401', async () => {
+    expect((await (await as(t, '01700000002')).post('/system/erp-sync', {})).status).toBe(200);
+    expect((await (await as(t, '01700000003')).post('/system/erp-sync', {})).status).toBe(403);
+    expect((await (await as(t, '01700000006')).post('/system/erp-sync', {})).status).toBe(403);
+    expect((await t.app.inject({ method: 'POST', url: '/api/v1/system/erp-sync' })).statusCode).toBe(401);
+  });
+
+  it('a run holding the lock makes the button wait (429 SYNC_RUNNING), an expired lock does not', async () => {
+    const sa = await as(t, '01700000001');
+    await ErpSyncStateModel.updateOne({ _id: 'manual-sync' }, { $set: { lockedUntil: new Date(t.ctx.clock.now().getTime() + 60_000) } }, { upsert: true });
+    const busy = await sa.post('/system/erp-sync', {});
+    expect(busy.status).toBe(429);
+    expect(busy.body.details.reason).toBe('SYNC_RUNNING');
+    await ErpSyncStateModel.updateOne({ _id: 'manual-sync' }, { $set: { lockedUntil: new Date(t.ctx.clock.now().getTime() - 1000) } });
+    expect((await sa.post('/system/erp-sync', {})).status).toBe(200);
+  });
+
+  it('503 ERP_UNAVAILABLE when the ERP cannot be reached, and the lock is released', async () => {
+    const sa = await as(t, '01700000001');
+    const orig = t.erp.listBranches.bind(t.erp);
+    t.erp.listBranches = async () => {
+      throw new Error('connect ECONNREFUSED');
+    };
+    const down = await sa.post('/system/erp-sync', {});
+    expect(down.status).toBe(503);
+    expect(down.body.code).toBe('ERP_UNAVAILABLE');
+    t.erp.listBranches = orig;
+    expect((await sa.post('/system/erp-sync', {})).status).toBe(200);
+  });
+});
+
+describe('deltaSync with a time budget (1.17.0)', () => {
+  it('stops at the budget, remembers the page, and the next run finishes and moves the watermark', async () => {
+    await ErpSyncStateModel.deleteMany({ _id: { $regex: '^customers:branch:' } });
+    await CustomerModel.deleteMany({});
+    // A budget of 0 ms stops after the first page of the first branch (page size 100 > fixture size, so use a tiny page via the mock).
+    const origList = t.erp.listCustomers.bind(t.erp);
+    let pages = 0;
+    t.erp.listCustomers = async (q) => {
+      pages += 1;
+      const page = await origList({ ...q, pageSize: 1 });
+      return page;
+    };
+    const first = await deltaSync({ budgetMs: 0 });
+    expect(first.partial).toBe(true);
+    const branchStates = await ErpSyncStateModel.find({ _id: { $regex: '^customers:branch:' } }).lean();
+    expect(branchStates.some((x) => x.resume)).toBe(true);
+    expect(branchStates.every((x) => !x.cursor)).toBe(true); // watermark not moved yet
+
+    // finish: no budget, continues from the saved page
+    let guard = 0;
+    let last = await deltaSync();
+    while (last.partial && guard++ < 20) last = await deltaSync();
+    expect(last.partial).toBe(false);
+    const done = await ErpSyncStateModel.find({ _id: { $regex: '^customers:branch:' } }).lean();
+    expect(done.every((x) => x.resume === null || x.resume === undefined)).toBe(true);
+    expect(done.some((x) => x.cursor)).toBe(true);
+    expect(await CustomerModel.countDocuments()).toBeGreaterThan(0);
+    expect(pages).toBeGreaterThan(1);
+    t.erp.listCustomers = origList;
+    void s;
+  });
+});

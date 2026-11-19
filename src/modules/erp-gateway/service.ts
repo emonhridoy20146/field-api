@@ -1,4 +1,5 @@
 import { ctx } from '../../core/context/index.js';
+import { AppError } from '../../core/errors/index.js';
 import { outboxCounts, setOutboxPaused, type OutboxResult } from '../../core/events/outbox.js';
 import { getSetting } from '../settings/index.js';
 import { LaravelErpClient } from './client/laravel-client.js';
@@ -73,19 +74,38 @@ export async function publishCustomer(customer: ErpCustomer, opts: { reconcile?:
 /**
  * FR-ERP-002 delta sync: per ERP branch, customers changed since the watermark (60 s overlap
  * for clock skew / offset pagination, de-duplicated downstream by erpCustomerId).
+ *
+ * 1.17.0: `budgetMs` stops after the page that crosses the budget and remembers where it was (`resume` on the
+ * branch's sync state), so a host with a short request limit (the manual "Sync from ERP" button on Vercel, 60 s)
+ * finishes a first, full pull over several calls. The next run, manual or scheduled, continues from there and only
+ * then moves the watermark. Without a budget the behaviour is as before.
  */
-export async function deltaSync(): Promise<{ customers: number; branches: number }> {
+export async function deltaSync(opts: { budgetMs?: number } = {}): Promise<{ customers: number; branches: number; partial: boolean }> {
+  const startedAtMs = ctx().clock.now().getTime();
+  const overBudget = () => opts.budgetMs !== undefined && ctx().clock.now().getTime() - startedAtMs >= opts.budgetMs;
   const branches = await erpClient().listBranches();
   await ctx().bus.emit('erp.branches.synced', { branches });
   let total = 0;
+  let pages = 0;
+  let partial = false;
   for (const b of branches) {
+    // always make progress: a run does at least one page, so a tiny budget cannot starve the sync
+    if (pages > 0 && overBudget()) {
+      partial = true;
+      break;
+    }
     const id = `customers:branch:${b.erpBranchId}`;
     const state = await ErpSyncStateModel.findById(id).lean();
-    const since = state?.cursor ? new Date(new Date(state.cursor).getTime() - 60_000).toISOString() : null;
+    const resume = (state?.resume ?? null) as { cursor: string; since: string | null; serverTime: string | null } | null;
+    const since = resume
+      ? resume.since
+      : state?.cursor
+        ? new Date(new Date(state.cursor).getTime() - 60_000).toISOString()
+        : null;
     const startedAt = ctx().clock.now();
     try {
-      let cursor: string | null = null;
-      let serverTime: string | null = null;
+      let cursor: string | null = resume?.cursor ?? null;
+      let serverTime: string | null = resume?.serverTime ?? null;
       do {
         const page = await erpClient().listCustomers({
           erpBranchId: b.erpBranchId,
@@ -95,17 +115,56 @@ export async function deltaSync(): Promise<{ customers: number; branches: number
         });
         for (const c of page.items) await publishCustomer(c);
         total += page.items.length;
+        pages += 1;
         cursor = page.nextCursor;
         // Watermark = server time of the FIRST page: rows changed while we paged are picked up next run.
         serverTime ??= page.serverTime;
+        if (cursor && overBudget()) {
+          await ErpSyncStateModel.updateOne({ _id: id }, { $set: { resume: { cursor, since, serverTime } } }, { upsert: true });
+          partial = true;
+          break;
+        }
       } while (cursor);
+      if (partial) break;
       await markSuccess(id, serverTime ?? startedAt.toISOString());
+      if (resume) await ErpSyncStateModel.updateOne({ _id: id }, { $set: { resume: null } });
     } catch (e) {
       await markFailure(id, e);
       ctx().logger.warn({ err: e, erpBranchId: b.erpBranchId }, 'erp delta sync failed');
     }
   }
-  return { customers: total, branches: branches.length };
+  return { customers: total, branches: branches.length, partial };
+}
+
+/**
+ * 1.17.0 (owner request 2026-11-18): the admin panel's "Sync from ERP" button. One run at a time (a Mongo lock, so it
+ * also holds across serverless instances); a run is cut at `budgetMs` and the answer says `partial: true`, so the
+ * button calls again until it is false. ERP unreachable → `ERP_UNAVAILABLE`.
+ */
+export async function manualSync(budgetMs: number) {
+  const now = ctx().clock.now();
+  const lockUntil = new Date(now.getTime() + budgetMs + 20_000);
+  try {
+    const got = await ErpSyncStateModel.findOneAndUpdate(
+      { _id: 'manual-sync', $or: [{ lockedUntil: null }, { lockedUntil: { $lt: now } }] },
+      { $set: { lockedUntil: lockUntil } },
+      { upsert: true, new: true },
+    ).lean();
+    if (!got) throw new AppError('RATE_LIMITED', { reason: 'SYNC_RUNNING', retryAfterSec: 10 });
+  } catch (e) {
+    // upsert collides with the existing locked document (duplicate _id) → somebody else is syncing
+    if (e instanceof AppError) throw e;
+    throw new AppError('RATE_LIMITED', { reason: 'SYNC_RUNNING', retryAfterSec: 10 });
+  }
+  const t0 = ctx().clock.now().getTime();
+  try {
+    const out = await deltaSync({ budgetMs });
+    return { ...out, durationMs: ctx().clock.now().getTime() - t0, finishedAt: ctx().clock.now().toISOString() };
+  } catch (e) {
+    throw new AppError('ERP_UNAVAILABLE', { reason: e instanceof Error ? e.message.slice(0, 120) : 'unknown' });
+  } finally {
+    await ErpSyncStateModel.updateOne({ _id: 'manual-sync' }, { $set: { lockedUntil: null } });
+  }
 }
 
 /** Nightly full reconcile: catches missed deltas and marks ERP-missing customers (never deletes). */

@@ -16,7 +16,7 @@ export const manifest: ModuleManifest = {
     { key: 'customer.view', description: { en: 'View customers in scope', bn: 'গ্রাহক দেখা' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
     { key: 'customer.export', description: { en: 'Export customer lists', bn: 'গ্রাহক তালিকা এক্সপোর্ট' }, defaults: { super_admin: true, branch_manager: true } },
     { key: 'customer.location.propose', description: { en: 'Propose a corrected pin', bn: 'সঠিক পিন প্রস্তাব' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
-    { key: 'customer.location.approve', description: { en: 'Approve/reject pin corrections; set a pin on the map', bn: 'পিন সংশোধন অনুমোদন; ম্যাপে পিন বসানো' }, defaults: { super_admin: true, branch_manager: true } },
+    { key: 'customer.location.approve', description: { en: 'Approve/reject pin corrections; set or delete a pin on the map', bn: 'পিন সংশোধন অনুমোদন; ম্যাপে পিন বসানো বা মুছে ফেলা' }, defaults: { super_admin: true, branch_manager: true } },
   ],
   routes: customerRoutes,
   settings: [
@@ -31,7 +31,7 @@ export const manifest: ModuleManifest = {
     },
   ],
   events: {
-    emits: ['customer.balance_cleared', 'customer.placed', 'customer.payments_synced', 'customer.location.proposed', 'customer.location.approved', 'customer.location.decided'],
+    emits: ['customer.balance_cleared', 'customer.placed', 'customer.payments_synced', 'customer.location.proposed', 'customer.location.approved', 'customer.location.cleared', 'customer.location.decided'],
     consumes: ['erp.customer.synced', 'erp.reconcile.completed'],
   },
   jobs: [{ name: 'customers.recompute-derived', schedule: '5 0 * * *', handler: async () => void (await recomputeAllDerived()) }],

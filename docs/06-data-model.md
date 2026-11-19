@@ -89,10 +89,10 @@ Derived fields are recomputed on each sync **and** nightly at 00:05 Dhaka (becau
 
 ### location_proposals
 `{ clientId, customerId, branchId, proposedBy, point, accuracyM, photoMediaId, note, method: gps|map, devicePoint?, deviceAccuracyM?, deviceMock, autoApplied, direct, status: pending|approved|rejected, decidedBy, decidedAt, decisionReason }`.
-1.11.0 (ADR-031): `method`, `devicePoint`, `deviceAccuracyM`, `deviceMock`, `autoApplied` and `direct` added with defaults (`gps`, none, none, false, false, false), so older documents read unchanged and no migration is needed. A pin a manager sets on the map is a record with `direct: true`, `status: approved`, `proposedBy = decidedBy`. `locationOverride` on the customer gains `autoApplied` / `direct` flags.
+1.11.0 (ADR-031): `method`, `devicePoint`, `deviceAccuracyM`, `deviceMock`, `autoApplied` and `direct` added with defaults (`gps`, none, none, false, false, false), so older documents read unchanged and no migration is needed. A pin a manager sets on the map is a record with `direct: true`, `status: approved`, `proposedBy = decidedBy`. `locationOverride` on the customer gains `autoApplied` / `direct` flags. 1.17.0 (ADR-036): a deleted pin is `locationOverride: { cleared: true, clearedBy, clearedAt }` with `locationStatus: missing`, no `location`; the ERP sync honours it until a new pin replaces it.
 
 ### erp_sync_state
-`{ _id: 'customers:branch:6731…', cursor, lastSuccessAt, lastErrorAt, lastError, consecutiveFailures, lagSec }`.
+`{ _id: 'customers:branch:6731…', cursor, lastSuccessAt, lastErrorAt, lastError, consecutiveFailures, lagSec, resume? }`. 1.17.0: `resume: { cursor, since, serverTime }` is set while a budgeted pull (the manual sync) stopped mid-branch; the next run continues there and only then moves `cursor`. A second document `{ _id: 'manual-sync', lockedUntil }` is the lock of the "Sync from ERP" button. Both are optional (no migration).
 
 ## 4. Field operations
 

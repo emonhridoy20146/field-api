@@ -3,13 +3,21 @@
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
 ## [1.18.0] — contract 1.18.0 (photos without S3: attendance and live map on the Vercel test)
-Numbered 1.18.0 / ADR-039 because 1.15.0–1.17.0 and ADR-036–038 are taken by the open PRs #18 (staff in several branches), #17 (tasks) and #16 (pin delete, ERP sync); whichever merges later keeps its own number.
+Numbered 1.18.0 / ADR-039 because 1.15.0–1.17.0 are taken by PRs #18 (staff in several branches), #17 (tasks) and #16 (pin delete, ERP sync, merged as 1.17.0 with ADR-036); #17 and #18 still use ADR-036 and need new ADR numbers when they merge.
 ### Fixed
 - **Attendance stayed "sync pending" and staff never showed on the admin live map** (owner report 2026-11-18, Vercel test deployment). Root cause: the deployment has no S3, so storage fell back to the in-memory store, which hands out `memory://` upload URLs. The phone cannot PUT to that, so the work-in photo never uploaded; the app holds an attendance event until its photo is on the server (staff-app 0.4.0), so the work-in never arrived; with no work-in the server treats every location point as off duty (FR-LOC-001, `OFF_DUTY`) and `GET /location/latest` lists only staff on duty. Visits and map pins synced because they do not wait for a photo. New storage driver `db` (ADR-039, `src/core/storage/db-storage.ts`): files go to the `storage_objects` collection behind signed URLs with the same rules as S3 (PUT and GET expire after 5 minutes; a PUT must match the signed content type, size and sha256; HMAC key derived from the JWT key, so every instance accepts the others' URLs). Exports work across function instances the same way.
 ### Added
 - `PUT|GET /storage/o?t=<signed grant>` (public; the signature is the permission), only registered when the driver is `db`. Clients never build it: they follow `uploadUrl` from `/media/upload-url` and `url` from `/media/{id}/url` as before. Exempt from the app version gate (an old app must still finish its uploads).
 - Env `STORAGE_DRIVER` (`s3` | `db` | `memory`, empty = automatic: S3 when `S3_ENDPOINT` or `S3_ACCESS_KEY_ID` is set, `db` on Vercel, S3 in production, memory in development). `PUBLIC_BASE_URL` falls back to `https://$VERCEL_PROJECT_PRODUCTION_URL` on Vercel (the signed URLs need the public host).
 - Test `test/integration/storage-db.test.ts`: driver choice, upload → confirm → signed read, forged / wrong-method / expired URLs and a body that differs from the signed one, and a work-in with its photo followed by kept location points and the staff member on the live map.
+## [1.17.0] — contract 1.17.0 (delete a pin, "Sync from ERP")
+### Added
+- **Delete a pin** (FR-CUS-014, owner request 2026-11-18, ADR-036). `DELETE /customers/{id}/location` (`customer.location.approve`): a manager deletes any in-scope customer's pin, from the ERP, the field or the map. The customer shows as "no location", the assignee's phone and polygon areas are updated, and the ERP sync keeps the pin deleted until a new pin is set. Audited `customer.location.cleared`; idempotent (`removed: false` when there was no pin).
+- **"Sync from ERP"** (FR-ERP-007, owner request 2026-11-18, ADR-036). `POST /system/erp-sync` with the new permission `erp.sync` (super admin and branch manager): pulls the customers changed in the ERP now. One run at a time (lock in `erp_sync_state`), at most ~40 s per call; `partial: true` = call again. `429 RATE_LIMITED` (`SYNC_RUNNING`), `503 ERP_UNAVAILABLE`.
+### Changed
+- `deltaSync({ budgetMs })` keeps the page it stopped at (`erp_sync_state.resume`), always does at least one page per run, and the scheduled job honours the same `resume`.
+### Checked
+- New integration tests: pin delete (ERP pin, idempotent, audit, sync feed, stays deleted after `reconcile` and `deltaSync`, 403/404/401), manual sync (200, lock 429, ERP down 503, permission 403, budget + resume).
 
 ## [1.14.0] — contract 1.14.0 (map pin colours, invoice viewer)
 ### Added
