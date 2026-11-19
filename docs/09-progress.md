@@ -29,7 +29,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Handovers incl. temporary cover | FR-HO-001..006 | ✅ API |
 | Collections offline + idempotency + receipt blocks + ERP posting + conflicts | FR-COL-001..011, 013 | ✅ API |
 | Cash on hand, limits, deposits, closing | FR-CASH-* | ✅ API |
-| Visits + camera photos + media | FR-VIS-001..004, FR-MED-001 | ✅ API (thumbnails pending) |
+| Visits + camera photos + media | FR-VIS-001..004, FR-MED-001 | ✅ API (thumbnails pending); storage driver `db` for hosts without S3 (1.18.0, ADR-039) |
 | Notes, promises, reminders, nightly evaluation | FR-NOTE-001, FR-PRM-001..003 | ✅ API |
 | Tags + suggestion + review | FR-TAG-* | ✅ API |
 | Attendance + shifts + holidays + corrections | FR-ATT-001..007, FR-SET-002/003 | ✅ API (FR-ATT-007 geofence not built; leave FR-ATT-008 built early) |
@@ -62,7 +62,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Visit suggestion from dwell | FR-VIS-005 | ☐ |
 | Retention TTL + daily summaries | FR-LOC-009, 012 | ✅ |
 | Co-work: requests, joint visits, manager view, single / co-work statistics with credit weight (added 2026-11-16) | FR-CW-001..005 | ✅ API (ADR-029); screens in staff-app and admin-web |
-| Staff tasks: admin gives a task with a note, staff resolve request, admin verifies (added 2026-11-18) | FR-TASK-001..005 | ✅ API (contract 1.18.0, ADR-037, flag `module.tasks`); screens in admin-web and staff-app |
+| Staff tasks: admin gives a task with a note, staff resolve request, admin verifies (added 2026-11-18) | FR-TASK-001..005 | ✅ API (contract 1.19.0, ADR-037, flag `module.tasks`); screens in admin-web and staff-app |
 
 **Acceptance:** 9-hour duty day on a mid-range phone uses ≤ 12 % battery for tracking (bike + walking mix); no points outside duty; ≥ 90 % of 5-minute customer stops detected and matched; mock GPS app is flagged within one batch; route history renders a day in < 2 s on admin.
 

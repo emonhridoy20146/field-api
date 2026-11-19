@@ -24,9 +24,9 @@ export interface TestApp {
   close: () => Promise<void>;
 }
 
-export async function createTestApp(opts: { now?: string; seedErp?: boolean } = {}): Promise<TestApp> {
+export async function createTestApp(opts: { now?: string; seedErp?: boolean; env?: Record<string, string> } = {}): Promise<TestApp> {
   const clock = new FixedClock(opts.now ?? '2026-11-15T04:00:00Z'); // 10:00 Dhaka
-  const config = loadConfig({ NODE_ENV: 'test', LOG_LEVEL: 'silent', ERP_MODE: 'mock' });
+  const config = loadConfig({ NODE_ENV: 'test', LOG_LEVEL: 'silent', ERP_MODE: 'mock', ...opts.env });
   await connectMongo(inject('mongoUri'), `t_${randomUUID().replace(/-/g, '').slice(0, 20)}`);
   const { app, ctx } = await buildApp({ config, clock, migrate: true });
   const erp = new MockErpClient();

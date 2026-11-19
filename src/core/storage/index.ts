@@ -2,16 +2,10 @@ import { createHmac } from 'node:crypto';
 import { HeadObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { Config } from '../config/index.js';
+import { DbStorage, storageSecret } from './db-storage.js';
+import { URL_TTL_SEC, type ObjectStorage } from './types.js';
 
-/** Private object storage behind presigned URLs (CLAUDE.md §3: PUT 5 min, GET 5 min). */
-export interface ObjectStorage {
-  presignPut(key: string, contentType: string, sizeBytes: number, sha256Base64: string): Promise<{ url: string; headers: Record<string, string> }>;
-  presignGet(key: string): Promise<string>;
-  exists(key: string): Promise<boolean>;
-  /** Server-side write (generated exports). Client uploads always go through presignPut. */
-  put(key: string, body: Uint8Array, contentType: string): Promise<void>;
-}
-export const URL_TTL_SEC = 300;
+export { URL_TTL_SEC, type ObjectStorage } from './types.js';
 
 export class S3Storage implements ObjectStorage {
   private s3: S3Client;
@@ -76,7 +70,21 @@ export function storage(): ObjectStorage {
 export function setStorage(s: ObjectStorage) {
   current = s;
 }
-export function storageFromConfig(config: Config): ObjectStorage {
-  if (!config.S3_ENDPOINT && config.NODE_ENV !== 'production') return new MemoryStorage();
+/**
+ * Which store files go to. `STORAGE_DRIVER` wins; otherwise S3 when it is configured, the database on
+ * Vercel (no S3 there means every instance would have its own in-memory files, ADR-039), S3 in
+ * production (fails loudly without credentials), and memory for local development and tests.
+ */
+export function storageDriver(config: Config): 's3' | 'db' | 'memory' {
+  if (config.STORAGE_DRIVER) return config.STORAGE_DRIVER;
+  if (config.S3_ENDPOINT || config.S3_ACCESS_KEY_ID) return 's3';
+  if (config.VERCEL) return 'db';
+  return config.NODE_ENV === 'production' ? 's3' : 'memory';
+}
+
+export function storageFromConfig(config: Config, now: () => Date): ObjectStorage {
+  const driver = storageDriver(config);
+  if (driver === 'memory') return new MemoryStorage();
+  if (driver === 'db') return new DbStorage({ baseUrl: config.PUBLIC_BASE_URL.replace(/\/+$/, ''), secret: storageSecret(config.JWT_PRIVATE_KEY), now });
   return new S3Storage(config.S3_BUCKET_MEDIA, { endpoint: config.S3_ENDPOINT, region: config.S3_REGION, accessKeyId: config.S3_ACCESS_KEY_ID, secretAccessKey: config.S3_SECRET_ACCESS_KEY });
 }

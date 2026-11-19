@@ -9,7 +9,11 @@ const schema = z
     NODE_ENV: z.enum(['development', 'test', 'staging', 'production']).default('development'),
     PROCESS_ROLE: z.enum(['api', 'worker']).default('api'),
     PORT: z.coerce.number().int().default(4000),
-    PUBLIC_BASE_URL: z.string().url().default('http://localhost:4000'),
+    // Unset on Vercel: falls back to the project's production URL (see the transform below).
+    PUBLIC_BASE_URL: z.string().url().optional(),
+    // Set by Vercel at runtime ("1" and the production host name); used only for defaults.
+    VERCEL: z.string().optional(),
+    VERCEL_PROJECT_PRODUCTION_URL: z.string().optional(),
     ADMIN_WEB_ORIGIN: z.string().default('http://localhost:3000'),
     COOKIE_DOMAIN: z.string().optional(),
     MONGODB_URI: z.string().default('mongodb://localhost:27017/?replicaSet=rs0'),
@@ -31,6 +35,8 @@ const schema = z
     S3_BUCKET_EXPORTS: z.string().default('fos-exports'),
     S3_ACCESS_KEY_ID: z.string().optional(),
     S3_SECRET_ACCESS_KEY: z.string().optional(),
+    // s3 | db (files in MongoDB, for hosts without S3) | memory (development). Empty = chosen automatically.
+    STORAGE_DRIVER: z.preprocess((v) => (v === '' ? undefined : v), z.enum(['s3', 'db', 'memory']).optional()),
     FCM_PROJECT_ID: z.string().optional(),
     FCM_SERVICE_ACCOUNT_JSON: z.string().optional(),
     SENTRY_DSN: z.string().optional(),
@@ -49,7 +55,11 @@ const schema = z
     // record_only reads the real ERP too (only posting waits), so it needs the same two values.
     if ((env.ERP_MODE === 'live' || env.ERP_MODE === 'record_only') && (!env.ERP_BASE_URL || !env.ERP_API_TOKEN))
       ctx.addIssue({ code: 'custom', message: 'ERP_BASE_URL and ERP_API_TOKEN required for live and record_only modes', path: ['ERP_MODE'] });
-  });
+  })
+  .transform((env) => ({
+    ...env,
+    PUBLIC_BASE_URL: env.PUBLIC_BASE_URL ?? (env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}` : 'http://localhost:4000'),
+  }));
 
 export type Config = z.infer<typeof schema>;
 

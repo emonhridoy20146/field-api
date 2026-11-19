@@ -2,7 +2,7 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
-## [1.18.0] — contract 1.18.0 (admin tasks for staff)
+## [1.19.0] — contract 1.19.0 (admin tasks for staff)
 ### Added
 - **tasks module** (FR-TASK-001..005, owner request 2026-11-18, ADR-037): an admin or manager gives one field staff member a task with a title, a free-form note and an optional due date; it is not tied to a customer. `POST /tasks` (idempotent by `clientId`; `422 TASK_INVALID_ASSIGNEE`, `TASK_DUE_IN_PAST`), `GET /tasks` (filters `status`, `assigneeId`, `branchId`, `overdue`, `q`; `counts` per status and overdue), `GET /tasks/{id}` (with history), `PATCH /tasks/{id}` (while open), `POST /tasks/{id}/verify`, `POST /tasks/{id}/reject` (reason of at least 5 characters, `422 REASON_REQUIRED`), `POST /tasks/{id}/cancel`.
 - Staff side: `GET /tasks/mine`, `POST /tasks/{id}/resolve-request` (note, optional `requestedAt`), sync entity `task` (to the assignee only; bootstrap snapshot holds open tasks and those closed in the last 30 days) and sync mutation `task_resolve_request` `{ taskId, note?, requestedAt? }`. A resolve request moves the task to `resolve_requested`; only an admin verify makes it `resolved`; a reject sends it back to `open` with the reason.
@@ -10,6 +10,14 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 - Permissions `task.view`, `task.manage`, `task.work`; flag `module.tasks` (off by default; super admin turns it on); collection `staff_tasks` (migration `tasks/20261118-0001-tasks-indexes`).
 - Additive only: no existing route, field or collection changed.
 
+## [1.18.0] — contract 1.18.0 (photos without S3: attendance and live map on the Vercel test)
+Numbered 1.18.0 / ADR-039 because 1.15.0–1.17.0 are taken by PRs #18 (staff in several branches), #17 (tasks) and #16 (pin delete, ERP sync, merged as 1.17.0 with ADR-036); #17 and #18 still use ADR-036 and need new ADR numbers when they merge.
+### Fixed
+- **Attendance stayed "sync pending" and staff never showed on the admin live map** (owner report 2026-11-18, Vercel test deployment). Root cause: the deployment has no S3, so storage fell back to the in-memory store, which hands out `memory://` upload URLs. The phone cannot PUT to that, so the work-in photo never uploaded; the app holds an attendance event until its photo is on the server (staff-app 0.4.0), so the work-in never arrived; with no work-in the server treats every location point as off duty (FR-LOC-001, `OFF_DUTY`) and `GET /location/latest` lists only staff on duty. Visits and map pins synced because they do not wait for a photo. New storage driver `db` (ADR-039, `src/core/storage/db-storage.ts`): files go to the `storage_objects` collection behind signed URLs with the same rules as S3 (PUT and GET expire after 5 minutes; a PUT must match the signed content type, size and sha256; HMAC key derived from the JWT key, so every instance accepts the others' URLs). Exports work across function instances the same way.
+### Added
+- `PUT|GET /storage/o?t=<signed grant>` (public; the signature is the permission), only registered when the driver is `db`. Clients never build it: they follow `uploadUrl` from `/media/upload-url` and `url` from `/media/{id}/url` as before. Exempt from the app version gate (an old app must still finish its uploads).
+- Env `STORAGE_DRIVER` (`s3` | `db` | `memory`, empty = automatic: S3 when `S3_ENDPOINT` or `S3_ACCESS_KEY_ID` is set, `db` on Vercel, S3 in production, memory in development). `PUBLIC_BASE_URL` falls back to `https://$VERCEL_PROJECT_PRODUCTION_URL` on Vercel (the signed URLs need the public host).
+- Test `test/integration/storage-db.test.ts`: driver choice, upload → confirm → signed read, forged / wrong-method / expired URLs and a body that differs from the signed one, and a work-in with its photo followed by kept location points and the staff member on the live map.
 ## [1.17.0] — contract 1.17.0 (delete a pin, "Sync from ERP")
 ### Added
 - **Delete a pin** (FR-CUS-014, owner request 2026-11-18, ADR-036). `DELETE /customers/{id}/location` (`customer.location.approve`): a manager deletes any in-scope customer's pin, from the ERP, the field or the map. The customer shows as "no location", the assignee's phone and polygon areas are updated, and the ERP sync keeps the pin deleted until a new pin is set. Audited `customer.location.cleared`; idempotent (`removed: false` when there was no pin).
