@@ -28,7 +28,7 @@ export const manifest: ModuleManifest = {
   settings: [
     { key: 'location.sampling', type: 'json', default: DEFAULT_SAMPLING, branchOverridable: true, exposeToApp: true, description: 'FR-LOC-002 sampling intervals sent to the app' },
     { key: 'location.trackDuringBreak', type: 'bool', default: false, branchOverridable: true, exposeToApp: true, description: 'OD-05: accept points during breaks (default paused)' },
-    { key: 'location.maxAccuracyM', type: 'int', default: 50, exposeToApp: true, description: 'FR-LOC-003 discard points less accurate than this' },
+    { key: 'location.maxAccuracyM', type: 'int', default: 50, exposeToApp: true, description: 'FR-LOC-003 points less accurate than this are kept for the live map only (flagged lowAccuracy), not the route (ADR-041)' },
     { key: 'location.maxSpeedKmh', type: 'int', default: 120, description: 'FR-LOC-003 discard points implying more than this speed' },
     { key: 'location.retentionDays', type: 'int', default: 90, description: 'FR-LOC-009 raw point retention (7–730 days)' },
     { key: 'location.gapMin', type: 'int', default: 10, description: 'No point for longer than this is shown as a gap' },

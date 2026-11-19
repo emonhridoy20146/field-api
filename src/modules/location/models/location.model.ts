@@ -18,6 +18,8 @@ const pointSchema = new Schema(
     battery: { type: Number, default: null },
     charging: { type: Boolean, default: null },
     mock: { type: Boolean, default: false },
+    /** Worse than `location.maxAccuracyM`: live marker only, not route, stops or distance (ADR-041). Absent = good. */
+    lowAccuracy: { type: Boolean },
     receivedAt: { type: Date, required: true },
   },
   { collection: 'location_points', versionKey: false, autoCreate: false, autoIndex: false },
@@ -30,6 +32,7 @@ const latestSchema = new Schema(
     branchId: { type: String, default: null },
     point: { type: { type: String, enum: ['Point'] }, coordinates: { type: [Number] } },
     accuracyM: { type: Number, default: null },
+    lowAccuracy: { type: Boolean, default: false },
     recordedAt: { type: Date, default: null },
     battery: { type: Number, default: null },
     activity: { type: String, default: 'unknown' },

@@ -12,7 +12,7 @@ describe('filterPoints (FR-LOC-003)', () => {
   it('keeps good points and explains each rejection by its original index', () => {
     const pts = [
       { t: at('10:00'), ...north(0), acc: 10 },
-      { t: at('10:01'), ...north(200), acc: 80 }, // low accuracy
+      { t: at('10:01'), ...north(200), acc: 6000 }, // beyond any use
       { t: at('10:01'), ...north(300), acc: 10 },
       { t: at('10:01'), ...north(300), acc: 10 }, // duplicate timestamp
       { t: at('10:02'), ...north(9000), acc: 10 }, // 8.7 km in a minute
@@ -36,6 +36,21 @@ describe('filterPoints (FR-LOC-003)', () => {
     expect(r.rejected).toEqual([{ index: 0, reason: 'OFF_DUTY' }, { index: 1, reason: 'OFF_DUTY' }]);
     const again = filterPoints([{ t: at('09:30'), ...north(0), acc: 5 }, { t: at('09:31'), ...north(20_000), acc: 5 }], opts({ known: [{ t: at('09:30'), ...north(0), acc: 5 }], previous: { t: at('09:30'), ...north(0), acc: 5 } }));
     expect(again.rejected.map((x) => x.reason)).toEqual(['DUPLICATE', 'IMPOSSIBLE_SPEED']);
+  });
+
+  it('keeps rough points flagged for the live map; they never anchor the speed check; the better of two at one instant wins (ADR-041)', () => {
+    const pts = [
+      { t: at('10:00'), ...north(0), acc: 10 },
+      { t: at('10:01'), ...north(400), acc: 300 }, // indoors: kept, flagged
+      { t: at('10:01'), ...north(5), acc: 20 }, // same instant, more accurate: this one wins
+      { t: at('10:02'), ...north(30), acc: 15 },
+    ];
+    const r = filterPoints(pts, opts());
+    expect(r.accepted.map((p) => p.acc)).toEqual([10, 20, 15]);
+    expect(r.rejected).toEqual([{ index: 1, reason: 'DUPLICATE' }]);
+    const rough = filterPoints([{ t: at('10:05'), ...north(600), acc: 400 }, { t: at('10:05', 30), ...north(20), acc: 10 }], opts({ previous: { t: at('10:04'), ...north(0), acc: 10 } }));
+    expect(rough.rejected).toEqual([]);
+    expect([...rough.lowAccuracy].map((p) => p.acc)).toEqual([400]);
   });
 
   it('GPS jitter between fixes one second apart is not "impossible speed"', () => {
