@@ -2,6 +2,12 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
+## [1.20.1] — contract 1.20.1 (phones from before branch-wide visibility reload once; health shows the contract)
+### Fixed
+- Staff phones that took their snapshot while the server still showed staff only their assigned customers kept seeing only those after the server moved to 1.19.0: a feed entry goes out only when a customer changes, so the rest of the branch never arrived. The customers module now raises a **resync floor** (`counters` `sync_floor:customers-branch-wide`) at its first boot on a database with history; `GET /sync/pull` answers `410 CURSOR_EXPIRED` once for any cursor below it, and the app takes a fresh snapshot (it keeps its outbox, so a waiting attendance or collection is not lost). No reinstall, no admin step. A fresh database gets floor 0 (ADR-038 addendum).
+### Added
+- `GET /system/health` returns `contract` (this build's contract version, `src/core/http/contract.ts`), so the owner can see in a browser which build is deployed. The health test fails when it differs from `docs/openapi.yaml`.
+
 ## [1.20.0] — contract 1.20.0 (admin tasks for staff)
 ### Added
 - **tasks module** (FR-TASK-001..005, owner request 2026-11-18, ADR-037): an admin or manager gives one field staff member a task with a title, a free-form note and an optional due date; it is not tied to a customer. `POST /tasks` (idempotent by `clientId`; `422 TASK_INVALID_ASSIGNEE`, `TASK_DUE_IN_PAST`), `GET /tasks` (filters `status`, `assigneeId`, `branchId`, `overdue`, `q`; `counts` per status and overdue), `GET /tasks/{id}` (with history), `PATCH /tasks/{id}` (while open), `POST /tasks/{id}/verify`, `POST /tasks/{id}/reject` (reason of at least 5 characters, `422 REASON_REQUIRED`), `POST /tasks/{id}/cancel`.

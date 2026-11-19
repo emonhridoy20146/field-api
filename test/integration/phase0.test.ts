@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { as, client, createTestApp, login, PASSWORD, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
-import { expectConforms } from '../helpers/openapi.js';
+import { contractVersion, expectConforms } from '../helpers/openapi.js';
 import { verifyChain } from '../../src/modules/audit/index.js';
 import { setFlagSystem } from '../../src/modules/flags/index.js';
 
@@ -262,6 +262,8 @@ describe('settings, meta and version gate (FR-SET-001, FR-AUTH-009)', () => {
     const res = await client(t.app).get('/system/health');
     expect(res.status).toBe(200);
     expectConforms('GET', '/system/health', 200, res.body);
+    // the deployed contract is visible; keep src/core/http/contract.ts in step with docs/openapi.yaml
+    expect(res.body.contract).toBe(contractVersion());
   });
 
   it('shifts and holidays', async () => {

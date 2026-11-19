@@ -2,6 +2,7 @@ import type { ModuleManifest } from '../../core/module/types.js';
 import { syncMutations } from './sync.js';
 import { ctx } from '../../core/context/index.js';
 import { indexMigration } from '../../core/db/migrations.js';
+import { raiseResyncFloor } from '../../core/changefeed/index.js';
 import type { ErpCustomer } from '../erp-gateway/index.js';
 import { customerRoutes } from './routes.js';
 import { markMissing, recomputeAllDerived, myProposals, proposalSyncLoad, refeedBranches, syncLoad, syncSnapshot, upsertFromErp } from './service.js';
@@ -67,7 +68,9 @@ export const manifest: ModuleManifest = {
     // 1.14.0 (ADR-035): fill derived.missedCount (pin colours) for customers cached before it existed.
     { id: '20261118-0001-derive-missed-installments', up: async () => void (await recomputeAllDerived()) },
   ],
-  init() {
+  async init() {
+    // ADR-038: phones that took their snapshot when staff saw only assigned customers reload once.
+    await raiseResyncFloor('customers-branch-wide');
     const bus = ctx().bus;
     bus.on('erp.customer.synced', async (p) => void (await upsertFromErp(p.customer as ErpCustomer, p.fetchedAt as Date)));
     bus.on('erp.reconcile.completed', async (p) => void (await markMissing(p.erpBranchId as string, p.seenErpCustomerIds as string[])));
