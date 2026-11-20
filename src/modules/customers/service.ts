@@ -14,6 +14,7 @@ import { getUsers } from '../users/index.js';
 import { getSetting } from '../settings/index.js';
 import { refreshCustomer as erpRefresh, ErpUnavailableError, type ErpCustomer } from '../erp-gateway/index.js';
 import { badges, deriveCustomer, isBadTag, payState, worstPayState, worstStatus, type CustomerStatus, type PayState } from './domain/status.js';
+import { MAX_EXTRA_PHONES, mergePhones, normalizeMobile, planAdd, type ExtraPhone, type PhoneInput } from './domain/phones.js';
 import { QUALITY_ISSUES, findIssues, sharedPhones, type Finding, type QualityInput } from './domain/quality.js';
 import { CustomerModel, LocationProposalModel } from './models/customer.model.js';
 
@@ -477,6 +478,15 @@ function openInvoices(c: Doc): { installment: number; credit: number } {
   return out;
 }
 
+/** ERP numbers first, then the ones added in FOS (FR-CUS-016). */
+const phoneList = (c: Doc) => mergePhones(c.phones as string[] | undefined, c.fos?.extraPhones as ExtraPhone[] | undefined);
+
+/** The two phone fields of a customer detail: plain numbers (as before 1.23.0) and where each came from. */
+function phonesView(c: Doc) {
+  const list = phoneList(c);
+  return { phones: list.map((p) => p.number), phoneDetails: list };
+}
+
 async function listItems(rows: Doc[], user: AuthUser, near: LatLng | null) {
   const ids = rows.map((r) => r._id.toHexString());
   const date = today();
@@ -498,7 +508,7 @@ async function listItems(rows: Doc[], user: AuthUser, near: LatLng | null) {
       erpCustomerId: c.erpCustomerId,
       code: c.code ?? '',
       name: { bn: c.name?.bn ?? '', en: c.name?.en ?? '' },
-      phone: c.phones?.[0] ?? '',
+      phone: phoneList(c)[0]?.number ?? '',
       address: c.address ?? '',
       location: loc,
       distanceM: near && loc.lat !== null ? Math.round(haversineM(near, { lat: loc.lat, lng: loc.lng })) : null,
@@ -601,7 +611,7 @@ async function buildFilter(user: AuthUser, q: ListQuery): Promise<Record<string,
         { 'name.bn': rx },
         { code: rx },
         { erpCustomerId: term },
-        ...(digits.length >= 4 ? [{ phones: { $regex: digits.slice(-10) } }] : []),
+        ...(digits.length >= 4 ? [{ phones: { $regex: digits.slice(-10) } }, { 'fos.extraPhones.number': { $regex: digits.slice(-10) } }] : []),
       ],
     });
   }
@@ -810,7 +820,7 @@ async function detailsOf(rows: Doc[], user: AuthUser): Promise<Record<string, un
       return await detailFrom(c, items[i]!, user, lookup);
     } catch (err) {
       ctx().logger.warn({ err, customerId: c._id.toHexString() }, 'customer detail for sync failed; sending list data only');
-      return { ...items[i]!, phones: c.phones ?? [], plans: [], payments: [], pendingCollections: [], recentNotes: [], lastVisit: null, badSuggestion: null, version: c.version ?? 1 };
+      return { ...items[i]!, ...phonesView(c), plans: [], payments: [], pendingCollections: [], recentNotes: [], lastVisit: null, badSuggestion: null, version: c.version ?? 1 };
     }
   });
 }
@@ -829,7 +839,7 @@ async function detailFrom(c: Doc, item: Awaited<ReturnType<typeof listItems>>[nu
     );
   return {
     ...item,
-    phones: c.phones ?? [],
+    ...phonesView(c),
     ...(c.guarantor ? { guarantor: c.guarantor } : {}),
     plans: (c.plans ?? []).map((p: LooseObject) => planView(p, dPlans.get(p.erpPlanId), branchIdOf)),
     payments: (c.recentPayments ?? []).map((p: LooseObject) => ({
@@ -1240,6 +1250,92 @@ export async function clearLocation(user: AuthUser, customerId: string, meta: Re
   if (after.branchId)
     await ctx().bus.emit('customer.placed', { customerId, branchId: after.branchId, areaCode: after.areaCode ?? null, isNew: false });
   return { removed: true, location: locationView(after) };
+}
+
+// ---------------- phone numbers added in FOS (FR-CUS-016, ADR-042) ----------------
+
+const displayName = (u: AuthUser) => u.name.bn || u.name.en || u.employeeCode;
+
+/**
+ * Add one or more mobile numbers to a customer. They are kept in the FOS overlay only: nothing is
+ * sent to the ERP and the ERP sync never removes them. A number the customer already has is skipped,
+ * so a repeat of the same request changes nothing. One invalid number refuses the whole request.
+ */
+export async function addPhones(user: AuthUser, customerId: string, input: PhoneInput[], meta: RequestMeta) {
+  const c = await loadInScope(user, customerId);
+  const extra = (c.fos?.extraPhones ?? []) as ExtraPhone[];
+  const plan = planAdd((c.phones ?? []) as string[], extra, input);
+  if (plan.invalid.length)
+    throw new AppError('VALIDATION_FAILED', {
+      fields: plan.invalid.map((x) => ({ path: `phones.${x.index}.number`, message: 'Bangladesh mobile number, 01XXXXXXXXX' })),
+    });
+  if (!plan.add.length) return { added: [] as string[], skipped: plan.skipped, ...phonesView(c) };
+  const now = ctx().clock.now();
+  const rows: ExtraPhone[] = plan.add.map((a) => ({ number: a.number, label: a.label, addedBy: user.id, addedByName: displayName(user), addedAt: now }));
+  // Guarded by the count so two requests at once cannot pass the limit together.
+  const after = (await CustomerModel.findOneAndUpdate(
+    { _id: customerId, 'fos.extraPhones.number': { $nin: rows.map((r) => r.number) }, [`fos.extraPhones.${MAX_EXTRA_PHONES - rows.length}`]: { $exists: false } },
+    { $push: { 'fos.extraPhones': { $each: rows } }, $inc: { version: 1 } },
+    { new: true },
+  ).lean()) as Doc | null;
+  if (!after) {
+    // Another request added a number in between: answer from what is stored now.
+    const fresh = await loadInScope(user, customerId);
+    const have = new Set(phoneList(fresh).map((p) => p.number));
+    const full = ((fresh.fos?.extraPhones ?? []) as ExtraPhone[]).length >= MAX_EXTRA_PHONES;
+    return {
+      added: [] as string[],
+      skipped: [...plan.skipped, ...plan.add.map((a) => ({ number: a.number, reason: have.has(a.number) ? ('duplicate' as const) : full ? ('limit' as const) : ('duplicate' as const) }))],
+      ...phonesView(fresh),
+    };
+  }
+  await recordChange(await customerFeed(customerId, after.branchId, [after.fos?.assigneeId]));
+  await audit.record({
+    actor: user,
+    action: 'customer.phone.added',
+    entity: 'customer',
+    entityId: customerId,
+    branchId: c.branchId,
+    before: { added: extra.length },
+    // Numbers are personal data: the log keeps how many and the last four digits only.
+    after: { added: extra.length + rows.length, numbers: rows.map((r) => `…${r.number.slice(-4)}`) },
+    reason: null,
+    meta,
+  });
+  return { added: rows.map((r) => r.number), skipped: plan.skipped, ...phonesView(after) };
+}
+
+/**
+ * Remove a number that was added in FOS. An ERP number cannot be removed here (the office owns it).
+ * Idempotent: a number that is not there answers `removed: false`.
+ */
+export async function removePhone(user: AuthUser, customerId: string, raw: string, meta: RequestMeta) {
+  const c = await loadInScope(user, customerId);
+  const number = normalizeMobile(raw);
+  if (!number) throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'number', message: 'Bangladesh mobile number, 01XXXXXXXXX' }] });
+  const extra = (c.fos?.extraPhones ?? []) as ExtraPhone[];
+  if (!extra.some((e) => e.number === number)) {
+    if (((c.phones ?? []) as string[]).includes(number)) throw businessRule('PHONE_FROM_ERP');
+    return { removed: false, ...phonesView(c) };
+  }
+  const after = (await CustomerModel.findByIdAndUpdate(
+    customerId,
+    { $pull: { 'fos.extraPhones': { number } }, $inc: { version: 1 } },
+    { new: true },
+  ).lean()) as Doc;
+  await recordChange(await customerFeed(customerId, after.branchId, [after.fos?.assigneeId]));
+  await audit.record({
+    actor: user,
+    action: 'customer.phone.removed',
+    entity: 'customer',
+    entityId: customerId,
+    branchId: c.branchId,
+    before: { added: extra.length, numbers: [`…${number.slice(-4)}`] },
+    after: { added: extra.length - 1 },
+    reason: null,
+    meta,
+  });
+  return { removed: true, ...phonesView(after) };
 }
 
 export async function listProposals(user: AuthUser, q: { branchId?: string; status?: string }) {

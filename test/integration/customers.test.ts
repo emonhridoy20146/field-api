@@ -445,3 +445,110 @@ describe('map pins (FR-CUS-011, contract 1.11.0)', () => {
     expect(kinds).toEqual(['Assignment to Sumon Mia ended', 'Assigned to Sumon Mia']);
   });
 });
+
+describe('extra phone numbers (FR-CUS-016, contract 1.23.0)', () => {
+  const erpNumberOf = async (c: Awaited<ReturnType<typeof as>>, id: string) => (await c.get(`/customers/${id}`)).body.phones[0] as string;
+
+  it('staff adds several numbers at once; ERP numbers stay first; duplicates are skipped; the feed and the audit hear it', async () => {
+    const fs = await as(t, '01700000003');
+    const id = ids['100246']!;
+    const erp = await erpNumberOf(fs, id);
+    const before = (await fs.get(`/customers/${id}`)).body.phones as string[];
+    const r = await fs.post(`/customers/${id}/phones`, { phones: [{ number: '+880 1811-000004', label: 'wife' }, { number: '০১৩১১০০০০০৫' }, { number: erp }] });
+    expect(r.status).toBe(200);
+    expectConforms('POST', '/customers/{id}/phones', 200, r.body);
+    expect(r.body.added).toEqual(['01811000004', '01311000005']);
+    expect(r.body.skipped).toEqual([{ number: erp, reason: 'duplicate' }]);
+    expect(r.body.phones).toEqual([...before, '01811000004', '01311000005']);
+    const added = r.body.phoneDetails.find((p: { number: string }) => p.number === '01811000004');
+    expect(added).toMatchObject({ source: 'field', primary: false, label: 'wife', addedBy: { id: s.fs1.id } });
+    expect(r.body.phoneDetails[0]).toMatchObject({ number: erp, source: 'erp', primary: true });
+
+    // the detail and the phone's sync item carry both fields
+    const det = await fs.get(`/customers/${id}`);
+    expectConforms('GET', '/customers/{id}', 200, det.body);
+    expect(det.body.phoneDetails).toHaveLength(before.length + 2);
+    const pull = await fs.get('/sync/pull?cursor=s_0');
+    expect(pull.body.changes.some((c: { entity: string; id: string }) => c.entity === 'customer' && c.id === id)).toBe(true);
+
+    // the same request again changes nothing
+    const again = await fs.post(`/customers/${id}/phones`, { phones: [{ number: '01811000004' }] });
+    expect(again.body).toMatchObject({ added: [], skipped: [{ number: '01811000004', reason: 'duplicate' }] });
+
+    // search finds the customer by an added number
+    const found = await fs.get('/customers?q=01811000004');
+    expect(found.body.items.map((x: { id: string }) => x.id)).toEqual([id]);
+
+    // audit keeps the last four digits only
+    const audit = JSON.stringify((await (await as(t, '01700000001')).get(`/audit?entity=customer&entityId=${id}`)).body);
+    expect(audit).toContain('customer.phone.added');
+    expect(audit).toContain('…0004');
+    expect(audit).not.toContain('01811000004');
+  });
+
+  it('the ERP sync keeps the added numbers', async () => {
+    await reconcile();
+    await deltaSync();
+    const det = await (await as(t, '01700000003')).get(`/customers/${ids['100246']}`);
+    expect(det.body.phones).toContain('01811000004');
+    expect(det.body.phones).toContain('01311000005');
+  });
+
+  it('one invalid number refuses the whole request; at most five numbers in a call and five added per customer', async () => {
+    const fs = await as(t, '01700000003');
+    const id = ids['100246']!;
+    const bad = await fs.post(`/customers/${id}/phones`, { phones: [{ number: '01911000009' }, { number: 'call the shop' }] });
+    expect(bad.status).toBe(400);
+    expect(JSON.stringify(bad.body)).toContain('phones.1.number');
+    expect((await fs.get(`/customers/${id}`)).body.phones).not.toContain('01911000009');
+    expect((await fs.post(`/customers/${id}/phones`, { phones: [] })).status).toBe(400);
+    expect((await fs.post(`/customers/${id}/phones`, { phones: Array.from({ length: 6 }, (_, i) => ({ number: `0171200000${i}` })) })).status).toBe(400);
+    // two are there already: three more fit, the fourth is over the limit
+    const fill = await fs.post(`/customers/${id}/phones`, { phones: ['01912000001', '01912000002', '01912000003', '01912000004'].map((number) => ({ number })) });
+    expect(fill.body.added).toEqual(['01912000001', '01912000002', '01912000003']);
+    expect(fill.body.skipped).toEqual([{ number: '01912000004', reason: 'limit' }]);
+  });
+
+  it('removes an added number, not an ERP one; idempotent', async () => {
+    const bm = await as(t, '01700000002');
+    const id = ids['100246']!;
+    const erp = await erpNumberOf(bm, id);
+    const r = await bm.delete(`/customers/${id}/phones/01912000003`);
+    expect(r.status).toBe(200);
+    expectConforms('DELETE', '/customers/{id}/phones/{number}', 200, r.body);
+    expect(r.body.removed).toBe(true);
+    expect(r.body.phones).not.toContain('01912000003');
+    expect((await bm.delete(`/customers/${id}/phones/01912000003`)).body.removed).toBe(false);
+    const fromErp = await bm.delete(`/customers/${id}/phones/${erp}`);
+    expect(fromErp.status).toBe(422);
+    expect(fromErp.body.details.rule).toBe('PHONE_FROM_ERP');
+    expect((await bm.delete(`/customers/${id}/phones/not-a-number`)).status).toBe(400);
+    expect(JSON.stringify((await (await as(t, '01700000001')).get(`/audit?entity=customer&entityId=${id}`)).body)).toContain('customer.phone.removed');
+  });
+
+  it('offline phones add numbers with the sync mutation customer_phone', async () => {
+    const fs = await as(t, '01700000003');
+    const id = ids['100245']!;
+    const mutation = { mutationId: randomUUID(), entity: 'customer_phone', op: 'create', payload: { customerId: id, phones: [{ number: '01612000001', label: 'shop' }] } };
+    const r = await fs.post('/sync/push', { deviceId: 'dev-01700000003', mutations: [mutation] });
+    expect(r.status).toBe(200);
+    expect(r.body.results[0]).toMatchObject({ result: 'applied', entityId: id });
+    expect((await fs.get(`/customers/${id}`)).body.phones).toContain('01612000001');
+    const replay = await fs.post('/sync/push', { deviceId: 'dev-01700000003', mutations: [mutation] });
+    expect(replay.body.results[0].result).toBe('replayed');
+  });
+
+  it('403 for a viewer, 404 out of scope or unknown, 401 without a token', async () => {
+    const body = { phones: [{ number: '01712000009' }] };
+    const vw = await as(t, '01700000006');
+    expect((await vw.post(`/customers/${ids['100245']}/phones`, body)).status).toBe(403);
+    expect((await vw.delete(`/customers/${ids['100245']}/phones/01612000001`)).status).toBe(403);
+    const fs = await as(t, '01700000003');
+    expect((await fs.post(`/customers/${ids['100247']}/phones`, body)).status).toBe(404); // another staff member's customer (assigned-only rule)
+    expect((await fs.post(`/customers/${ids['200301']}/phones`, body)).status).toBe(404); // branch B
+    expect((await fs.post('/customers/not-an-id/phones', body)).status).toBe(404);
+    expect((await fs.delete(`/customers/${ids['200301']}/phones/01712000009`)).status).toBe(404);
+    expect((await t.app.inject({ method: 'POST', url: `/api/v1/customers/${ids['100245']}/phones`, payload: body })).statusCode).toBe(401);
+    expect((await t.app.inject({ method: 'DELETE', url: `/api/v1/customers/${ids['100245']}/phones/01612000001` })).statusCode).toBe(401);
+  });
+});

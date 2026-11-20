@@ -2,6 +2,17 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
+## [1.23.0] — contract 1.23.0 (extra phone numbers of a customer)
+### Added (owner request 2026-11-21, FR-CUS-016, ADR-042)
+- **Add several phone numbers to a customer at once**: `POST /customers/{id}/phones` (one to five numbers, optional label each) and `DELETE /customers/{id}/phones/{number}` for an added one. New permission `customer.phone.manage` (super admin, branch manager, field staff). Offline phones use the new sync mutation `customer_phone`.
+- Added numbers are kept in FOS (`erp_customers.fos.extraPhones`); they are never sent to the ERP and the ERP sync never removes them.
+- `CustomerDetail.phones` now lists the ERP numbers first, then the added ones; new `CustomerDetail.phoneDetails` says for each number whether it is the ERP's (`erp`, the first one `primary`) or was added (`field`, with label, who and when).
+- Customer search (`q`) also finds an added number. A customer with no ERP number shows its first added number in lists.
+- Audit actions `customer.phone.added` / `customer.phone.removed` (count and last four digits only).
+### Notes for the clients
+- Additive: clients on an older contract keep working and simply see more numbers in `phones`.
+- `ContactAttempt.phoneIndex` still points at the same ERP number (ERP numbers keep their place at the front).
+
 ## [1.22.0] — contract 1.22.0 (live map shows staff on duty even indoors)
 ### Fixed
 - **Live map stayed empty after work-in** (owner report 2026-11-19, ADR-041). The database showed the work-in saved (accuracy 200 m) but no location point: the phone indoors reports 100–500 m, and both the app and the server dropped every point worse than `location.maxAccuracyM` (50 m). The map lists only staff with a point today, so nobody showed.
