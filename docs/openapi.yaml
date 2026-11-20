@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.25.0
+  version: 1.26.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -1753,6 +1753,25 @@ paths:
       parameters: [ { $ref: '#/components/parameters/BranchId' }, { name: period, in: query, required: true, schema: { type: string, enum: [day, month] } }, { name: date, in: query, schema: { type: string, description: 'YYYY-MM-DD for day, YYYY-MM for month; default the current one' } }, { name: metric, in: query, schema: { type: string, enum: [collected, visit_credit, promises_kept, target_achievement], default: collected } } ]
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Leaderboard' } } } }
+  /reports/collection-board:
+    get:
+      tags: [reports]
+      operationId: collectionBoard
+      description: |
+        Who collected the most money that the ERP has accepted (1.26.0, FR-REP-007, ADR-045), for a month or for all time. Field collection amounts with status posted or resolved_posted only; money still pending in the ERP is never counted. Not a balance.
+        Everyone who collected is on it whatever their role (a manager or an admin is ranked by collections alone); active field staff with nothing posted are listed with rank null.
+        Access as the leaderboard: report.view, or setting reports.leaderboardVisibleToStaff true for the caller's own branch; otherwise 403 FORBIDDEN.
+        With setting reports.leaderboardScope = all (default) the board covers every branch for everyone who may open it; with branch a person sees the branches of their own scope (field staff: their home branch) and another branchId answers 404.
+        Equal amounts share a rank (1, 2, 2, 4).
+      parameters:
+        - { name: period, in: query, required: true, schema: { type: string, enum: [month, all] } }
+        - { name: month, in: query, schema: { type: string, example: 2026-11, description: 'Only with period=month; default the current month. A future month answers 400.' } }
+        - { $ref: '#/components/parameters/BranchId' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/CollectionBoard' } } } }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
   /reports/data-quality:
     get:
       tags: [reports]
@@ -2955,6 +2974,32 @@ components:
         minPresentDays: { type: integer }
         items: { type: array, items: { $ref: '#/components/schemas/LeaderboardRow' } }
         me: { type: [object, 'null'], properties: { rank: { type: [integer, 'null'] }, of: { type: integer } } }
+    CollectionBoardRow:
+      type: object
+      description: 1.26.0
+      required: [rank, userId, name, employeeCode, role, postedPoisha, count, me]
+      properties:
+        rank: { type: [integer, 'null'], description: 'null while nothing of the person is posted in the period' }
+        userId: { type: string }
+        name: { $ref: '#/components/schemas/I18nText' }
+        employeeCode: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+        branchId: { type: [string, 'null'], description: 'The person''s home branch' }
+        postedPoisha: { type: integer, description: 'Sum of the person''s field collections the ERP has accepted in the period' }
+        count: { type: integer, description: 'How many collections that is' }
+        me: { type: boolean, description: 'The caller' }
+    CollectionBoard:
+      type: object
+      description: 1.26.0
+      required: [period, month, scope, branchId, generatedAt, items, me]
+      properties:
+        period: { type: string, enum: [month, all] }
+        month: { type: [string, 'null'], description: 'YYYY-MM; null for all time' }
+        scope: { type: string, enum: [all, branch], description: 'Setting reports.leaderboardScope' }
+        branchId: { type: [string, 'null'], description: 'The branch asked for; null when not narrowed' }
+        generatedAt: { type: string, format: date-time }
+        items: { type: array, items: { $ref: '#/components/schemas/CollectionBoardRow' } }
+        me: { type: [object, 'null'], description: 'The caller''s place; null when the caller is not on the board', properties: { rank: { type: [integer, 'null'] }, of: { type: integer, description: 'How many people are ranked' }, postedPoisha: { type: integer } } }
     DataQualityIssue: { type: string, enum: [no_location, invalid_location, suspect_swapped, far_from_branch, missing_phone, invalid_phone, shared_phone, plan_without_schedule, unassigned] }
     DataQualitySummary:
       type: object

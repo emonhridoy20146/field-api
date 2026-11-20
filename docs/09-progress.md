@@ -43,6 +43,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Phones from before branch-wide visibility reload once (resync floor); health shows the contract (ADR-038 addendum, contract 1.20.1) | FR-CUS-015, FR-SYNC-001 | ✅ API |
 | Leave cancel and filters, holiday delete and branch filter, my shift, who read a notice, offline notice read, guarantor calls (ADR-032, contract 1.12.0) | FR-ATT-008, FR-SET-002/003, FR-NOT-005, FR-M-014 | ✅ API |
 | Duty hours per branch with break windows, overtime, late absences, validated default shift (ADR-044, contract 1.25.0) | FR-ATT-010..012 | ✅ API |
+| Collection board: verified money, every branch, month and all time, any role (ADR-045, contract 1.26.0) | FR-REP-007 | ✅ API |
 | Extra phone numbers: add several at once, ERP / added marker, kept in FOS (ADR-042, contract 1.23.0) | FR-CUS-016 | ✅ API; screens in admin-web and staff-app follow |
 | This month on a customer (visited, paid, pending, promises) and invoice counts per row and per list (contract 1.24.0) | FR-CUS-017, FR-CUS-018 | ✅ API; screens in admin-web and staff-app follow |
 | Devices binding/remote logout | FR-AUTH-006..008 | ✅ API |

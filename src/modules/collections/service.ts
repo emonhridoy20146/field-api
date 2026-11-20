@@ -27,6 +27,7 @@ import {
   METHODS,
   normalizeTxnRef,
   PENDING_STATUSES,
+  POSTED_STATUSES,
   RESOLVABLE,
   VOIDABLE,
   type Status,
@@ -678,6 +679,19 @@ export async function collectedOfDay(userIds: string[], date: string): Promise<M
     { $group: { _id: '$collectorId', s: { $sum: '$amountPoisha' } } },
   ]);
   return new Map(rows.map((r) => [r._id, r.s]));
+}
+
+/**
+ * FR-REP-007 collection board: money the ERP has accepted, per collector, for a period or for all time.
+ * Deliberately not scoped to the caller: the board is company-wide by the owner's rule (ADR-045) and carries
+ * one total per collector, never a customer or a receipt.
+ */
+export async function postedByCollector(q: { from?: string; to?: string; branchIds?: string[] }): Promise<Map<string, { postedPoisha: number; count: number }>> {
+  const match: Record<string, unknown> = { status: { $in: POSTED_STATUSES } };
+  if (q.from && q.to) match.businessDate = { $gte: q.from, $lte: q.to };
+  if (q.branchIds) match.branchId = { $in: q.branchIds };
+  const rows = await CollectionModel.aggregate<{ _id: string; s: number; n: number }>([{ $match: match }, { $group: { _id: '$collectorId', s: { $sum: '$amountPoisha' }, n: { $sum: 1 } } }]);
+  return new Map(rows.map((r) => [r._id, { postedPoisha: r.s, count: r.n }]));
 }
 
 /** FR-REP-005 self-view: one collector's recorded money of a period, split by whether the ERP has it yet. */

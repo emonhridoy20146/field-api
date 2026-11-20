@@ -2,15 +2,16 @@ import { z } from 'zod';
 import { ctx } from '../../core/context/index.js';
 import { AppError, forbidden, notFound } from '../../core/errors/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
+import { isOid } from '../../core/db/index.js';
 import { businessDate } from '../../core/time/index.js';
-import { branchQuery, type AuthUser } from '../../core/security/types.js';
+import { branchQuery, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
 import { can } from '../rbac/index.js';
 import { flagsFor } from '../flags/index.js';
 import { getSetting } from '../settings/index.js';
-import { getUsers } from '../users/index.js';
+import { getUsers, listByRole } from '../users/index.js';
 import { getBranches } from '../branches/index.js';
 import { QUALITY_ISSUES, dataQualityScan, scopeFilter as customerScope, type QualityRow } from '../customers/index.js';
-import { collectedByDay, postedSplitOf } from '../collections/index.js';
+import { collectedByDay, postedByCollector, postedSplitOf } from '../collections/index.js';
 import { visitSplitByDay } from '../visits/index.js';
 import { visitCreditFor } from '../cowork/index.js';
 import { targetsOf } from '../targets/index.js';
@@ -80,6 +81,56 @@ export async function leaderboard(user: AuthUser, q: z.infer<typeof leaderboardQ
   const { reader, branchId } = await boardAccess(user, q.branchId);
   const b = await board(user, reader, branchId, q.period, date, q.metric);
   return { branchId: branchId ?? null, period: q.period, date, metric: q.metric, minPresentDays: b.min, items: b.items, me: b.me };
+}
+
+// ---------------- collection board (FR-REP-007, ADR-045) ----------------
+
+export const collectionBoardQuery = z.object({ period: z.enum(['month', 'all']), month: z.string().max(7).optional(), branchId: z.string().max(64).optional() });
+
+/**
+ * Who collected the most money that the ERP has accepted, in a month or in all time (owner rule 2026-11-21).
+ * Everyone who collected is on it whatever their role; a manager or an admin is ranked by collections alone.
+ * Pending money is never counted. With `reports.leaderboardScope` = `all` (default) the board covers every
+ * branch for everyone who may open it; with `branch` each person sees the branches of their own scope.
+ */
+export async function collectionBoard(user: AuthUser, q: z.infer<typeof collectionBoardQuery>) {
+  const t = today();
+  const month = q.period === 'month' ? (q.month ?? t.slice(0, 7)) : null;
+  const range = month ? reportRange('monthly', month, t) : null;
+  if (month && !range) throw bad('month', 'this month or earlier (YYYY-MM)');
+  if (!month && q.month) throw bad('month', 'only with period=month');
+
+  const manager = await can(user, 'report.view');
+  const own = user.branchIds[0];
+  if (!manager && !(own && (await getSetting<boolean>('reports.leaderboardVisibleToStaff', own)))) throw forbidden('report.view');
+  const everywhere = (await getSetting<string>('reports.leaderboardScope')) !== 'branch';
+  if (q.branchId && !isOid(q.branchId)) throw notFound('branch');
+  // Which branches the caller may see on the board; undefined = all of them.
+  const allowed = everywhere || isSuperAdmin(user) ? undefined : manager ? user.branchIds : own ? [own] : [];
+  if (q.branchId && allowed && !allowed.includes(q.branchId)) throw notFound('branch');
+  const branchIds = q.branchId ? [q.branchId] : allowed;
+
+  const on = await flagsFor(user);
+  const posted = on['module.collections'] ? await postedByCollector({ ...(range ?? {}), ...(branchIds ? { branchIds } : {}) }) : new Map<string, { postedPoisha: number; count: number }>();
+  // Field staff of the branches in view are listed even with nothing posted yet, so nobody is missing from the board.
+  const staff = await listByRole(['field_staff'], branchIds);
+  const people = await getUsers([...new Set([...posted.keys(), ...staff.map((u) => u.id)])]);
+  const items = rank(
+    [...people.values()].map((u) => {
+      const p = posted.get(u.id) ?? { postedPoisha: 0, count: 0 };
+      return { userId: u.id, name: u.name.en || u.name.bn, displayName: u.name, employeeCode: u.employeeCode, role: u.role, branchId: u.branchIds[0] ?? null, value: p.postedPoisha, postedPoisha: p.postedPoisha, count: p.count, eligible: p.postedPoisha > 0, me: u.id === user.id };
+    }),
+  ).map(({ value: _value, eligible: _eligible, name: _name, displayName, ...r }) => ({ ...r, name: displayName }));
+  const mine = items.find((r) => r.me);
+  return {
+    period: q.period,
+    month,
+    scope: everywhere ? ('all' as const) : ('branch' as const),
+    branchId: q.branchId ?? null,
+    generatedAt: ctx().clock.now().toISOString(),
+    items,
+    me: mine ? { rank: mine.rank, of: items.filter((r) => r.rank !== null).length, postedPoisha: mine.postedPoisha } : null,
+  };
 }
 
 // ---------------- own performance (FR-REP-005, FR-M-021) ----------------

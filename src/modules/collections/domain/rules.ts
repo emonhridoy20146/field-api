@@ -104,6 +104,8 @@ export type Status =
   | 'resolved_voided'
   | 'voided';
 export const PENDING_STATUSES: Status[] = ['received', 'posting', 'posting_failed', 'conflict'];
+/** The ERP has the payment: money that counts as verified (FR-REP-007). */
+export const POSTED_STATUSES: Status[] = ['posted', 'resolved_posted'];
 /** Cash that is still in the collector's hand (FR-CASH-001). */
 export const CASH_COUNTED_STATUSES: Status[] = [
   'received',

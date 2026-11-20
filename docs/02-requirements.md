@@ -340,6 +340,7 @@ Rules:
 | FR-REP-004 | Exports CSV/XLSX/PDF as async job, stored in object storage 7 days, download via signed URL, audited. | active | P3 | A W | I E |
 | FR-REP-005 **[ADDED]** | Leaderboard (opt-in setting) and staff self-view of own monthly performance in app. Approved by the owner 2026-11-17; managers always see it, staff only when `reports.leaderboardVisibleToStaff` is on (OD-15). | active | P3 | A M W | I |
 | FR-REP-006 **[ADDED]** | Scheduled email/push digest for managers (daily 20:00 summary). | proposed | P4 | A | I |
+| FR-REP-007 **[ADDED 2026-11-21]** | Collection board (owner rule): everyone who collected, ranked by the money the ERP has accepted (pending money never counts), for a month or for all time, across every branch (`reports.leaderboardScope` = `all`, default) or per branch (`branch`). A manager or admin who collects is ranked by collections alone. Opened with report.view, or by anyone whose branch has `reports.leaderboardVisibleToStaff` on. `GET /reports/collection-board`, contract 1.26.0. | active | P1 | A W M | U I |
 
 ### 4.15 Audit (module `audit`)
 
