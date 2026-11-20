@@ -45,6 +45,7 @@ export const manifest: ModuleManifest = {
   ],
   init() {
     registerListEnricher(async (ids) => new Map([...(await s.lastVisits(ids))].map(([k, v]) => [k, { lastVisitAt: v.toISOString() }])));
+    registerListEnricher(async (ids) => new Map([...(await s.monthVisits(ids))].map(([k, v]) => [k, { monthVisits: v }])));
     registerDetailContributor(async (c) => ({ lastVisit: await s.lastVisitOf(c.id) }));
     registerTimelineSource(async (customerId, _u, before, limit) => s.timelineItems(customerId, before, limit));
   },

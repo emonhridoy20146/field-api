@@ -552,3 +552,82 @@ describe('extra phone numbers (FR-CUS-016, contract 1.23.0)', () => {
     expect((await t.app.inject({ method: 'DELETE', url: `/api/v1/customers/${ids['100245']}/phones/01612000001` })).statusCode).toBe(401);
   });
 });
+
+describe('this month on a customer and invoice counts (FR-CUS-017/018, contract 1.24.0)', () => {
+  const geo = { lat: 22.7106, lng: 90.3703, accuracyM: 9 };
+  const mut = (entity: string, payload: Record<string, unknown>) => ({ mutationId: randomUUID(), entity, op: 'create', payload });
+  type Row = { id: string; activity: Record<string, unknown>; invoiceCount: { total: number; open: number }; openInvoices: { installment: number; credit: number } };
+
+  it('every row carries the month activity and its invoice count; the list says how many invoices the query has', async () => {
+    const bm = await as(t, '01700000002');
+    const res = await bm.get('/customers?includeTotal=true&limit=200');
+    expect(res.status).toBe(200);
+    expectConforms('GET', '/customers', 200, res.body);
+    const rows = res.body.items as Row[];
+    for (const r of rows) {
+      expect(r.activity.month).toBe('2026-11');
+      expect(r.invoiceCount.open).toBe(r.openInvoices.installment + r.openInvoices.credit);
+      expect(r.invoiceCount.total).toBeGreaterThanOrEqual(r.invoiceCount.open);
+    }
+    // the totals are those of all matching customers (here one page holds them all)
+    const sum = (f: (r: Row) => number) => rows.reduce((n, r) => n + f(r), 0);
+    expect(res.body.invoiceTotals).toEqual({
+      total: sum((r) => r.invoiceCount.total),
+      open: sum((r) => r.invoiceCount.open),
+      installmentOpen: sum((r) => r.openInvoices.installment),
+      creditOpen: sum((r) => r.openInvoices.credit),
+    });
+    expect(res.body.invoiceTotals.total).toBeGreaterThan(0);
+    // without includeTotal the page carries no totals
+    expect((await bm.get('/customers')).body.invoiceTotals).toBeUndefined();
+    // a narrower query has narrower totals
+    const one = await bm.get(`/customers?includeTotal=true&q=${rows[0]!.id === ids['100248'] ? '100245' : '100248'}`);
+    expect(one.body.invoiceTotals.total).toBeLessThanOrEqual(res.body.invoiceTotals.total);
+  });
+
+  it('a visit, a promise and a field collection of this month show on the row and in the detail', async () => {
+    const fs = await as(t, '01700000003');
+    const id = ids['100246']!;
+    const before = (await fs.get(`/customers/${id}`)).body.activity;
+    const push = await fs.post('/sync/push', {
+      deviceId: 'dev-01700000003',
+      mutations: [
+        mut('attendance_event', { clientId: randomUUID(), type: 'work_in', at: '2026-11-15T03:00:00Z', geo }),
+        mut('visit', { clientId: randomUUID(), customerId: id, checkInAt: '2026-11-15T03:30:00Z', outcome: 'promised', geo }),
+        mut('promise', { clientId: randomUUID(), customerId: id, promisedDate: '2026-11-20', promisedAmountPoisha: 100000 }),
+        mut('collection', { clientId: randomUUID(), customerId: id, amountPoisha: 50000, method: 'cash', recordedAt: '2026-11-15T03:35:00Z', receiptNo: 'BRL01-FS014-261115-0901', geo }),
+      ],
+    });
+    expect(push.status).toBe(200);
+    expect(push.body.results.slice(1).map((r: { result: string }) => r.result)).toEqual(['applied', 'applied', 'applied']);
+    const det = await fs.get(`/customers/${id}`);
+    expectConforms('GET', '/customers/{id}', 200, det.body);
+    const a = det.body.activity;
+    expect(a.visitCount).toBe(before.visitCount + 1);
+    expect(a.visitedToday).toBe(true);
+    expect(a.lastVisitAt).toBe('2026-11-15T03:30:00.000Z');
+    expect(a.promisesMade).toBe(before.promisesMade + 1);
+    // field money waiting for the ERP is its own number; ERP money is not changed by it
+    expect(a.pendingPoisha + a.paidPoisha).toBeGreaterThanOrEqual(before.pendingPoisha + before.paidPoisha + 50000);
+    expect(a.paidPoisha).toBeGreaterThanOrEqual(before.paidPoisha);
+    const row = ((await fs.get('/customers')).body.items as Row[]).find((r) => r.id === id)!;
+    expect(row.activity).toEqual(a);
+  });
+
+  it('last month does not count', async () => {
+    const fs = await as(t, '01700000003');
+    const id = ids['100245']!;
+    const before = (await fs.get(`/customers/${id}`)).body.activity;
+    const { VisitModel } = await import('../../src/modules/visits/models/visit.model.js');
+    const sample = await VisitModel.findOne({}).lean();
+    expect(sample).toBeTruthy();
+    const { _id: _drop, ...rest } = sample as Record<string, unknown>;
+    void _drop;
+    await VisitModel.create({ ...rest, clientId: randomUUID(), customerId: id, checkInAt: new Date('2026-10-31T17:59:00Z') }); // 31 Oct 23:59 Dhaka
+    expect((await fs.get(`/customers/${id}`)).body.activity.visitCount).toBe(before.visitCount);
+    await VisitModel.create({ ...rest, clientId: randomUUID(), customerId: id, checkInAt: new Date('2026-10-31T18:00:00Z') }); // 1 Nov 00:00 Dhaka
+    const after = (await fs.get(`/customers/${id}`)).body.activity;
+    expect(after.visitCount).toBe(before.visitCount + 1);
+    expect(after.visitedToday).toBe(before.visitedToday);
+  });
+});

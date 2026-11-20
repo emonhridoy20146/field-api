@@ -2,6 +2,15 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
+## [1.24.0] — contract 1.24.0 (this month on a customer, invoice counts)
+### Added (owner request 2026-11-21, FR-CUS-017, FR-CUS-018)
+- `CustomerListItem.activity` (also in the detail and in the phone's sync items): the current Dhaka month's visits (count, last, today), ERP payments dated this month (`paidPoisha`, `lastPaidDate`), field money not in the ERP yet (`pendingPoisha`), promises made / kept / broken. `paidPoisha` and `pendingPoisha` are separate numbers and are never added together.
+- `CustomerListItem.invoiceCount` `{ total, open }` (cancelled invoices are not counted).
+- `GET /customers?includeTotal=true` also returns `invoiceTotals` `{ total, open, installmentOpen, creditOpen }` for every customer the query matches.
+- Visits, collections and promises each supply their part through the customers list enricher (`monthVisits`, `monthPendingByCustomer`, `monthByCustomer`); no module reads another module's collection.
+### Notes for the clients
+- Additive. `paidPoisha` is read from the customer's recent ERP payments (the newest 20), which covers a month for every customer seen so far.
+
 ## [1.23.0] — contract 1.23.0 (extra phone numbers of a customer)
 ### Added (owner request 2026-11-21, FR-CUS-016, ADR-042)
 - **Add several phone numbers to a customer at once**: `POST /customers/{id}/phones` (one to five numbers, optional label each) and `DELETE /customers/{id}/phones/{number}` for an added one. New permission `customer.phone.manage` (super admin, branch manager, field staff). Offline phones use the new sync mutation `customer_phone`.

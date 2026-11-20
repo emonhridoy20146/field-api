@@ -28,6 +28,11 @@ export interface ListExtras {
   lastVisitAt?: string | null;
   pendingFieldPoisha?: number;
   areaName?: { bn: string; en: string } | null;
+  /** 1.24.0 (FR-CUS-017): this Dhaka month's work on the customer, each part supplied by its own module. */
+  monthVisits?: { count: number; lastAt: string | null; today: boolean };
+  /** Field collections recorded this month that are not in the ERP yet (never added to ERP money). */
+  monthPendingPoisha?: number;
+  monthPromises?: { made: number; kept: number; broken: number };
 }
 export type ListEnricher = (customerIds: string[], user: AuthUser) => Promise<Map<string, ListExtras>>;
 export type DetailContributor = (
@@ -478,6 +483,40 @@ function openInvoices(c: Doc): { installment: number; credit: number } {
   return out;
 }
 
+/** Every invoice of the customer and how many are still open (1.24.0); cancelled ones are not counted. */
+function invoiceCount(c: Doc): { total: number; open: number } {
+  const plans = ((c.plans ?? []) as LooseObject[]).filter((p) => p.status !== 'cancelled');
+  return { total: plans.length, open: plans.filter(isOpenPlan).length };
+}
+
+/**
+ * 1.24.0 (FR-CUS-017): what happened with the customer in the current Dhaka month. `paidPoisha` is ERP money
+ * (payments dated this month among the recent ERP payments, removed ones left out); `pendingPoisha` is field
+ * money not in the ERP yet. The two are separate numbers and are never added together (CLAUDE.md §2.1).
+ */
+function monthActivity(c: Doc, x: ListExtras, date: string) {
+  const month = date.slice(0, 7);
+  let paid = 0;
+  let lastPaidDate: string | null = null;
+  for (const p of (c.recentPayments ?? []) as LooseObject[]) {
+    if (p.reversed || typeof p.date !== 'string' || !p.date.startsWith(month)) continue;
+    paid += p.amountPoisha ?? 0;
+    if (!lastPaidDate || p.date > lastPaidDate) lastPaidDate = p.date;
+  }
+  return {
+    month,
+    visitCount: x.monthVisits?.count ?? 0,
+    visitedToday: x.monthVisits?.today ?? false,
+    lastVisitAt: x.monthVisits?.lastAt ?? null,
+    paidPoisha: paid,
+    lastPaidDate,
+    pendingPoisha: x.monthPendingPoisha ?? 0,
+    promisesMade: x.monthPromises?.made ?? 0,
+    promisesKept: x.monthPromises?.kept ?? 0,
+    promisesBroken: x.monthPromises?.broken ?? 0,
+  };
+}
+
 /** ERP numbers first, then the ones added in FOS (FR-CUS-016). */
 const phoneList = (c: Doc) => mergePhones(c.phones as string[] | undefined, c.fos?.extraPhones as ExtraPhone[] | undefined);
 
@@ -519,6 +558,8 @@ async function listItems(rows: Doc[], user: AuthUser, near: LatLng | null) {
       payState: payStateOf(c),
       missedCount: missedOf(c),
       openInvoices: openInvoices(c),
+      invoiceCount: invoiceCount(c),
+      activity: monthActivity(c, x, date),
       tag: tagView(c),
       openPromise: x.openPromise ?? null,
       lastVisitAt: x.lastVisitAt ?? null,
@@ -659,8 +700,33 @@ export async function list(user: AuthUser, q: ListQuery) {
   return {
     items: await listItems(rows, user, q.near ?? null),
     nextCursor: hasMore ? encodeCursor({ o: offset + q.limit }) : null,
-    ...(q.includeTotal ? { total: await CustomerModel.countDocuments(filter).limit(10_000) } : {}),
+    ...(q.includeTotal ? { total: await CustomerModel.countDocuments(filter).limit(10_000), invoiceTotals: await invoiceTotals(filter) } : {}),
   };
+}
+
+/**
+ * 1.24.0 (FR-CUS-018): invoices of the customers a list query matches (the whole result, not one page), so the
+ * admin panel and the app can say "N customers, M invoices". Same rules as a row's `invoiceCount` / `openInvoices`.
+ */
+async function invoiceTotals(filter: Record<string, unknown>) {
+  const open = { $and: [{ $not: [{ $in: ['$plans.status', ['closed', 'cancelled']] }] }, { $gt: [{ $ifNull: ['$plans.outstandingPoisha', 0] }, 0] }] };
+  const credit = { $eq: ['$plans.kind', 'credit'] };
+  const [row] = (await CustomerModel.aggregate([
+    { $match: filter },
+    { $project: { plans: 1 } },
+    { $unwind: '$plans' },
+    { $match: { 'plans.status': { $ne: 'cancelled' } } },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        open: { $sum: { $cond: [open, 1, 0] } },
+        installmentOpen: { $sum: { $cond: [{ $and: [open, { $not: [credit] }] }, 1, 0] } },
+        creditOpen: { $sum: { $cond: [{ $and: [open, credit] }, 1, 0] } },
+      },
+    },
+  ])) as { total: number; open: number; installmentOpen: number; creditOpen: number }[];
+  return { total: row?.total ?? 0, open: row?.open ?? 0, installmentOpen: row?.installmentOpen ?? 0, creditOpen: row?.creditOpen ?? 0 };
 }
 
 /** Plan-level payment state for the invoice list (same rules as the customer, without FOS tags). */

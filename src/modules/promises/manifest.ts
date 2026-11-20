@@ -53,6 +53,7 @@ export const manifest: ModuleManifest = {
     bus.on('customer.payments_synced', async (p) => s.onPaymentsSynced(p.customerId as string));
     bus.on('handover.accepted', async (p) => s.onHandoverAccepted(p as never));
     registerListEnricher(async (ids) => new Map([...(await s.openByCustomer(ids))].map(([k, v]) => [k, { openPromise: v }])));
+    registerListEnricher(async (ids) => new Map([...(await s.monthByCustomer(ids))].map(([k, v]) => [k, { monthPromises: v }])));
     registerTimelineSource(async (customerId, _u, before, limit) => s.timelineItems(customerId, before, limit));
     registerSummaryContributor(async (p) => ({ openPromises: await s.openCount(p.customerIds) }));
   },
