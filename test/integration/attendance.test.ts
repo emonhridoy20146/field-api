@@ -212,6 +212,7 @@ describe('jobs (FR-ATT-005)', () => {
 
 describe('duty hours per branch, break windows, overtime, late absences (FR-ATT-010..012, contract 1.25.0)', () => {
   it('the default shift is validated; the Friday window is free break time; overtime and late absences reach the month', async () => {
+    t.clock.set('2026-11-20T15:00:00Z'); // Friday 21:00 Dhaka; sign in after the clock moves, tokens are short-lived
     const sa = await as(t, '01700000001');
     const fsB = await as(t, '01700000005');
     const shift = { start: '09:00', end: '18:00', weeklyOff: [], lateGraceMin: 15, maxBreakMin: 60, breakWindows: [{ weekday: 5, start: '12:30', end: '15:30' }] };
@@ -233,7 +234,6 @@ describe('duty hours per branch, break windows, overtime, late absences (FR-ATT-
     expect((await (await as(t, '01700000003')).get('/attendance/me/shift')).body).toMatchObject({ weeklyOff: [5], breakWindows: [] });
 
     // Wednesday 18 and Thursday 19 November: late twice
-    t.clock.set('2026-11-20T15:00:00Z'); // Friday 21:00 Dhaka
     for (const [inAt, outAt] of [
       ['2026-11-18T03:40:00Z', '2026-11-18T12:00:00Z'],
       ['2026-11-19T03:20:00Z', '2026-11-19T12:10:00Z'],
