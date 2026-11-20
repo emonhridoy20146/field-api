@@ -11,8 +11,8 @@ import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { getSetting } from '../settings/index.js';
 import { getUser, getUsers, listByRole, type UserView } from '../users/index.js';
-import { cashCollectionsOf, cashSums } from '../collections/index.js';
-import { oldestUndeposited, onHand, stateOf } from './domain/position.js';
+import { cashCollectionRows, cashCollectionsOf, cashSums } from '../collections/index.js';
+import { inHandBreakdown, oldestUndeposited, onHand, stateOf } from './domain/position.js';
 import { ClosingModel, DepositModel } from './models/cash.model.js';
 
 type Lean = LeanDoc;
@@ -68,6 +68,35 @@ export async function branchPositions(user: AuthUser, branchId?: string) {
   const staff = await listByRole(['field_staff'], branches);
   const scoped = user.role === 'field_staff' ? staff.filter((u) => u.id === user.id) : staff;
   return (await positions(scoped)).sort((a, b) => b.onHandPoisha - a.onHandPoisha);
+}
+
+/** How many collections one answer lists; the newest cash matters most, and the totals cover all of it. */
+const IN_HAND_LIMIT = 200;
+
+/**
+ * FR-CASH-007: the collections behind a person's cash on hand: receipt, customer, invoice and how much of each is
+ * still in hand after the deposits (oldest paid off first). A field staff member reads their own; a manager reads
+ * staff in their scope (404 otherwise).
+ */
+export async function inHandOf(actor: AuthUser, userId: string) {
+  if (!isOid(userId)) throw notFound('user');
+  const u = await getUser(userId);
+  // out of scope answers like "no such user"
+  const mayRead = !!u && (actor.id === u.id || (actor.role !== 'field_staff' && u.branchIds.some((b) => canSeeBranch(actor, b))));
+  if (!u || !mayRead) throw notFound('user');
+  const deps = (await depositTotals([u.id])).get(u.id) ?? { total: 0, pending: 0 };
+  const all = inHandBreakdown(await cashCollectionRows(u.id), deps.total);
+  // newest first: what was collected last is what is most surely still in the pocket
+  const items = all.reverse().slice(0, IN_HAND_LIMIT);
+  return {
+    userId: u.id,
+    userName: u.name.en || u.name.bn,
+    onHandPoisha: all.reduce((n, c) => n + c.inHandPoisha, 0),
+    pendingDepositsPoisha: deps.pending,
+    count: all.length,
+    items: items.map((c) => ({ ...c, recordedAt: c.recordedAt.toISOString() })),
+    generatedAt: ctx().clock.now().toISOString(),
+  };
 }
 
 // ---------------- deposits (FR-CASH-003/004) ----------------

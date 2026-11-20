@@ -227,6 +227,7 @@ Rules:
 | FR-CASH-004 | Verification by `cash.deposit.verify`; rejection requires reason; staff notified. | active | P1 | A W | I E |
 | FR-CASH-005 | Cash positions dashboard: per staff on-hand, oldest undeposited cash age, over-limit list. | active | P1 | A W | I E |
 | FR-CASH-006 **[ADDED]** | End-of-day closing in app: summary of cash and mobile collections, deposits, remaining on hand; staff confirms; mismatch note optional. | proposed | P1 | A M | U D |
+| FR-CASH-007 **[ADDED 2026-11-21]** | Cash in hand, collection by collection: for a staff member, the cash collections that deposits (pending and verified) have not covered, oldest paid off first, each with receipt, customer, invoice, amount and the part still in hand; newest first, at most 200 with the full total. Staff read their own (`GET /cash/me/collections`), managers staff in scope (`GET /cash/positions/{id}/collections`). Contract 1.27.0. | active | P1 | A W M | U I |
 
 ### 4.8 Assignment & handover (modules `assignments`, `handovers`)
 

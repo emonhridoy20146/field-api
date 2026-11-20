@@ -13,6 +13,8 @@ const keyOf = (h: Record<string, unknown>) => {
 
 export const cashRoutes = defineRoutes((r) => {
   r.get('/cash/me', { access: perm('cash.view') }, async (req) => s.positionOf(requireUser(req).id));
+  r.get('/cash/me/collections', { access: perm('cash.view') }, async (req) => s.inHandOf(requireUser(req), requireUser(req).id));
+  r.get('/cash/positions/:id/collections', { access: perm('cash.view') }, async (req) => s.inHandOf(requireUser(req), idOf(req)));
   r.get('/cash/positions', { access: perm('cash.view') }, async (req) => s.branchPositions(requireUser(req), parse(z.object({ branchId: z.string().max(64).optional() }), req.query).branchId));
   r.get('/cash/deposits', { access: perm('cash.view') }, async (req) =>
     s.listDeposits(requireUser(req), parse(z.object({ branchId: z.string().max(64).optional(), status: z.enum(['pending', 'verified', 'rejected']).optional(), limit: z.coerce.number().int().min(1).max(200).default(50), cursor: z.string().max(200).optional() }), req.query)),
