@@ -25,3 +25,19 @@ export function oldestUndeposited(collections: { at: Date; amountPoisha: number 
   }
   return null;
 }
+
+/**
+ * Which cash is still in hand (FR-CASH-007): deposits pay off collections oldest-first, so the cash in hand is the
+ * newest collections. A collection only partly covered keeps the rest. `collections` must be oldest first.
+ */
+export function inHandBreakdown<T extends { amountPoisha: number }>(collections: T[], depositsPoisha: number): (T & { inHandPoisha: number })[] {
+  let left = Math.max(0, depositsPoisha);
+  const out: (T & { inHandPoisha: number })[] = [];
+  for (const c of collections) {
+    const covered = Math.min(left, c.amountPoisha);
+    left -= covered;
+    if (c.amountPoisha - covered > 0) out.push({ ...c, inHandPoisha: c.amountPoisha - covered });
+  }
+  return out;
+}
+

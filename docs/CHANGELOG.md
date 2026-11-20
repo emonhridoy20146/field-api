@@ -4,6 +4,15 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.27.0] — contract 1.27.0 (cash in hand, collection by collection)
+### Added (owner request 2026-11-21, FR-CASH-007)
+- `GET /cash/me/collections` and `GET /cash/positions/{id}/collections` (`cash.view`): the cash collections behind a person's cash on hand, with receipt, customer, invoice (`erpPlanId`), the whole amount and the part still in hand. Deposits (pending and verified) pay off collections oldest-first, as the position already assumed for "oldest undeposited"; the list is newest first, at most 200, and `onHandPoisha` always equals the position.
+- A field staff member reads their own; a manager reads staff of branches in scope, anything else is 404.
+- `collections` exports `cashCollectionRows`; pure rule `inHandBreakdown` in `cash/domain/position.ts`.
+### Notes for the clients
+- Additive; no data change. Which collections a single deposit covered is not reported yet.
+
+
 ## [1.26.0] — contract 1.26.0 (collection board: verified money, all branches, month and all time)
 ### Added (owner request 2026-11-21, FR-REP-007, ADR-045)
 - `GET /reports/collection-board?period=month|all[&month=YYYY-MM][&branchId=…]`: everyone who collected, ranked by the field collections the ERP has accepted (status `posted` / `resolved_posted`); pending money is never counted. A manager or admin who collects is on the board by collections alone; active field staff with nothing posted are listed unranked. `me` gives the caller's rank.

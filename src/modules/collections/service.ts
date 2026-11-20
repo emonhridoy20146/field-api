@@ -533,6 +533,25 @@ export async function cashCollectionsOf(userId: string): Promise<{ at: Date; amo
   return rows.map((r) => ({ at: r.recordedAt, amountPoisha: r.amountPoisha }));
 }
 
+/**
+ * FR-CASH-007: the cash collections of a user with what the reader needs to recognise them (receipt, customer,
+ * invoice), oldest first. Same statuses as `cashCollectionsOf`, so the two always agree.
+ */
+export async function cashCollectionRows(userId: string) {
+  const rows = (await CollectionModel.find({ collectorId: userId, method: 'cash', status: { $in: CASH_COUNTED_STATUSES } }).sort({ recordedAt: 1, _id: 1 }).lean()) as Lean[];
+  const refs = await getCustomerRefs(rows.map((r) => r.customerId));
+  return rows.map((c) => ({
+    collectionId: c._id.toHexString() as string,
+    receiptNo: c.receiptNo as string,
+    recordedAt: c.recordedAt as Date,
+    businessDate: c.businessDate as string,
+    customer: { id: c.customerId as string, name: refs.get(c.customerId)?.name ?? { bn: '', en: '' }, code: refs.get(c.customerId)?.code ?? '' },
+    erpPlanId: c.erpPlanId as string,
+    amountPoisha: c.amountPoisha as number,
+    status: c.status as Status,
+  }));
+}
+
 export async function pendingByCustomer(customerIds: string[]): Promise<Map<string, number>> {
   const rows = await CollectionModel.aggregate([{ $match: { customerId: { $in: customerIds }, status: { $in: PENDING_STATUSES } } }, { $group: { _id: '$customerId', sum: { $sum: '$amountPoisha' } } }]);
   return new Map(rows.map((r: { _id: string; sum: number }) => [r._id, r.sum]));
