@@ -36,6 +36,9 @@ const daySchema = new Schema(
     breakMin: { type: Number, default: 0 },
     dutyMin: { type: Number, default: 0 },
     overBreakMin: { type: Number, default: 0 },
+    windowBreakMin: { type: Number, default: 0 },
+    // absent on days derived before 1.25.0: such a day is derived again on its next read
+    overtimeMin: Number,
     breaks: { type: [{ start: Date, end: Date, _id: false }], default: [] },
     autoClosed: { type: Boolean, default: false },
     corrected: { type: Boolean, default: false },

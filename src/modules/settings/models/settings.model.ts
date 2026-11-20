@@ -33,6 +33,7 @@ const shiftSchema = new Schema(
     weeklyOff: { type: [Number], default: [5] },
     lateGraceMin: { type: Number, default: 15 },
     maxBreakMin: { type: Number, default: 60 },
+    breakWindows: { type: [{ weekday: Number, start: String, end: String, _id: false }], default: [] },
     version: { type: Number, default: 1 },
   },
   { collection: 'shifts', versionKey: false, timestamps: true },

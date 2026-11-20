@@ -10,7 +10,7 @@ import * as audit from '../audit/index.js';
 import { getSetting, isHoliday, resolveShift, type ShiftView } from '../settings/index.js';
 import { getUser, getUsers, listByRole, type UserView } from '../users/index.js';
 import { isUploadedBy } from '../media/index.js';
-import { autoCloseAt, deriveDay, dutyIntervals, dutyStateAt, type DayEvent, type DayKind, type DutyIntervals, type EventType } from './domain/day.js';
+import { autoCloseAt, deriveDay, dutyIntervals, dutyStateAt, lateAbsences, type DayEvent, type DayKind, type DutyIntervals, type EventType } from './domain/day.js';
 import { AttendanceDayModel, AttendanceEventModel, LeaveModel } from './models/attendance.model.js';
 import { weekday } from '../../core/time/index.js';
 
@@ -76,6 +76,8 @@ function dayView(userId: string, date: string, d: LooseObject) {
     lateMin: d.lateMin ?? 0,
     breakMin: d.breakMin ?? 0,
     dutyMin: d.dutyMin ?? 0,
+    overBreakMin: d.overBreakMin ?? 0,
+    overtimeMin: d.overtimeMin ?? 0,
     breaks: (d.breaks ?? []).map((b: { start: Date; end: Date | null }) => ({ start: iso(b.start)!, end: iso(b.end) })),
     autoClosed: !!d.autoClosed,
     corrected: !!d.corrected,
@@ -93,7 +95,10 @@ export async function recompute(user: Pick<UserView, 'id' | 'branchIds' | 'shift
   const shiftEnd = dhakaInstant(date, shift.end);
   const autoClosed = rows.some((e) => e.source === 'system' && e.type === 'work_out');
   const closed = date < today() || autoClosed;
-  const r = deriveDay({ events, shiftStart: dhakaInstant(date, shift.start), shiftEnd, lateGraceMin: shift.lateGraceMin, maxBreakMin: shift.maxBreakMin, kind: await kindOf(user.id, date, shift, branchId), now, closed });
+  const day = weekday(date);
+  const breakWindows = shift.breakWindows.filter((w) => w.weekday === day).map((w) => ({ start: dhakaInstant(date, w.start), end: dhakaInstant(date, w.end) }));
+  const overtimeAfterMin = await getSetting<number>('attendance.overtimeAfterMin', branchId);
+  const r = deriveDay({ events, shiftStart: dhakaInstant(date, shift.start), shiftEnd, lateGraceMin: shift.lateGraceMin, maxBreakMin: shift.maxBreakMin, breakWindows, overtimeAfterMin, autoClosed, kind: await kindOf(user.id, date, shift, branchId), now, closed });
   const flags = [...r.flags, ...new Set(rows.flatMap((e) => e.flags as string[]))].filter((f, i, a) => a.indexOf(f) === i);
   const doc = {
     userId: user.id,
@@ -107,6 +112,8 @@ export async function recompute(user: Pick<UserView, 'id' | 'branchIds' | 'shift
     breakMin: r.breakMin,
     dutyMin: r.dutyMin,
     overBreakMin: r.overBreakMin,
+    windowBreakMin: r.windowBreakMin,
+    overtimeMin: r.overtimeMin,
     breaks: r.breaks,
     autoClosed,
     corrected: rows.some((e) => e.source === 'correction'),
@@ -319,7 +326,8 @@ export async function days(user: AuthUser, q: { branchId?: string | undefined; u
     for (let d = q.from; d <= end; d = addDays(d, 1)) {
       const hit = byKey.get(`${s.id}:${d}`);
       // Stored closed days are final; everything else is recomputed so "today" is always live.
-      out.push(hit && hit.closed ? dayView(s.id, d, hit) : await recompute(s, d));
+      // A closed day stored before 1.25.0 has no overtime yet: it is derived once more, then it is final again.
+      out.push(hit && hit.closed && typeof hit.overtimeMin === 'number' ? dayView(s.id, d, hit) : await recompute(s, d));
     }
   return out;
 }
@@ -332,8 +340,9 @@ export async function summary(user: AuthUser, q: { branchId?: string | undefined
   const all = await days(user, { branchId: q.branchId, from, to });
   const names = await getUsers([...new Set(all.map((d) => d.userId))]);
   const rows = new Map<string, Record<string, number | string>>();
+  const perAbsent = await getSetting<number>('attendance.lateDaysPerAbsent', null);
   for (const d of all) {
-    const r = rows.get(d.userId) ?? { userId: d.userId, userName: names.get(d.userId)?.name.en ?? '', present: 0, late: 0, absent: 0, leave: 0, holiday: 0, weeklyOff: 0, lateMin: 0, breakMin: 0, dutyMin: 0, overBreakDays: 0 };
+    const r = rows.get(d.userId) ?? { userId: d.userId, userName: names.get(d.userId)?.name.en ?? '', present: 0, late: 0, absent: 0, leave: 0, holiday: 0, weeklyOff: 0, lateMin: 0, breakMin: 0, dutyMin: 0, overBreakDays: 0, overBreakMin: 0, overtimeMin: 0, overtimeDays: 0, offDaysWorked: 0, lateAbsences: 0 };
     const worked = d.firstIn !== null;
     if (worked) (r.present as number)++;
     if (worked && d.lateMin > 0) (r.late as number)++;
@@ -345,6 +354,12 @@ export async function summary(user: AuthUser, q: { branchId?: string | undefined
     r.breakMin = (r.breakMin as number) + d.breakMin;
     r.dutyMin = (r.dutyMin as number) + d.dutyMin;
     if (d.flags.includes('over_break')) (r.overBreakDays as number)++;
+    r.overBreakMin = (r.overBreakMin as number) + d.overBreakMin;
+    r.overtimeMin = (r.overtimeMin as number) + d.overtimeMin;
+    if (d.overtimeMin > 0) (r.overtimeDays as number)++;
+    // weekly off day or holiday worked (work during approved leave carries the flag too, but no overtime)
+    if (d.flags.includes('worked_on_off_day') && d.overtimeMin > 0) (r.offDaysWorked as number)++;
+    r.lateAbsences = lateAbsences(r.late as number, perAbsent);
     rows.set(d.userId, r);
   }
   return { month: q.month, items: [...rows.values()] };

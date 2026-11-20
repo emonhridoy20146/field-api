@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { autoCloseAt, deriveDay, type DayEvent, type DayInput } from '../domain/day.js';
+import { autoCloseAt, deriveDay, lateAbsences, type DayEvent, type DayInput } from '../domain/day.js';
 
 // 2026-11-15, shift 09:00–18:00 Dhaka = 03:00–12:00 UTC
 const t = (hhmm: string) => new Date(`2026-11-15T${hhmm}:00Z`);
@@ -37,6 +37,52 @@ describe('deriveDay', () => {
     const r = deriveDay(base([ev('1', 'work_in', '03:00'), ev('2', 'break_start', '06:00'), ev('3', 'work_out', '08:00')]));
     expect(r).toMatchObject({ breakMin: 120, overBreakMin: 60, dutyMin: 180 });
     expect(r.flags).toContain('over_break');
+  });
+  it('break inside the day\'s window is allowed on top of the limit (Friday 12:30–15:30, FR-ATT-010)', () => {
+    // 12:30–15:30 Dhaka = 06:30–09:30 UTC
+    const breakWindows = [{ start: t('06:30'), end: t('09:30') }];
+    // the whole window taken: 180 minutes, nothing over
+    const whole = deriveDay(base([ev('1', 'work_in', '03:00'), ev('2', 'break_start', '06:30'), ev('3', 'break_end', '09:30'), ev('4', 'work_out', '12:00')], { breakWindows }));
+    expect(whole).toMatchObject({ breakMin: 180, windowBreakMin: 180, overBreakMin: 0, dutyMin: 360 });
+    expect(whole.flags).not.toContain('over_break');
+    // left 20 minutes early and came back 70 late: 90 outside the window, 30 over the 60-minute limit
+    const long = deriveDay(base([ev('1', 'work_in', '03:00'), ev('2', 'break_start', '06:10'), ev('3', 'break_end', '10:40'), ev('4', 'work_out', '12:00')], { breakWindows }));
+    expect(long).toMatchObject({ breakMin: 270, windowBreakMin: 180, overBreakMin: 30 });
+    expect(long.flags).toContain('over_break');
+    // a tea break in the morning and the window: both fine
+    const two = deriveDay(base([ev('1', 'work_in', '03:00'), ev('2', 'break_start', '04:00'), ev('3', 'break_end', '04:20'), ev('4', 'break_start', '06:30'), ev('5', 'break_end', '09:30'), ev('6', 'work_out', '12:00')], { breakWindows }));
+    expect(two).toMatchObject({ breakMin: 200, windowBreakMin: 180, overBreakMin: 0 });
+    // without a window the same day is over the limit as before
+    expect(deriveDay(base([ev('1', 'work_in', '03:00'), ev('2', 'break_start', '06:30'), ev('3', 'break_end', '09:30'), ev('4', 'work_out', '12:00')])).overBreakMin).toBe(120);
+  });
+  it('overtime: duty after the shift end, from the threshold; breaks are not overtime (FR-ATT-011)', () => {
+    // out at 20:00 Dhaka (14:00 UTC): 120 minutes
+    const late = deriveDay(base([ev('1', 'work_in', '03:00'), ev('2', 'work_out', '14:00')], { now: t('15:00'), overtimeAfterMin: 30 }));
+    expect(late.overtimeMin).toBe(120);
+    expect(late.flags).toContain('overtime');
+    // 20 minutes past the end is under the 30-minute threshold
+    const short = deriveDay(base([ev('1', 'work_in', '03:00'), ev('2', 'work_out', '12:20')], { overtimeAfterMin: 30 }));
+    expect(short.overtimeMin).toBe(0);
+    expect(short.flags).not.toContain('overtime');
+    // a break after the shift end is taken off
+    const withBreak = deriveDay(base([ev('1', 'work_in', '03:00'), ev('2', 'break_start', '12:30'), ev('3', 'break_end', '13:00'), ev('4', 'work_out', '14:00')], { now: t('15:00'), overtimeAfterMin: 30 }));
+    expect(withBreak.overtimeMin).toBe(90);
+    // coming late and leaving on time is not overtime
+    expect(deriveDay(base([ev('1', 'work_in', '05:00'), ev('2', 'work_out', '12:00')])).overtimeMin).toBe(0);
+  });
+  it('overtime: a day the system closed has none; a weekly off day or holiday worked is all overtime; leave is not', () => {
+    // forgot to press work-out: closed by the system 3 h after the shift end
+    const auto = deriveDay(base([ev('1', 'work_in', '03:00'), ev('2', 'work_out', '15:00')], { now: t('16:00'), autoClosed: true }));
+    expect(auto.overtimeMin).toBe(0);
+    const off = deriveDay(base([ev('1', 'work_in', '04:00'), ev('2', 'break_start', '06:00'), ev('3', 'break_end', '06:30'), ev('4', 'work_out', '08:00')], { kind: 'weekly_off' }));
+    expect(off).toMatchObject({ dutyMin: 210, overtimeMin: 210 });
+    expect(off.flags).toEqual(expect.arrayContaining(['worked_on_off_day', 'overtime']));
+    expect(deriveDay(base([ev('1', 'work_in', '04:00'), ev('2', 'work_out', '08:00')], { kind: 'holiday' })).overtimeMin).toBe(240);
+    expect(deriveDay(base([ev('1', 'work_in', '04:00'), ev('2', 'work_out', '08:00')], { kind: 'leave' })).overtimeMin).toBe(0);
+  });
+  it('an open day shows overtime as it runs', () => {
+    const r = deriveDay(base([ev('1', 'work_in', '03:00')], { now: t('13:00'), closed: false }));
+    expect(r).toMatchObject({ status: 'on_duty', overtimeMin: 60 });
   });
   it('open day shows the live state and running totals', () => {
     const r = deriveDay(base([ev('1', 'work_in', '03:00'), ev('2', 'break_start', '05:00')], { now: t('05:20'), closed: false }));
@@ -82,5 +128,14 @@ describe('duty intervals (FR-LOC-001)', () => {
     expect(dutyStateAt(i, at('12:10'))).toBe('on_break');
     expect(dutyStateAt(i, at('14:00'))).toBe('off_duty');
     expect(dutyStateAt(i, at('17:00'))).toBe('on_duty');
+  });
+});
+
+describe('lateAbsences (FR-ATT-012)', () => {
+  it('every two late days of the month are one absent day; 0 turns the rule off', () => {
+    expect([0, 1, 2, 3, 4, 5].map((n) => lateAbsences(n, 2))).toEqual([0, 0, 1, 1, 2, 2]);
+    expect(lateAbsences(7, 3)).toBe(2);
+    expect(lateAbsences(9, 0)).toBe(0);
+    expect(lateAbsences(-1, 2)).toBe(0);
   });
 });
