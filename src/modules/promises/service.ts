@@ -225,6 +225,29 @@ export async function openByCustomer(customerIds: string[]) {
   return out;
 }
 
+/**
+ * 1.24.0 (FR-CUS-017): promises of the current Dhaka month per customer. `made` = created this month (a cancelled
+ * one is not counted); `kept` / `broken` = promises whose promised date is in this month and that ended that way.
+ */
+export async function monthByCustomer(customerIds: string[]): Promise<Map<string, { made: number; kept: number; broken: number }>> {
+  const month = businessDate(ctx().clock.now()).slice(0, 7);
+  const inMonth = { $gte: `${month}-01`, $lte: `${month}-31` };
+  const rows = (await PromiseModel.find({ customerId: { $in: customerIds }, $or: [{ createdDate: inMonth }, { promisedDate: inMonth }] })
+    .select('customerId status createdDate promisedDate')
+    .lean()) as Lean[];
+  const out = new Map<string, { made: number; kept: number; broken: number }>();
+  for (const r of rows) {
+    const x = out.get(r.customerId) ?? { made: 0, kept: 0, broken: 0 };
+    if (String(r.createdDate).startsWith(month) && r.status !== 'cancelled') x.made++;
+    if (String(r.promisedDate).startsWith(month)) {
+      if (r.status === 'kept' || r.status === 'partially_kept') x.kept++;
+      else if (r.status === 'broken') x.broken++;
+    }
+    out.set(r.customerId, x);
+  }
+  return out;
+}
+
 export async function timelineItems(customerId: string, before: Date | null, limit: number): Promise<TimelineItem[]> {
   const rows = (await PromiseModel.find({ customerId, ...(before ? { createdAt: { $lt: before } } : {}) }).sort({ createdAt: -1 }).limit(limit).lean()) as Lean[];
   return rows.map((p) => ({

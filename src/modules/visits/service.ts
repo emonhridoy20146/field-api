@@ -5,7 +5,7 @@ import { isDuplicateKey, isOid, type LeanDoc } from '../../core/db/index.js';
 import { recordChange } from '../../core/changefeed/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { haversineM } from '../../core/geo/index.js';
-import { businessDate } from '../../core/time/index.js';
+import { businessDate, startOfBusinessDay } from '../../core/time/index.js';
 import { branchQuery, canSeeBranch, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
 import { getSetting } from '../settings/index.js';
 import { getUsers } from '../users/index.js';
@@ -184,6 +184,18 @@ export async function syncSnapshot(user: AuthUser, cursor: string | null, limit:
 export async function lastVisits(customerIds: string[]): Promise<Map<string, Date>> {
   const rows = await VisitModel.aggregate([{ $match: { customerId: { $in: customerIds } } }, { $group: { _id: '$customerId', at: { $max: '$checkInAt' } } }]);
   return new Map(rows.map((r: { _id: string; at: Date }) => [r._id, r.at]));
+}
+
+/** 1.24.0 (FR-CUS-017): visits of the current Dhaka month per customer: how many, the last one, and whether one is today. */
+export async function monthVisits(customerIds: string[]): Promise<Map<string, { count: number; lastAt: string | null; today: boolean }>> {
+  const date = businessDate(ctx().clock.now());
+  const from = startOfBusinessDay(`${date.slice(0, 7)}-01`);
+  const day = startOfBusinessDay(date);
+  const rows = await VisitModel.aggregate([
+    { $match: { customerId: { $in: customerIds }, checkInAt: { $gte: from } } },
+    { $group: { _id: '$customerId', count: { $sum: 1 }, lastAt: { $max: '$checkInAt' }, today: { $sum: { $cond: [{ $gte: ['$checkInAt', day] }, 1, 0] } } } },
+  ]);
+  return new Map(rows.map((r: { _id: string; count: number; lastAt: Date; today: number }) => [r._id, { count: r.count, lastAt: r.lastAt.toISOString(), today: r.today > 0 }]));
 }
 
 export async function lastVisitOf(customerId: string) {

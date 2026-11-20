@@ -537,6 +537,16 @@ export async function pendingByCustomer(customerIds: string[]): Promise<Map<stri
   return new Map(rows.map((r: { _id: string; sum: number }) => [r._id, r.sum]));
 }
 
+/** 1.24.0 (FR-CUS-017): field money recorded in the current Dhaka month that is not in the ERP yet, per customer. */
+export async function monthPendingByCustomer(customerIds: string[]): Promise<Map<string, number>> {
+  const from = `${businessDate(ctx().clock.now()).slice(0, 7)}-01`;
+  const rows = await CollectionModel.aggregate([
+    { $match: { customerId: { $in: customerIds }, status: { $in: PENDING_STATUSES }, businessDate: { $gte: from } } },
+    { $group: { _id: '$customerId', sum: { $sum: '$amountPoisha' } } },
+  ]);
+  return new Map(rows.map((r: { _id: string; sum: number }) => [r._id, r.sum]));
+}
+
 export async function openConflictsFor(customerIds: string[]): Promise<number> {
   return CollectionModel.countDocuments({ customerId: { $in: customerIds }, status: { $in: RESOLVABLE } });
 }
