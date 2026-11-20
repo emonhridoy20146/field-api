@@ -3,8 +3,19 @@
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
 ## [Unreleased]
+
+## [1.25.0] — contract 1.25.0 (duty hours per branch, break windows, overtime, late absences)
+### Added (owner request 2026-11-21, FR-ATT-010, FR-ATT-011, FR-ATT-012, ADR-044)
+- **Break windows.** `Shift.breakWindows` `[{ weekday, start, end }]`, also inside the `attendance.defaultShift` setting (org-wide or per branch). Break time inside a window of the day is allowed on top of `maxBreakMin`; only the rest can be over-break. Owner case: every branch except Ulania works all week and has the Friday break 12:30–15:30 (`weeklyOff: []` + a Friday window); Ulania is off on Saturday (`weeklyOff: [6]`).
+- **`attendance.defaultShift` is validated on every write** (times, order, weekdays, windows; unknown keys refused). It accepted any JSON before. A 400 names the wrong part.
+- **Overtime.** `AttendanceDay.overtimeMin` and the flag `overtime`: duty after the shift end (breaks excluded) from `attendance.overtimeAfterMin` minutes (new setting, default 30, per branch); all work on a weekly off day or holiday. A day the system closed has none after the shift end.
+- `AttendanceDay.overBreakMin` is now in the contract (it was stored only).
+- **Late days as absences.** New setting `attendance.lateDaysPerAbsent` (default 2, 0 = off, sent to the app). The month summary has `lateAbsences`, next to new `overtimeMin`, `overtimeDays`, `offDaysWorked`, `overBreakMin`.
 ### Changed (owner rule 2026-11-21, ADR-043)
 - **Late time is counted from the shift start.** The grace (`lateGraceMin`) still decides whether a work-in is late; a late work-in is now late by the whole time since the shift start (09:40 on a 09:00 shift = 40 minutes; it was 25). This matches what the staff app shows. No contract change.
+### Notes for the clients
+- Additive. A closed day stored before this version is derived once more on its next read to get its overtime; days are otherwise unchanged.
+- admin-web must edit `attendance.defaultShift` (the `duty.*` keys it shows are not server settings).
 
 ## [1.24.0] — contract 1.24.0 (this month on a customer, invoice counts)
 ### Added (owner request 2026-11-21, FR-CUS-017, FR-CUS-018)

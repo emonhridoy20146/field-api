@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
+import type { ZodTypeAny } from 'zod';
 import type { Migration } from '../db/migrations.js';
 import type { JobDef } from '../jobs/index.js';
 import type { AuthUser, Role } from '../security/types.js';
@@ -25,6 +26,8 @@ export interface SettingDef {
   /** Included in /sync/pull settings for the mobile app. */
   exposeToApp?: boolean;
   description?: string;
+  /** For `json`: the shape every written value must have. Without it any JSON is accepted. */
+  schema?: ZodTypeAny;
 }
 
 export interface SyncEntityDef {

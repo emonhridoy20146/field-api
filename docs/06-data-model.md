@@ -50,7 +50,7 @@ Indexes: `{ deviceId: 1 } unique`, `{ userId: 1, unboundAt: 1 }`.
 
 ### holidays · shifts
 `holidays { date: 'YYYY-MM-DD', name {bn,en}, branchIds: [] (empty = all), type: 'national'|'branch', createdBy }` · index `{ date:1 }`. A `branch` holiday names its branches, a `national` one none; one day per overlapping set of branches (1.12.0). Deleting is a hard delete with an audit record (`holiday.deleted`) holding the old value.
-`shifts { name, start: '09:00', end: '18:00', weeklyOff: [5] (0=Sun … 5=Fri), lateGraceMin, maxBreakMin }`.
+`shifts { name, start: '09:00', end: '18:00', weeklyOff: [5] (0=Sun … 5=Fri; may be empty), lateGraceMin, maxBreakMin, breakWindows: [{ weekday, start, end }] (1.25.0) }`. The setting `attendance.defaultShift` has the same fields without `name`, org-wide or per branch. No migration: missing `breakWindows` reads as none.
 
 ## 3. ERP read model (cache, never truth)
 
@@ -168,7 +168,7 @@ Retention: permanent (≥ 8 years, OD-09).
 `{ clientId, userId, branchId, businessDate, type: 'work_in'|'break_start'|'break_end'|'work_out', at, deviceTime, receivedAt, geo|null, geoUnavailableReason, selfieMediaId?, source: 'app'|'correction'|'system', correction?: { by, reason, replacesEventId }, replacedBy?, flags[] }` · `{ clientId:1 } unique`, `{ userId:1, businessDate:1, at:1 }`. Append-only: a correction adds an event and marks the replaced one with `replacedBy`; the auto work-out is a `system` event.
 
 ### attendance_days
-Derived, rebuildable from events. `{ userId, branchId, businessDate, status: 'not_started'|'on_duty'|'on_break'|'off_duty'|'present'|'late'|'absent'|'leave'|'holiday'|'weekly_off', state, firstIn, lastOut, lateMin, breakMin, overBreakMin, breaks: [{start,end}], dutyMin, autoClosed, corrected, closed, flags[], shift: {start,end} }` · `{ userId:1, businessDate:1 } unique`, `{ branchId:1, businessDate:1 }`, `{ closed:1, state:1 }`.
+Derived, rebuildable from events. `{ userId, branchId, businessDate, status: 'not_started'|'on_duty'|'on_break'|'off_duty'|'present'|'late'|'absent'|'leave'|'holiday'|'weekly_off', state, firstIn, lastOut, lateMin, breakMin, overBreakMin, windowBreakMin (1.25.0), overtimeMin (1.25.0; absent on older days, which are derived again on read), breaks: [{start,end}], dutyMin, autoClosed, corrected, closed, flags[], shift: {start,end} }` · `{ userId:1, businessDate:1 } unique`, `{ branchId:1, businessDate:1 }`, `{ closed:1, state:1 }`.
 
 ### leave_requests [ADDED]
 `{ userId, branchId, type: 'casual'|'sick'|'other', from, to, reason, status: 'pending'|'approved'|'rejected'|'cancelled', decidedBy, decidedAt, decisionReason, cancelledAt, createdAt }` (`cancelled`/`cancelledAt` since 1.12.0; only the requester cancels, only while pending) · `{ userId:1, from:1 }`, `{ branchId:1, status:1, createdAt:-1 }`.

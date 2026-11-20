@@ -209,3 +209,80 @@ describe('jobs (FR-ATT-005)', () => {
     expect(d.body[1].status).toBe('not_started');
   });
 });
+
+describe('duty hours per branch, break windows, overtime, late absences (FR-ATT-010..012, contract 1.25.0)', () => {
+  it('the default shift is validated; the Friday window is free break time; overtime and late absences reach the month', async () => {
+    const sa = await as(t, '01700000001');
+    const fsB = await as(t, '01700000005');
+    const shift = { start: '09:00', end: '18:00', weeklyOff: [], lateGraceMin: 15, maxBreakMin: 60, breakWindows: [{ weekday: 5, start: '12:30', end: '15:30' }] };
+
+    // a wrong value never reaches attendance
+    const wrongOrder = await sa.patch('/settings', { branchId: s.branchB, changes: { 'attendance.defaultShift': { ...shift, start: '18:00', end: '09:00' } }, reason: 'wrong order' });
+    expect(wrongOrder.status).toBe(400);
+    const wrongWindow = await sa.patch('/settings', { branchId: s.branchB, changes: { 'attendance.defaultShift': { ...shift, breakWindows: [{ weekday: 5, start: '15:30', end: '12:30' }] } }, reason: 'wrong window' });
+    expect(wrongWindow.status).toBe(400);
+    expect(JSON.stringify(wrongWindow.body)).toContain('attendance.defaultShift.breakWindows.0.end');
+    expect((await sa.patch('/settings', { branchId: s.branchB, changes: { 'attendance.defaultShift': 'nine to six' }, reason: 'not a shift' })).status).toBe(400);
+
+    // branch B works every day and has the Friday break; branch A keeps the org default
+    const saved = await sa.patch('/settings', { branchId: s.branchB, changes: { 'attendance.defaultShift': shift }, reason: 'Friday break, no weekly off day' });
+    expect(saved.status).toBe(200);
+    const mine = await fsB.get('/attendance/me/shift');
+    expectConforms('GET', '/attendance/me/shift', 200, mine.body);
+    expect(mine.body).toMatchObject({ id: 'default', weeklyOff: [], breakWindows: [{ weekday: 5, start: '12:30', end: '15:30' }] });
+    expect((await (await as(t, '01700000003')).get('/attendance/me/shift')).body).toMatchObject({ weeklyOff: [5], breakWindows: [] });
+
+    // Wednesday 18 and Thursday 19 November: late twice
+    t.clock.set('2026-11-20T15:00:00Z'); // Friday 21:00 Dhaka
+    for (const [inAt, outAt] of [
+      ['2026-11-18T03:40:00Z', '2026-11-18T12:00:00Z'],
+      ['2026-11-19T03:20:00Z', '2026-11-19T12:10:00Z'],
+    ] as const) {
+      expect((await fsB.post('/attendance/events', ev('work_in', inAt))).status).toBe(201);
+      expect((await fsB.post('/attendance/events', ev('work_out', outAt))).status).toBe(201);
+    }
+
+    // Friday 20: the whole window as a break (12:30–15:30 Dhaka), out at 20:00 Dhaka
+    await fsB.post('/attendance/events', ev('work_in', '2026-11-20T03:00:00Z'));
+    await fsB.post('/attendance/events', ev('break_start', '2026-11-20T06:30:00Z'));
+    await fsB.post('/attendance/events', ev('break_end', '2026-11-20T09:30:00Z'));
+    const out = await fsB.post('/attendance/events', ev('work_out', '2026-11-20T14:00:00Z'));
+    expect(out.status).toBe(201);
+    expectConforms('POST', '/attendance/events', 201, out.body);
+    expect(out.body).toMatchObject({ breakMin: 180, overBreakMin: 0, overtimeMin: 120, lateMin: 0 });
+    expect(out.body.flags).toContain('overtime');
+    expect(out.body.flags).not.toContain('over_break');
+
+    const d = await sa.get(`/attendance/days?from=2026-11-18&to=2026-11-20&userId=${s.fsB.id}`);
+    expectConforms('GET', '/attendance/days', 200, d.body);
+    expect(d.body.map((x: { status: string; lateMin: number; overtimeMin: number }) => [x.status, x.lateMin, x.overtimeMin])).toEqual([
+      ['late', 40, 0],
+      ['late', 20, 0], // ten minutes past the end is under the 30-minute threshold
+      ['off_duty', 0, 120],
+    ]);
+
+    const sum = await sa.get(`/attendance/summary?month=2026-11&branchId=${s.branchB}`);
+    expect(sum.status).toBe(200);
+    expectConforms('GET', '/attendance/summary', 200, sum.body);
+    const row = sum.body.items.find((x: { userId: string }) => x.userId === s.fsB.id);
+    // worked on the 16th (earlier in this file, on time), the 18th, 19th and 20th
+    expect(row).toMatchObject({ present: 4, late: 2, lateAbsences: 1, overtimeMin: 120, overtimeDays: 1, offDaysWorked: 0, overBreakMin: 0, overBreakDays: 0, weeklyOff: 0 });
+
+    // three late days per absent day: the same month has none
+    await setSystem('attendance.lateDaysPerAbsent', 3);
+    const again = await sa.get(`/attendance/summary?month=2026-11&branchId=${s.branchB}`);
+    expect(again.body.items.find((x: { userId: string }) => x.userId === s.fsB.id).lateAbsences).toBe(0);
+  });
+
+  it('work on the weekly off day is overtime', async () => {
+    // branch A: Friday is off. fs2 works Friday 20 November 10:00–14:00 Dhaka.
+    const fs2 = await as(t, '01700000004');
+    await fs2.post('/attendance/events', ev('work_in', '2026-11-20T04:00:00Z'));
+    const out = await fs2.post('/attendance/events', ev('work_out', '2026-11-20T08:00:00Z'));
+    expect(out.body).toMatchObject({ dutyMin: 240, overtimeMin: 240 });
+    expect(out.body.flags).toEqual(expect.arrayContaining(['worked_on_off_day', 'overtime']));
+    const bm = await as(t, '01700000002');
+    const sum = await bm.get('/attendance/summary?month=2026-11');
+    expect(sum.body.items.find((x: { userId: string }) => x.userId === s.fs2.id)).toMatchObject({ offDaysWorked: 1, overtimeMin: 240 });
+  });
+});

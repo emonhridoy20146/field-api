@@ -292,7 +292,9 @@ POST /api/v1/leave-requests/6750…/cancel
 
 A manager looks at who is on leave this month: `GET /leave-requests?from=2026-11-01&to=2026-11-30&status=approved` (requests overlapping the window). A rejected request carries `decisionReason` for the staff member.
 
-The phone shows the staff member's own shift: `GET /attendance/me/shift` → `200 { "id": "default", "name": "Default", "start": "09:00", "end": "18:00", "weeklyOff": [5], "lateGraceMin": 15, "maxBreakMin": 60 }`; holidays that apply to them: `GET /calendar/holidays?year=2026&branchId=…`. An admin deletes a holiday entered by mistake: `DELETE /calendar/holidays/6760…` → `204`.
+The phone shows the staff member's own shift: `GET /attendance/me/shift` → `200 { "id": "default", "name": "Default", "start": "09:00", "end": "18:00", "weeklyOff": [5], "lateGraceMin": 15, "maxBreakMin": 60, "breakWindows": [] }`; holidays that apply to them: `GET /calendar/holidays?year=2026&branchId=…`. An admin deletes a holiday entered by mistake: `DELETE /calendar/holidays/6760…` → `204`.
+
+Duty hours per branch (1.25.0). A branch that works every day and has a long Friday break: `PATCH /settings { "branchId": "6701…", "changes": { "attendance.defaultShift": { "start": "09:00", "end": "18:00", "weeklyOff": [], "lateGraceMin": 15, "maxBreakMin": 60, "breakWindows": [{ "weekday": 5, "start": "12:30", "end": "15:30" }] } }, "reason": "Friday break, no weekly off day" }` → `200`. A branch whose off day is Saturday sends `"weeklyOff": [6]` and no window. A wrong value → `400 VALIDATION_FAILED` with the part named (`attendance.defaultShift.breakWindows.0.end`). A Friday in the first branch with a break from 12:30 to 15:30 and work-out at 20:00: `{ "breakMin": 180, "overBreakMin": 0, "overtimeMin": 120, "flags": ["overtime"], … }`. The month: `GET /attendance/summary?month=2026-11` → rows with `"late": 2, "lateAbsences": 1, "overtimeMin": 120, "overtimeDays": 1, "offDaysWorked": 0, "overBreakMin": 0, …`.
 
 A staff member taps "পড়েছি" on a notice while offline; on the next sync:
 ```json

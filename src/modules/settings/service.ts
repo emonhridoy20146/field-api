@@ -8,6 +8,7 @@ import { weekday } from '../../core/time/index.js';
 import * as audit from '../audit/index.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import { HolidayModel, SettingModel, ShiftModel } from './models/settings.model.js';
+import { breakWindowSchema, cleanWindows, defaultShiftSchema, shiftSchema, type BreakWindow } from './domain/shift.js';
 
 export function definitions(): SettingDef[] {
   return ctx().manifests.flatMap((m) => m.settings ?? []);
@@ -62,9 +63,13 @@ export function validateValue(d: SettingDef, v: unknown): unknown {
             ? z.string().max(2000)
             : d.type === 'enum'
               ? z.enum((d.enum ?? ['']) as [string, ...string[]])
-              : z.unknown();
+              : (d.schema ?? z.unknown());
   const r = schema.safeParse(v);
-  if (!r.success) throw new AppError('VALIDATION_FAILED', { fields: [{ path: d.key, message: r.error.issues[0]?.message ?? 'invalid' }] });
+  if (!r.success) {
+    const issue = r.error.issues[0];
+    // for a JSON value, say which part is wrong: `attendance.defaultShift.breakWindows.0.end`
+    throw new AppError('VALIDATION_FAILED', { fields: [{ path: [d.key, ...(issue?.path ?? [])].join('.'), message: issue?.message ?? 'invalid' }] });
+  }
   return r.data;
 }
 
@@ -174,14 +179,7 @@ export async function isHoliday(date: string, branchId: string | null): Promise<
   return !!h;
 }
 
-export const shiftSchema = z.object({
-  name: z.string().min(1).max(100),
-  start: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
-  end: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
-  weeklyOff: z.array(z.number().int().min(0).max(6)).default([5]),
-  lateGraceMin: z.number().int().min(0).max(240).default(15),
-  maxBreakMin: z.number().int().min(0).max(480).default(60),
-});
+export { breakWindowSchema, defaultShiftSchema, shiftSchema, type BreakWindow };
 
 export interface ShiftView {
   id: string;
@@ -191,9 +189,11 @@ export interface ShiftView {
   weeklyOff: number[];
   lateGraceMin: number;
   maxBreakMin: number;
+  /** 1.25.0; empty when none. */
+  breakWindows: BreakWindow[];
 }
 
-const shiftView = (s: { _id: { toHexString(): string }; name: string; start: string; end: string; weeklyOff: number[]; lateGraceMin: number; maxBreakMin: number }): ShiftView => ({
+const shiftView = (s: { _id: { toHexString(): string }; name: string; start: string; end: string; weeklyOff: number[]; lateGraceMin: number; maxBreakMin: number; breakWindows?: unknown }): ShiftView => ({
   id: s._id.toHexString(),
   name: s.name,
   start: s.start,
@@ -201,6 +201,7 @@ const shiftView = (s: { _id: { toHexString(): string }; name: string; start: str
   weeklyOff: s.weeklyOff,
   lateGraceMin: s.lateGraceMin,
   maxBreakMin: s.maxBreakMin,
+  breakWindows: cleanWindows(s.breakWindows),
 });
 
 export async function listShifts(): Promise<ShiftView[]> {
@@ -231,8 +232,8 @@ export async function resolveShift(shiftId: string | null | undefined, branchId:
     const s = await ShiftModel.findById(shiftId).lean();
     if (s) return shiftView(s);
   }
-  const d = await getSetting<{ start: string; end: string; weeklyOff: number[]; lateGraceMin: number; maxBreakMin: number }>('attendance.defaultShift', branchId);
-  return { id: 'default', name: 'Default', ...d };
+  const d = await getSetting<{ start: string; end: string; weeklyOff: number[]; lateGraceMin: number; maxBreakMin: number; breakWindows?: unknown }>('attendance.defaultShift', branchId);
+  return { id: 'default', name: 'Default', ...d, breakWindows: cleanWindows(d.breakWindows) };
 }
 
 /** Working day = not weekly off for the shift and not a holiday. */
