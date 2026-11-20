@@ -17,6 +17,7 @@ export const manifest: ModuleManifest = {
   permissions: [
     { key: 'customer.view', description: { en: 'View customers in scope', bn: 'গ্রাহক দেখা' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
     { key: 'customer.export', description: { en: 'Export customer lists', bn: 'গ্রাহক তালিকা এক্সপোর্ট' }, defaults: { super_admin: true, branch_manager: true } },
+    { key: 'customer.phone.manage', description: { en: 'Add or remove extra phone numbers of a customer', bn: 'গ্রাহকের বাড়তি ফোন নম্বর যোগ বা বাদ দেওয়া' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
     { key: 'customer.location.propose', description: { en: 'Propose a corrected pin', bn: 'সঠিক পিন প্রস্তাব' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
     { key: 'customer.location.approve', description: { en: 'Approve/reject pin corrections; set or delete a pin on the map', bn: 'পিন সংশোধন অনুমোদন; ম্যাপে পিন বসানো বা মুছে ফেলা' }, defaults: { super_admin: true, branch_manager: true } },
   ],

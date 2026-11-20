@@ -51,6 +51,8 @@ const customerSchema = new Schema(
       openPromiseDates: { type: [String], default: [] },
       locationOverride: { type: Schema.Types.Mixed, default: null },
       lastRefreshAt: { type: Date, default: null },
+      // 1.23.0 (FR-CUS-016, ADR-042): numbers added in FOS; the ERP sync never writes this.
+      extraPhones: { type: [Schema.Types.Mixed], default: [] },
     },
     version: { type: Number, default: 1 },
     schemaVersion: { type: Number, default: 1 },

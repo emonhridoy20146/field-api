@@ -87,6 +87,8 @@ Derived fields are recomputed on each sync **and** nightly at 00:05 Dhaka (becau
 ### customer_overlays (FOS-owned per customer extras)
 `{ _id: erpCustomerId-mapped ObjectId (= erp_customers._id), branchId, locationOverride?: {point, approvedBy, approvedAt, proposalId}, tag?: { state: 'none'|'pending'|'tagged', severity: 'watch'|'bad'|'legal', reasonCode, reason, setBy, setAt, eventId }, assigneeId (denormalized), areaId }` · `{ branchId:1, 'tag.state':1 }`, `{ assigneeId:1 }`.
 
+1.23.0 (ADR-042): `extraPhones?: [{ number: '01XXXXXXXXX', label?, addedBy, addedByName, addedAt }]`, at most five, written only by `POST/DELETE /customers/{id}/phones`; the ERP sync never touches it. Optional with default `[]`, so no migration.
+
 ### location_proposals
 `{ clientId, customerId, branchId, proposedBy, point, accuracyM, photoMediaId, note, method: gps|map, devicePoint?, deviceAccuracyM?, deviceMock, autoApplied, direct, status: pending|approved|rejected, decidedBy, decidedAt, decisionReason }`.
 1.11.0 (ADR-031): `method`, `devicePoint`, `deviceAccuracyM`, `deviceMock`, `autoApplied` and `direct` added with defaults (`gps`, none, none, false, false, false), so older documents read unchanged and no migration is needed. A pin a manager sets on the map is a record with `direct: true`, `status: approved`, `proposedBy = decidedBy`. `locationOverride` on the customer gains `autoApplied` / `direct` flags. 1.17.0 (ADR-036): a deleted pin is `locationOverride: { cleared: true, clearedBy, clearedAt }` with `locationStatus: missing`, no `location`; the ERP sync honours it until a new pin replaces it.

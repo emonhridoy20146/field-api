@@ -73,6 +73,14 @@ const setLocationBody = z.object({
   note: z.string().max(500).optional(),
 });
 
+/** 1.23.0 (FR-CUS-016): one to five numbers at once; each is checked and normalized by the service. */
+export const addPhonesBody = z.object({
+  phones: z
+    .array(z.object({ number: z.string().trim().min(1).max(30), label: z.string().trim().max(30).nullable().optional() }))
+    .min(1)
+    .max(5),
+});
+
 const decisionBody = z.object({ decision: z.enum(['approve', 'reject']), reason: z.string().max(500).optional() });
 const proposalsQuery = z.object({ branchId: z.string().max(64).optional(), status: z.enum(['pending', 'approved', 'rejected']).optional() });
 
@@ -105,6 +113,13 @@ export const customerRoutes = defineRoutes((r) => {
   });
   // 1.17.0: delete the pin (ERP, field or map) so it is no longer shown; see clearLocation.
   r.delete('/customers/:id/location', { access: perm('customer.location.approve') }, async (req) => s.clearLocation(requireUser(req), idOf(req), requestMeta(req)));
+  // 1.23.0 (FR-CUS-016): numbers added in FOS, never sent to the ERP.
+  r.post('/customers/:id/phones', { access: perm('customer.phone.manage') }, async (req) =>
+    s.addPhones(requireUser(req), idOf(req), parse(addPhonesBody, req.body).phones, requestMeta(req)),
+  );
+  r.delete('/customers/:id/phones/:number', { access: perm('customer.phone.manage') }, async (req) =>
+    s.removePhone(requireUser(req), idOf(req), (req.params as { number: string }).number, requestMeta(req)),
+  );
   // Plain array, as the contract has declared since 1.4.0.
   r.get('/location-proposals', { access: perm('customer.location.approve') }, async (req) => s.listProposals(requireUser(req), parse(proposalsQuery, req.query)));
   r.get('/location-proposals/mine', { access: perm('customer.location.propose') }, async (req) =>
