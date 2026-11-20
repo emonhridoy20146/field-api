@@ -15,6 +15,8 @@ export const reportRoutes = defineRoutes((r) => {
   r.get('/reports/me/performance', { access: 'self' }, async (req) => i.myPerformance(requireUser(req), parse(i.mineQuery, req.query)));
   // Managers need report.view; field staff are let in only when the leaderboard is switched on for them (checked inside).
   r.get('/reports/leaderboard', { access: 'self' }, async (req) => i.leaderboard(requireUser(req), parse(i.leaderboardQuery, req.query)));
+  // Same gate as the leaderboard; who is on it and which branches it covers is decided inside (FR-REP-007).
+  r.get('/reports/collection-board', { access: 'self' }, async (req) => i.collectionBoard(requireUser(req), parse(i.collectionBoardQuery, req.query)));
   r.get('/reports/data-quality', { access: perm('report.view') }, async (req) => i.dataQuality(requireUser(req), parse(i.qualityQuery, req.query)));
   r.get('/reports/data-quality/items', { access: perm('report.view') }, async (req) => i.dataQualityItems(requireUser(req), parse(i.qualityItemsQuery, req.query)));
   r.post('/reports/exports', { access: perm('report.export') }, async (req, reply) => {

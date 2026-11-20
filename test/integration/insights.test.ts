@@ -356,3 +356,75 @@ describe('exports: data quality and PDF (FR-REP-003, OD-26)', () => {
     expect(ready.body.status).toBe('ready');
   });
 });
+
+describe('collection board (FR-REP-007, ADR-045)', () => {
+  it('ranks everyone by money the ERP has accepted, across branches, for a month and for all time; pending money is not counted', async () => {
+    await dispatchOutbox(); // whatever was still waiting is posted now: FS014 has 150000 + 50000 + 20000
+    const bm = await as(t, BM);
+    const fs = await as(t, FS1);
+    // one more collection that the ERP does not have yet
+    expect((await collect(fs, 5, 70000, 'cash')).status).toBe(201);
+
+    const r = await bm.get('/reports/collection-board?period=month');
+    expect(r.status).toBe(200);
+    expectConforms('GET', '/reports/collection-board', 200, r.body);
+    expect(r.body).toMatchObject({ period: 'month', month: '2026-11', scope: 'all', branchId: null, me: null });
+    // every branch: FSB of branch B is listed for a branch A manager; people with nothing posted follow unranked, by name
+    expect(r.body.items.map((i: { userId: string; rank: number | null; postedPoisha: number; count: number }) => [i.userId, i.rank, i.postedPoisha, i.count])).toEqual([
+      [s.fs1.id, 1, 220000, 3],
+      [s.fsB.id, null, 0, 0],
+      [s.fs2.id, null, 0, 0],
+    ]);
+    expect(r.body.items[0]).toMatchObject({ employeeCode: 'FS014', role: 'field_staff', branchId: s.branchA, me: false });
+    expect(r.body.items[0].name.en).toBe('Rakib Hasan');
+
+    // a manager who collects is on the board, by collections alone
+    expect((await collect(bm, 6, 300000, 'cash', { receiptNo: 'BRL01-BM001-261115-0006' })).status).toBe(201);
+    await dispatchOutbox(); // posts the manager's 300000 and the 70000 that was waiting
+    const all = await bm.get('/reports/collection-board?period=all');
+    expectConforms('GET', '/reports/collection-board', 200, all.body);
+    expect(all.body).toMatchObject({ period: 'all', month: null, me: { rank: 1, of: 2, postedPoisha: 300000 } });
+    expect(all.body.items.slice(0, 2).map((i: { userId: string; rank: number; postedPoisha: number; role: string; me: boolean }) => [i.userId, i.rank, i.postedPoisha, i.role, i.me])).toEqual([
+      [s.bm.id, 1, 300000, 'branch_manager', true],
+      [s.fs1.id, 2, 290000, 'field_staff', false],
+    ]);
+    // one branch only
+    const b = await (await as(t, SA)).get(`/reports/collection-board?period=month&branchId=${s.branchB}`);
+    expect(b.body.items.map((i: { userId: string }) => i.userId)).toEqual([s.fsB.id]);
+    // an earlier month has nothing
+    const oct = await bm.get('/reports/collection-board?period=month&month=2026-10');
+    expect(oct.body.items.every((i: { rank: number | null }) => i.rank === null)).toBe(true);
+  });
+
+  it('field staff open it only when their branch turns the leaderboard on; the scope setting narrows it to the own branch', async () => {
+    const fs = await as(t, FS1);
+    expect((await fs.get('/reports/collection-board?period=month')).status).toBe(403);
+    await setSystem('reports.leaderboardVisibleToStaff', true, s.branchA);
+    const r = await fs.get('/reports/collection-board?period=month');
+    expect(r.status).toBe(200);
+    expectConforms('GET', '/reports/collection-board', 200, r.body);
+    expect(r.body).toMatchObject({ scope: 'all', me: { rank: 2, of: 2, postedPoisha: 290000 } });
+    expect(r.body.items.map((i: { userId: string }) => i.userId)).toContain(s.fsB.id); // every branch
+    expect((await (await as(t, FSB)).get('/reports/collection-board?period=month')).status).toBe(403); // still off in branch B
+
+    await setSystem('reports.leaderboardScope', 'branch');
+    const own = await fs.get('/reports/collection-board?period=all');
+    expect(own.body.scope).toBe('branch');
+    expect(own.body.items.map((i: { userId: string }) => i.userId)).not.toContain(s.fsB.id);
+    expect((await fs.get(`/reports/collection-board?period=all&branchId=${s.branchB}`)).status).toBe(404);
+    expect((await (await as(t, BM)).get(`/reports/collection-board?period=all&branchId=${s.branchB}`)).status).toBe(404);
+    expect((await (await as(t, SA)).get(`/reports/collection-board?period=all&branchId=${s.branchB}`)).status).toBe(200);
+    await setSystem('reports.leaderboardScope', 'all');
+    await setSystem('reports.leaderboardVisibleToStaff', false, s.branchA);
+  });
+
+  it('validation', async () => {
+    const bm = await as(t, BM);
+    expect((await bm.get('/reports/collection-board')).status).toBe(400);
+    expect((await bm.get('/reports/collection-board?period=day')).status).toBe(400);
+    expect((await bm.get('/reports/collection-board?period=month&month=2026-12')).status).toBe(400);
+    expect((await bm.get('/reports/collection-board?period=all&month=2026-11')).status).toBe(400);
+    expect((await bm.get('/reports/collection-board?period=all&branchId=nope')).status).toBe(404);
+    expect((await t.app.inject({ method: 'GET', url: '/api/v1/reports/collection-board?period=month' })).statusCode).toBe(401);
+  });
+});

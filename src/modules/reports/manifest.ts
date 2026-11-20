@@ -17,6 +17,7 @@ export const manifest: ModuleManifest = {
   routes: reportRoutes,
   settings: [
     { key: 'reports.leaderboardVisibleToStaff', type: 'bool', default: false, branchOverridable: true, exposeToApp: true, description: 'FR-REP-005 / OD-15: field staff may see the leaderboard of their branch and their own rank (managers always can)' },
+    { key: 'reports.leaderboardScope', type: 'enum', enum: ['all', 'branch'], default: 'all', exposeToApp: true, description: 'FR-REP-007 the collection board covers every branch for everyone who may open it (all), or only the branches of the viewer (branch)' },
     { key: 'reports.leaderboardMinPresentDays', type: 'int', default: 1, branchOverridable: true, description: 'FR-REP-005 present days in the period needed to be ranked' },
     { key: 'reports.dataQualityMaxBranchKm', type: 'number', default: 30, branchOverridable: true, description: 'FR-CUS-009 a customer pin farther than this from the branch is reported as far_from_branch' },
   ],

@@ -4,6 +4,17 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.26.0] — contract 1.26.0 (collection board: verified money, all branches, month and all time)
+### Added (owner request 2026-11-21, FR-REP-007, ADR-045)
+- `GET /reports/collection-board?period=month|all[&month=YYYY-MM][&branchId=…]`: everyone who collected, ranked by the field collections the ERP has accepted (status `posted` / `resolved_posted`); pending money is never counted. A manager or admin who collects is on the board by collections alone; active field staff with nothing posted are listed unranked. `me` gives the caller's rank.
+- New setting `reports.leaderboardScope` (`all` default / `branch`, sent to the app): with `all` the board covers every branch for everyone who may open it; with `branch` each person sees the branches of their own scope.
+- Access is the leaderboard's: `report.view`, or `reports.leaderboardVisibleToStaff` on for the caller's own branch.
+- `collections` exports `postedByCollector` (totals per collector, no customer data).
+### Notes for the clients
+- Additive. `GET /reports/leaderboard` is unchanged (day / month, four measures, present-days rule, own branch for staff).
+- To show the board to staff, turn on "Field staff can see the leaderboard" for their branch.
+
+
 ## [1.25.0] — contract 1.25.0 (duty hours per branch, break windows, overtime, late absences)
 ### Added (owner request 2026-11-21, FR-ATT-010, FR-ATT-011, FR-ATT-012, ADR-044)
 - **Break windows.** `Shift.breakWindows` `[{ weekday, start, end }]`, also inside the `attendance.defaultShift` setting (org-wide or per branch). Break time inside a window of the day is allowed on top of `maxBreakMin`; only the rest can be over-break. Owner case: every branch except Ulania works all week and has the Friday break 12:30–15:30 (`weeklyOff: []` + a Friday window); Ulania is off on Saturday (`weeklyOff: [6]`).
