@@ -93,7 +93,10 @@ export function deriveDay(i: DayInput): DayResult {
   if (breakStart) breakMin += min(breakStart, i.now);
   dutyMin = Math.max(0, dutyMin - breakMin);
 
-  const lateMin = firstIn ? Math.max(0, min(i.shiftStart, firstIn) - i.lateGraceMin) : 0;
+  // Late only when the work-in is past the grace; then the late time is counted from the shift start, not from
+  // the end of the grace (owner rule 2026-11-21, ADR-043): shift 09:00, grace 15, in at 09:40 → 40 minutes late.
+  const afterStart = firstIn ? min(i.shiftStart, firstIn) : 0;
+  const lateMin = afterStart > i.lateGraceMin ? afterStart : 0;
   const flags: string[] = [];
   if (invalid.length) flags.push('invalid_sequence');
   const overBreakMin = Math.max(0, breakMin - i.maxBreakMin);

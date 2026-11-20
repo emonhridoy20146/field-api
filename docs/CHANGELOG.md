@@ -2,6 +2,10 @@
 
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
+## [Unreleased]
+### Changed (owner rule 2026-11-21, ADR-043)
+- **Late time is counted from the shift start.** The grace (`lateGraceMin`) still decides whether a work-in is late; a late work-in is now late by the whole time since the shift start (09:40 on a 09:00 shift = 40 minutes; it was 25). This matches what the staff app shows. No contract change.
+
 ## [1.24.0] — contract 1.24.0 (this month on a customer, invoice counts)
 ### Added (owner request 2026-11-21, FR-CUS-017, FR-CUS-018)
 - `CustomerListItem.activity` (also in the detail and in the phone's sync items): the current Dhaka month's visits (count, last, today), ERP payments dated this month (`paidPoisha`, `lastPaidDate`), field money not in the ERP yet (`pendingPoisha`), promises made / kept / broken. `paidPoisha` and `pendingPoisha` are separate numbers and are never added together.

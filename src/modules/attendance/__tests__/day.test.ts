@@ -12,10 +12,15 @@ describe('deriveDay', () => {
     expect(r).toMatchObject({ status: 'present', lateMin: 0, breakMin: 30, dutyMin: 510, overBreakMin: 0, flags: [] });
     expect(r.breaks).toHaveLength(1);
   });
-  it('late counts minutes after grace', () => {
+  it('late only past the grace, and then counted from the shift start (ADR-043)', () => {
     const r = deriveDay(base([ev('1', 'work_in', '03:40'), ev('2', 'work_out', '12:00')]));
     expect(r.status).toBe('late');
-    expect(r.lateMin).toBe(25);
+    expect(r.lateMin).toBe(40); // shift 09:00 Dhaka, in at 09:40: 40 minutes, not 25
+    // inside the grace (09:15 exactly) nobody is late
+    const onTime = deriveDay(base([ev('1', 'work_in', '03:15'), ev('2', 'work_out', '12:00')]));
+    expect(onTime).toMatchObject({ status: 'present', lateMin: 0 });
+    // one minute past the grace: late by the whole 16 minutes
+    expect(deriveDay(base([ev('1', 'work_in', '03:16'), ev('2', 'work_out', '12:00')])).lateMin).toBe(16);
   });
   it('invalid sequences are flagged and ignored, never rejected', () => {
     const r = deriveDay(base([ev('1', 'break_end', '03:00'), ev('2', 'work_in', '03:05'), ev('3', 'work_in', '03:06'), ev('4', 'work_out', '12:00')]));
