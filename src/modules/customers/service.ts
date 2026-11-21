@@ -63,7 +63,7 @@ export const registerListEnricher = (e: ListEnricher) => void enrichers.push(e);
 export const registerDetailContributor = (c: DetailContributor) => void contributors.push(c);
 export const registerTimelineSource = (s: TimelineSource) => void timelineSources.push(s);
 /**
- * 1.28.0 (FR-CUS-019): who has a field collection of the given Dhaka month still waiting for the ERP. Supplied by
+ * 1.29.0 (FR-CUS-019): who has a field collection of the given Dhaka month still waiting for the ERP. Supplied by
  * the collections module so the "paid this month" filter counts pending field money like the row's `activity` does.
  */
 export type MonthPendingSource = (month: string) => Promise<string[]>;
@@ -596,7 +596,7 @@ export interface ListQuery {
   payState?: PayState[];
   /** 1.14.0: has an open invoice of this kind. */
   invoiceKind?: 'installment' | 'credit';
-  /** 1.28.0 (FR-CUS-019): paid something this Dhaka month (ERP payment or pending field collection), or not. */
+  /** 1.29.0 (FR-CUS-019): paid something this Dhaka month (ERP payment or pending field collection), or not. */
   paidThisMonth?: PaidThisMonth;
   assignedTo?: string;
   branchId?: string;
@@ -1225,9 +1225,9 @@ export async function proposeLocation(
         reason: 'customer had no usable pin (customers.staffPinApproval = when_missing)',
         meta,
       });
-      await ctx().bus.emit('customer.location.approved', { customerId, branchId: c.branchId, proposalId: id, autoApplied: true });
+      await ctx().bus.emit('customer.location.approved', { customerId, branchId: c.branchId, proposalId: id, autoApplied: true, proposedBy: user.id });
     } else {
-      await ctx().bus.emit('customer.location.proposed', { proposalId: id, customerId, branchId: c.branchId });
+      await ctx().bus.emit('customer.location.proposed', { proposalId: id, customerId, branchId: c.branchId, proposedBy: user.id });
     }
     // The proposer follows the proposal's fate on /sync/pull (contract 1.7.0).
     await recordChange({ entity: 'location_proposal', entityId: id, userIds: [user.id], branchId: c.branchId });

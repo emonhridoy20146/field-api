@@ -45,7 +45,8 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Duty hours per branch with break windows, overtime, late absences, validated default shift (ADR-044, contract 1.25.0) | FR-ATT-010..012 | ✅ API |
 | Collection board: verified money, every branch, month and all time, any role (ADR-045, contract 1.26.0) | FR-REP-007 | ✅ API |
 | Cash in hand, collection by collection (contract 1.27.0) | FR-CASH-007 | ✅ API |
-| Paid this month / not paid this month filter on the customer list and map (contract 1.28.0) | FR-CUS-019 | ✅ API; admin-web filter follows |
+| Paid this month / not paid this month filter on the customer list and map (contract 1.29.0) | FR-CUS-019 | ✅ API; admin-web filter follows |
+| Staff activity feed for admins: collections, visits, promises, pins, with a seen count (module `activity`, contract 1.28.0) | FR-ACT-001 | ✅ API |
 | Extra phone numbers: add several at once, ERP / added marker, kept in FOS (ADR-042, contract 1.23.0) | FR-CUS-016 | ✅ API; screens in admin-web and staff-app follow |
 | This month on a customer (visited, paid, pending, promises) and invoice counts per row and per list (contract 1.24.0) | FR-CUS-017, FR-CUS-018 | ✅ API; screens in admin-web and staff-app follow |
 | Devices binding/remote logout | FR-AUTH-006..008 | ✅ API |

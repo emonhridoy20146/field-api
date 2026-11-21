@@ -259,7 +259,7 @@ POST /api/v1/customers/6731…/location-proposals
 ```
 → `201 { "id": "6742…", "status": "approved" }` when the customer had no usable pin and `customers.staffPinApproval` is `when_missing` (default); otherwise `"status": "pending"` until a manager decides. The same body goes through `/sync/push` as mutation `location_proposal` (+ `customerId`).
 
-### 3.9b Paid this month (1.28.0, FR-CUS-019)
+### 3.9b Paid this month (1.29.0, FR-CUS-019)
 Customers of one branch who have not paid anything this Dhaka month, longest overdue first, with the count:
 ```http
 GET /api/v1/customers?branchId=6730…&paidThisMonth=no&sort=-daysOverdue&includeTotal=true
@@ -300,6 +300,8 @@ POST /api/v1/leave-requests/6750…/cancel
 A manager looks at who is on leave this month: `GET /leave-requests?from=2026-11-01&to=2026-11-30&status=approved` (requests overlapping the window). A rejected request carries `decisionReason` for the staff member.
 
 The phone shows the staff member's own shift: `GET /attendance/me/shift` → `200 { "id": "default", "name": "Default", "start": "09:00", "end": "18:00", "weeklyOff": [5], "lateGraceMin": 15, "maxBreakMin": 60, "breakWindows": [] }`; holidays that apply to them: `GET /calendar/holidays?year=2026&branchId=…`. An admin deletes a holiday entered by mistake: `DELETE /calendar/holidays/6760…` → `204`.
+
+What staff are doing (1.28.0): `GET /activity?limit=30` → `200 { "items": [{ "id": "67a0…", "type": "collection", "at": "2026-11-15T04:02:00.000Z", "branchId": "6701…", "actor": { "id": "6702…", "name": { "bn": "রাকিব হাসান", "en": "Rakib Hasan" }, "employeeCode": "FS014" }, "customer": { "id": "6710…", "name": { … }, "code": "C-100246" }, "entity": "collection", "entityId": "6750…", "data": { "amountPoisha": 150000, "method": "cash" }, "unseen": true }, …], "unseen": 4, "seenAt": null, "nextCursor": null }`; the admin opened the bell: `POST /activity/seen` → `200 { "seenAt": "…", "unseen": 0 }`.
 
 Where the cash in hand came from (1.27.0): `GET /cash/positions/6702…/collections` → `200 { "userId": "6702…", "userName": "Rakib Hasan", "onHandPoisha": 350000, "pendingDepositsPoisha": 600000, "count": 2, "items": [{ "collectionId": "6750…", "receiptNo": "BRL01-FS014-261115-0004", "recordedAt": "2026-11-15T03:10:00.000Z", "businessDate": "2026-11-15", "customer": { "id": "6710…", "name": { "bn": "…", "en": "…" }, "code": "C-100246" }, "erpPlanId": "9001", "amountPoisha": 100000, "inHandPoisha": 100000, "status": "received" }, { …, "amountPoisha": 350000, "inHandPoisha": 250000 }], "generatedAt": "…" }`; the staff member's own list: `GET /cash/me/collections`.
 

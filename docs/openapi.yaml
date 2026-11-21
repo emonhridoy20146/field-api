@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.28.0
+  version: 1.29.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -1695,6 +1695,30 @@ paths:
       parameters: [ { $ref: '#/components/parameters/BranchId' }, { name: status, in: query, schema: { type: string, enum: [open, snoozed, resolved], default: open } }, { name: type, in: query, schema: { type: string } }, { $ref: '#/components/parameters/Limit' }, { $ref: '#/components/parameters/Cursor' } ]
       responses:
         '200': { description: OK, content: { application/json: { schema: { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/InboxItem' } }, counts: { type: object, additionalProperties: { type: integer } }, nextCursor: { type: [string, 'null'] } } } } } }
+  /activity:
+    get:
+      tags: [inbox]
+      operationId: listActivity
+      description: |
+        activity.view (1.28.0, FR-ACT-001; module `activity`, flag `module.activity`). Staff activity in the caller's branch scope, newest first: collections taken, visits recorded, promises made, map pins set or proposed by staff. Each line names the person and the customer.
+        `unseen` counts the lines since the caller last called POST /activity/seen (capped at 99), whatever the filters; `items[].unseen` marks them. Lines are kept 45 days; the records themselves stay in their modules.
+      parameters:
+        - { $ref: '#/components/parameters/BranchId' }
+        - { name: type, in: query, schema: { type: string, enum: [collection, visit, promise, pin] } }
+        - { name: userId, in: query, schema: { type: string }, description: 'Only what this staff member did' }
+        - { $ref: '#/components/parameters/Limit' }
+        - { $ref: '#/components/parameters/Cursor' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ActivityFeed' } } } }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /activity/seen:
+    post:
+      tags: [inbox]
+      operationId: markActivitySeen
+      description: 'activity.view (1.28.0). The caller has looked at the feed; `unseen` starts again from now. Per user, idempotent.'
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { type: object, required: [seenAt, unseen], properties: { seenAt: { type: string, format: date-time }, unseen: { type: integer } } } } } }
   /inbox/{id}/resolve:
     post:
       tags: [inbox]
@@ -1851,7 +1875,7 @@ components:
     BranchId: { name: branchId, in: query, schema: { type: string } }
     PayStateFilter: { name: payState, in: query, style: form, explode: false, schema: { type: array, items: { $ref: '#/components/schemas/PayState' } }, description: 'Added in 1.14.0 (FR-CUS-012). Pin colours, combined with OR; other parameters narrow with AND' }
     InvoiceKind: { name: invoiceKind, in: query, schema: { type: string, enum: [installment, credit] }, description: 'Added in 1.14.0 (FR-CUS-013). Only customers with an open (balance due, not returned or cancelled) invoice of this kind' }
-    PaidThisMonth: { name: paidThisMonth, in: query, schema: { type: string, enum: [yes, no] }, description: 'Added in 1.28.0 (FR-CUS-019). `yes` = paid something in the current Asia/Dhaka month: an ERP payment dated this month (removed ones left out) or a field collection of this month still waiting for the ERP; `no` = neither. The same two sources as the row''s `activity.paidPoisha` / `activity.pendingPoisha`, so the filter agrees with the row''s money mark. Narrows with AND like the other parameters' }
+    PaidThisMonth: { name: paidThisMonth, in: query, schema: { type: string, enum: [yes, no] }, description: 'Added in 1.29.0 (FR-CUS-019). `yes` = paid something in the current Asia/Dhaka month: an ERP payment dated this month (removed ones left out) or a field collection of this month still waiting for the ERP; `no` = neither. The same two sources as the row''s `activity.paidPoisha` / `activity.pendingPoisha`, so the filter agrees with the row''s money mark. Narrows with AND like the other parameters' }
     Limit: { name: limit, in: query, schema: { type: integer, default: 25, minimum: 1, maximum: 100 } }
     Cursor: { name: cursor, in: query, schema: { type: string } }
     IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
@@ -2883,6 +2907,39 @@ components:
         cash: { $ref: '#/components/schemas/CashPosition' }
         target: { $ref: '#/components/schemas/MyTarget' }
         serverTime: { type: string, format: date-time }
+    ActivityItem:
+      type: object
+      description: 1.28.0 (FR-ACT-001)
+      required: [id, type, at, branchId, actor, customer, entity, entityId, data, unseen]
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [collection, visit, promise, pin] }
+        at: { type: string, format: date-time }
+        branchId: { type: [string, 'null'] }
+        actor: { type: [object, 'null'], description: 'The staff member; null only for lines written before the event named them', properties: { id: { type: string }, name: { $ref: '#/components/schemas/I18nText' }, employeeCode: { type: string } } }
+        customer: { type: [object, 'null'], properties: { id: { type: string }, name: { $ref: '#/components/schemas/I18nText' }, code: { type: string } } }
+        entity: { type: string, enum: [collection, visit, promise, customer], description: 'What a click opens (a pin opens the customer)' }
+        entityId: { type: string }
+        data:
+          type: object
+          description: 'Small facts for the line: collection amountPoisha, method, flags; visit outcome, flags; promise promisedDate; pin applied (true = applied at once, false = waits for a manager). Field-system activity, not ERP money.'
+          properties:
+            amountPoisha: { type: integer }
+            method: { type: string }
+            outcome: { type: string }
+            promisedDate: { type: string, format: date }
+            applied: { type: boolean }
+            flags: { type: array, items: { type: string } }
+        unseen: { type: boolean, description: 'Newer than the caller''s last "seen"' }
+    ActivityFeed:
+      type: object
+      description: 1.28.0
+      required: [items, unseen, seenAt, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ActivityItem' } }
+        unseen: { type: integer, maximum: 99 }
+        seenAt: { type: [string, 'null'], format: date-time }
+        nextCursor: { type: [string, 'null'] }
     InboxItem:
       type: object
       properties: { id: { type: string }, type: { type: string, example: collection.conflict }, severity: { type: string, enum: [low, medium, high, critical] }, branchId: { type: string }, entity: { type: string }, entityId: { type: string }, summary: { $ref: '#/components/schemas/I18nText' }, status: { type: string, enum: [open, snoozed, resolved] }, createdAt: { type: string }, link: { type: string, example: '/collections/6750…' } }

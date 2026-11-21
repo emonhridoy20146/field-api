@@ -632,7 +632,7 @@ describe('this month on a customer and invoice counts (FR-CUS-017/018, contract 
   });
 });
 
-describe('paid this month filter (FR-CUS-019, contract 1.28.0)', () => {
+describe('paid this month filter (FR-CUS-019, contract 1.29.0)', () => {
   type Row = { id: string; activity: { paidPoisha: number; pendingPoisha: number } };
   const paidSomething = (r: Row) => r.activity.paidPoisha > 0 || r.activity.pendingPoisha > 0;
 
