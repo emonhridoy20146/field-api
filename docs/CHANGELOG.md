@@ -4,6 +4,14 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.29.0] — contract 1.29.0 (paid this month filter)
+### Added (owner request 2026-11-21, FR-CUS-019)
+- `GET /customers` and `GET /customers/map` take `paidThisMonth=yes|no`. `yes` = an ERP payment dated in the current Dhaka month (removed ones left out) or a field collection of this month still waiting for the ERP; `no` = neither. Same sources as the row's `activity.paidPoisha` / `activity.pendingPoisha`, so the filter never disagrees with the row's money mark. `total` and `invoiceTotals` follow it.
+- `customers` has a new extension point `registerMonthPendingSource`; `collections` registers `monthPendingCustomerIds(month)`. Pure rule `paidThisMonthFilter` in `customers/domain/paid-month.ts`.
+### Notes for the clients
+- Additive; no data change. admin-web: a "paid this month / not paid" filter on the customer list. The app keeps its own chips (FR-M-046), which it derives offline.
+
+
 ## [1.28.0] — contract 1.28.0 (staff activity feed)
 ### Added (owner request 2026-11-21, FR-ACT-001)
 - **New module `activity`** (flag `module.activity`, off by default; permission `activity.view` for super admin, branch manager and viewer). It listens to `collection.received`, `visit.recorded`, `promise.created`, `customer.location.proposed` and `customer.location.approved` (staff pins applied at once only) and keeps one line per event: who, which customer, and a few facts (amount and method; visit outcome; promised date; whether a pin applied or waits). No other module writes to it.

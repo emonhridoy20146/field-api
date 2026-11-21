@@ -259,6 +259,13 @@ POST /api/v1/customers/6731…/location-proposals
 ```
 → `201 { "id": "6742…", "status": "approved" }` when the customer had no usable pin and `customers.staffPinApproval` is `when_missing` (default); otherwise `"status": "pending"` until a manager decides. The same body goes through `/sync/push` as mutation `location_proposal` (+ `customerId`).
 
+### 3.9b Paid this month (1.29.0, FR-CUS-019)
+Customers of one branch who have not paid anything this Dhaka month, longest overdue first, with the count:
+```http
+GET /api/v1/customers?branchId=6730…&paidThisMonth=no&sort=-daysOverdue&includeTotal=true
+```
+→ a normal `CustomerPage`; every row's `activity.paidPoisha` and `activity.pendingPoisha` are 0. `paidThisMonth=yes` gives the others (an ERP payment dated this month, or a field collection of this month not yet in the ERP). Works on `/customers/map` too; any other value is a 400.
+
 ### 3.10a Pin colours and invoice viewer (1.14.0)
 Yellow and orange pins of credit customers in view:
 ```http

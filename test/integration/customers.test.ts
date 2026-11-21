@@ -631,3 +631,47 @@ describe('this month on a customer and invoice counts (FR-CUS-017/018, contract 
     expect(after.visitedToday).toBe(before.visitedToday);
   });
 });
+
+describe('paid this month filter (FR-CUS-019, contract 1.29.0)', () => {
+  type Row = { id: string; activity: { paidPoisha: number; pendingPoisha: number } };
+  const paidSomething = (r: Row) => r.activity.paidPoisha > 0 || r.activity.pendingPoisha > 0;
+
+  it('yes and no split the list the way the row marks do; an ERP payment of this month, a pending field collection and a removed payment', async () => {
+    const { CustomerModel } = await import('../../src/modules/customers/models/customer.model.js');
+    // 100247: an ERP payment dated this month. 100248: only a removed (reversed) payment of this month, so not paid.
+    await CustomerModel.updateOne({ _id: ids['100247'] }, { $set: { recentPayments: [{ erpPaymentId: 'p-nov-1', date: '2026-11-05', amountPoisha: 150000, reversed: false, source: 'office' }] } });
+    await CustomerModel.updateOne({ _id: ids['100248'] }, { $set: { recentPayments: [{ erpPaymentId: 'p-nov-2', date: '2026-11-03', amountPoisha: 90000, reversed: true, source: 'office' }] } });
+    const bm = await as(t, '01700000002');
+    const all = (await bm.get('/customers?limit=200')).body.items as Row[];
+    const yes = await bm.get('/customers?paidThisMonth=yes&limit=200&includeTotal=true');
+    const no = await bm.get('/customers?paidThisMonth=no&limit=200&includeTotal=true');
+    expect(yes.status).toBe(200);
+    expectConforms('GET', '/customers', 200, yes.body);
+    const yesRows = yes.body.items as Row[];
+    const noRows = no.body.items as Row[];
+    const yesIds = yesRows.map((r) => r.id);
+    const noIds = noRows.map((r) => r.id);
+    expect(yesIds).toContain(ids['100247']);
+    // 100246 got a field collection of 2026-11-15 in the block above: paid, whether the ERP has it yet or not
+    expect(yesIds).toContain(ids['100246']);
+    expect(noIds).toContain(ids['100248']);
+    expect(noIds).toContain(ids['100245']); // last paid in September
+    // the two halves are the whole list, and each row's own money mark agrees with the half it is in
+    expect([...yesIds, ...noIds].sort()).toEqual(all.map((r) => r.id).sort());
+    expect(yesRows.every(paidSomething)).toBe(true);
+    expect(noRows.some(paidSomething)).toBe(false);
+    expect(yes.body.total + no.body.total).toBe(all.length);
+    expect(yes.body.invoiceTotals.total + no.body.invoiceTotals.total).toBe((await bm.get('/customers?includeTotal=true')).body.invoiceTotals.total);
+  });
+
+  it('narrows the other filters, works on the map, refuses other values', async () => {
+    const bm = await as(t, '01700000002');
+    const rows = (await bm.get('/customers?paidThisMonth=yes&filter=paid_up,overdue,due_today,promised_today,bad_suggested,tagged_bad,no_location,unassigned&limit=200')).body.items as Row[];
+    expect(rows.every(paidSomething)).toBe(true);
+    const map = await bm.get('/customers/map?bbox=90.0,22.0,91.0,23.5&zoom=15&paidThisMonth=no');
+    expect(map.status).toBe(200);
+    const noIds = ((await bm.get('/customers?paidThisMonth=no&limit=200')).body.items as Row[]).map((r) => r.id);
+    for (const pin of map.body.pins as { id: string }[]) expect(noIds).toContain(pin.id);
+    expect((await bm.get('/customers?paidThisMonth=maybe')).status).toBe(400);
+  });
+});

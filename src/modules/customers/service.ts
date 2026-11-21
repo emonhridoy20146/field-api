@@ -1,3 +1,4 @@
+import { Types } from 'mongoose';
 import { ctx } from '../../core/context/index.js';
 import { AppError, businessRule, notFound } from '../../core/errors/index.js';
 import { isDuplicateKey, isOid, type LeanDoc, type LooseObject } from '../../core/db/index.js';
@@ -15,6 +16,7 @@ import { getSetting } from '../settings/index.js';
 import { refreshCustomer as erpRefresh, ErpUnavailableError, type ErpCustomer } from '../erp-gateway/index.js';
 import { badges, deriveCustomer, isBadTag, payState, worstPayState, worstStatus, type CustomerStatus, type PayState } from './domain/status.js';
 import { MAX_EXTRA_PHONES, mergePhones, normalizeMobile, planAdd, type ExtraPhone, type PhoneInput } from './domain/phones.js';
+import { paidThisMonthFilter, type PaidThisMonth } from './domain/paid-month.js';
 import { QUALITY_ISSUES, findIssues, sharedPhones, type Finding, type QualityInput } from './domain/quality.js';
 import { CustomerModel, LocationProposalModel } from './models/customer.model.js';
 
@@ -60,6 +62,18 @@ const timelineSources: TimelineSource[] = [];
 export const registerListEnricher = (e: ListEnricher) => void enrichers.push(e);
 export const registerDetailContributor = (c: DetailContributor) => void contributors.push(c);
 export const registerTimelineSource = (s: TimelineSource) => void timelineSources.push(s);
+/**
+ * 1.29.0 (FR-CUS-019): who has a field collection of the given Dhaka month still waiting for the ERP. Supplied by
+ * the collections module so the "paid this month" filter counts pending field money like the row's `activity` does.
+ */
+export type MonthPendingSource = (month: string) => Promise<string[]>;
+const monthPendingSources: MonthPendingSource[] = [];
+export const registerMonthPendingSource = (s: MonthPendingSource) => void monthPendingSources.push(s);
+async function monthPendingIds(month: string): Promise<Types.ObjectId[]> {
+  const ids = new Set<string>();
+  for (const src of monthPendingSources) for (const id of await src(month)) ids.add(id);
+  return [...ids].filter(isOid).map((id) => new Types.ObjectId(id));
+}
 
 // ---------------- scope (CLAUDE.md §2.7, 04-architecture §6.2) ----------------
 
@@ -582,6 +596,8 @@ export interface ListQuery {
   payState?: PayState[];
   /** 1.14.0: has an open invoice of this kind. */
   invoiceKind?: 'installment' | 'credit';
+  /** 1.29.0 (FR-CUS-019): paid something this Dhaka month (ERP payment or pending field collection), or not. */
+  paidThisMonth?: PaidThisMonth;
   assignedTo?: string;
   branchId?: string;
   areaId?: string;
@@ -640,6 +656,10 @@ async function buildFilter(user: AuthUser, q: ListQuery): Promise<Record<string,
   if (ors.length) and.push({ $or: ors });
   if (q.payState?.length) and.push({ $or: q.payState.map((p) => PAY_FILTERS[p]) });
   if (q.invoiceKind) and.push(invoiceKindFilter(q.invoiceKind));
+  if (q.paidThisMonth) {
+    const month = today().slice(0, 7);
+    and.push(paidThisMonthFilter(q.paidThisMonth, month, await monthPendingIds(month)));
+  }
   if (q.assignedTo) and.push({ 'fos.assigneeId': q.assignedTo === 'me' ? user.id : q.assignedTo });
   if (q.areaId) and.push({ 'fos.areaId': q.areaId });
   if (q.q) {
@@ -1016,7 +1036,7 @@ export async function timeline(user: AuthUser, id: string, limit: number, cursor
 
 export async function map(
   user: AuthUser,
-  q: { bbox: string; zoom?: number; filter: string[]; branchId?: string; payState?: PayState[]; invoiceKind?: 'installment' | 'credit' },
+  q: { bbox: string; zoom?: number; filter: string[]; branchId?: string; payState?: PayState[]; invoiceKind?: 'installment' | 'credit'; paidThisMonth?: PaidThisMonth },
 ) {
   const box = parseBbox(q.bbox);
   if (!box)
@@ -1028,6 +1048,7 @@ export async function map(
     ...(q.branchId ? { branchId: q.branchId } : {}),
     ...(q.payState?.length ? { payState: q.payState } : {}),
     ...(q.invoiceKind ? { invoiceKind: q.invoiceKind } : {}),
+    ...(q.paidThisMonth ? { paidThisMonth: q.paidThisMonth } : {}),
   });
   (filter.$and as Record<string, unknown>[]).push({
     location: {

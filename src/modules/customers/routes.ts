@@ -5,6 +5,7 @@ import { parse } from '../../core/http/index.js';
 import { parseLatLng } from '../../core/geo/index.js';
 import * as s from './service.js';
 import { PAY_STATES, type PayState } from './domain/status.js';
+import { PAID_THIS_MONTH, type PaidThisMonth } from './domain/paid-month.js';
 
 const FILTERS = ['overdue', 'due_today', 'promised_today', 'bad_suggested', 'tagged_bad', 'no_location', 'unassigned', 'paid_up'] as const;
 /** `filter=overdue,due_today` (form style, explode=false); unknown values are a 400. */
@@ -22,11 +23,14 @@ const payStateList = z
   .pipe(z.array(z.enum(PAY_STATES as [PayState, ...PayState[]])));
 /** 1.14.0 (FR-CUS-013): customers with an open invoice of this kind. */
 const invoiceKind = z.enum(['installment', 'credit']).optional();
+/** 1.29.0 (FR-CUS-019): paid something this Dhaka month (ERP or pending field money) or not. */
+const paidThisMonth = z.enum(PAID_THIS_MONTH as [PaidThisMonth, ...PaidThisMonth[]]).optional();
 
 const listQuery = z.object({
   filter: filterList,
   payState: payStateList,
   invoiceKind,
+  paidThisMonth,
   assignedTo: z.string().max(64).optional(),
   branchId: z.string().max(64).optional(),
   areaId: z.string().max(64).optional(),
@@ -45,6 +49,7 @@ const mapQuery = z.object({
   filter: filterList,
   payState: payStateList,
   invoiceKind,
+  paidThisMonth,
   branchId: z.string().max(64).optional(),
 });
 
