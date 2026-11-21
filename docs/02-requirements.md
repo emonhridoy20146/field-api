@@ -88,6 +88,7 @@ Defaults: SA = super_admin, BM = branch_manager, FS = field_staff, VW = viewer. 
 | `task.manage` **[ADDED]** | Give tasks to staff with a note; edit, cancel, verify or reject a resolve request | ● | ● | ○ | ○ | tasks |
 | `task.work` **[ADDED]** | See own tasks and ask for them to be resolved | ○ | ○ | ● | ○ | tasks |
 | `inbox.view` **[ADDED]** | "Needs attention" exceptions inbox | ● | ● | ○ | ○ | inbox |
+| `activity.view` **[ADDED 2026-11-21]** | See the staff activity feed in scope (collections, visits, promises, pins as they happen) | ● | ● | ○ | ● | activity |
 | `leave.request` **[ADDED]** | Request leave | ○ | ○ | ● | ○ | attendance |
 | `microfinance.view` | **RESERVED** — not grantable until MF-001 unblocked | — | — | — | — | microfinance |
 | `microfinance.manage` | **RESERVED** | — | — | — | — | microfinance |
@@ -329,6 +330,7 @@ Rules:
 |---|---|---|---|---|---|
 | FR-INB-001 **[ADDED]** | "Needs attention" inbox aggregating: collection conflicts, posting failures, over-limit cash, unverified deposits > 24 h, mock GPS, tracking stopped while on duty, late sync, pending handovers > 24 h, tag reviews, pin proposals, unassigned customers, ERP sync stale. Each item: severity, assignee (branch manager), resolve/snooze, link. | proposed | P1 | A W | I E |
 | FR-DSH-001 | Overview dashboard: today's collected (cash/mobile), vs. target, visits, promises due/kept, present/late/absent, cash on hand total, conflicts open, ERP sync health; branch selector. | active | P1 | A W | I E |
+| FR-ACT-001 **[ADDED 2026-11-21]** | Staff activity feed for admins (owner request): every collection taken, visit recorded, promise made and map pin set or proposed by staff, newest first, with the person and the customer named, filtered by type and person, in the caller's branch scope; a per-user "seen" mark gives the bell its count of new lines. Lines are kept 45 days. Module `activity` (flag `module.activity`, off by default), permission `activity.view`. Contract 1.28.0. | active | P1 | A W | U I |
 | FR-SRCH-001 **[ADDED]** | Global search (Ctrl/⌘+K) across customers (name, phone, ERP code), staff, receipts. | proposed | P1 | A W | I E |
 
 ### 4.14 Reports (module `reports`)

@@ -4,6 +4,16 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.28.0] — contract 1.28.0 (staff activity feed)
+### Added (owner request 2026-11-21, FR-ACT-001)
+- **New module `activity`** (flag `module.activity`, off by default; permission `activity.view` for super admin, branch manager and viewer). It listens to `collection.received`, `visit.recorded`, `promise.created`, `customer.location.proposed` and `customer.location.approved` (staff pins applied at once only) and keeps one line per event: who, which customer, and a few facts (amount and method; visit outcome; promised date; whether a pin applied or waits). No other module writes to it.
+- `GET /activity` (`type`, `userId`, `branchId`, cursor): newest first, in the caller's branch scope, people and customers named. `unseen` counts lines since the caller's last `POST /activity/seen` (per person, capped at 99) for the admin's bell.
+- Lines are kept 45 days (TTL index); the records stay in their own modules.
+- The two staff pin events now carry `proposedBy` (additive payload field), so the feed can name who set the pin.
+### Notes for the clients
+- Additive. Turn on `module.activity` to use it.
+
+
 ## [1.27.0] — contract 1.27.0 (cash in hand, collection by collection)
 ### Added (owner request 2026-11-21, FR-CASH-007)
 - `GET /cash/me/collections` and `GET /cash/positions/{id}/collections` (`cash.view`): the cash collections behind a person's cash on hand, with receipt, customer, invoice (`erpPlanId`), the whole amount and the part still in hand. Deposits (pending and verified) pay off collections oldest-first, as the position already assumed for "oldest undeposited"; the list is newest first, at most 200, and `onHandPoisha` always equals the position.

@@ -1204,9 +1204,9 @@ export async function proposeLocation(
         reason: 'customer had no usable pin (customers.staffPinApproval = when_missing)',
         meta,
       });
-      await ctx().bus.emit('customer.location.approved', { customerId, branchId: c.branchId, proposalId: id, autoApplied: true });
+      await ctx().bus.emit('customer.location.approved', { customerId, branchId: c.branchId, proposalId: id, autoApplied: true, proposedBy: user.id });
     } else {
-      await ctx().bus.emit('customer.location.proposed', { proposalId: id, customerId, branchId: c.branchId });
+      await ctx().bus.emit('customer.location.proposed', { proposalId: id, customerId, branchId: c.branchId, proposedBy: user.id });
     }
     // The proposer follows the proposal's fate on /sync/pull (contract 1.7.0).
     await recordChange({ entity: 'location_proposal', entityId: id, userIds: [user.id], branchId: c.branchId });
