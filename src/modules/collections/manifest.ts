@@ -3,7 +3,7 @@ import { syncMutations } from './sync.js';
 import { ctx } from '../../core/context/index.js';
 import { indexMigration } from '../../core/db/migrations.js';
 import type { AuthUser } from '../../core/security/types.js';
-import { registerDetailContributor, registerListEnricher, registerTimelineSource } from '../customers/index.js';
+import { registerDetailContributor, registerListEnricher, registerMonthPendingSource, registerTimelineSource } from '../customers/index.js';
 import { registerSummaryContributor } from '../handovers/index.js';
 import { collectionRoutes } from './routes.js';
 import * as s from './service.js';
@@ -78,6 +78,7 @@ export const manifest: ModuleManifest = {
     bus.on('customer.payments_synced', async (p) => s.onPaymentsSynced(p as never));
     registerListEnricher(async (ids) => new Map([...(await s.pendingByCustomer(ids))].map(([k, v]) => [k, { pendingFieldPoisha: v }])));
     registerListEnricher(async (ids) => new Map([...(await s.monthPendingByCustomer(ids))].map(([k, v]) => [k, { monthPendingPoisha: v }])));
+    registerMonthPendingSource((month) => s.monthPendingCustomerIds(month));
     registerDetailContributor(async (c) => ({ pendingCollections: await s.pendingForDetail(c.id) }));
     registerTimelineSource(async (customerId, _u, before, limit) => s.timelineItems(customerId, before, limit));
     registerSummaryContributor(async (p) => ({ openConflicts: await s.openConflictsFor(p.customerIds) }));

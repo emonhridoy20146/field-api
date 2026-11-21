@@ -4,6 +4,14 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.28.0] — contract 1.28.0 (paid this month filter)
+### Added (owner request 2026-11-21, FR-CUS-019)
+- `GET /customers` and `GET /customers/map` take `paidThisMonth=yes|no`. `yes` = an ERP payment dated in the current Dhaka month (removed ones left out) or a field collection of this month still waiting for the ERP; `no` = neither. Same sources as the row's `activity.paidPoisha` / `activity.pendingPoisha`, so the filter never disagrees with the row's money mark. `total` and `invoiceTotals` follow it.
+- `customers` has a new extension point `registerMonthPendingSource`; `collections` registers `monthPendingCustomerIds(month)`. Pure rule `paidThisMonthFilter` in `customers/domain/paid-month.ts`.
+### Notes for the clients
+- Additive; no data change. admin-web: a "paid this month / not paid" filter on the customer list. The app keeps its own chips (FR-M-046), which it derives offline.
+
+
 ## [1.27.0] — contract 1.27.0 (cash in hand, collection by collection)
 ### Added (owner request 2026-11-21, FR-CASH-007)
 - `GET /cash/me/collections` and `GET /cash/positions/{id}/collections` (`cash.view`): the cash collections behind a person's cash on hand, with receipt, customer, invoice (`erpPlanId`), the whole amount and the part still in hand. Deposits (pending and verified) pay off collections oldest-first, as the position already assumed for "oldest undeposited"; the list is newest first, at most 200, and `onHandPoisha` always equals the position.
