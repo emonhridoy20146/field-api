@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.29.0
+  version: 1.30.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -884,6 +884,15 @@ paths:
       parameters: [ { $ref: '#/components/parameters/Id' } ]
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/CashInHand' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+  /cash/deposits/{id}/collections:
+    get:
+      tags: [cash]
+      operationId: depositCollections
+      description: 'cash.view (1.30.0, FR-CASH-008). The cash collections one deposit covered: the person''s deposits (pending and verified, oldest first) pay off their cash collections oldest-first, the same order the cash in hand uses, so a deposit''s lines and the cash in hand never overlap. A rejected deposit covers nothing. Scope is the deposit''s: out of scope answers 404.'
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DepositCoverage' } } } }
         '404': { $ref: '#/components/responses/Problem' }
   /cash/positions:
     get:
@@ -2415,6 +2424,34 @@ components:
         amountPoisha: { type: integer, description: 'The whole collection' }
         inHandPoisha: { type: integer, description: 'The part not yet covered by a deposit; less than amountPoisha for the one collection a deposit covers only partly' }
         status: { $ref: '#/components/schemas/CollectionStatus' }
+        promise: { oneOf: [ { $ref: '#/components/schemas/CollectionPromise' }, { type: 'null' } ], description: 'Added in 1.30.0 (FR-CASH-008). The promise this money was collected against, or null when none covered that day' }
+    CollectionPromise:
+      type: object
+      description: '1.30.0 (FR-CASH-008). The promise a collection was made against: same customer and invoice (a promise without an invoice covers any), made on or before the collection''s business date and not yet past its promised date plus the branch''s grace on that day; the newest when several match. `status` is how the promise stands now (kept / partly kept / broken are decided by ERP money, FR-PRM-003); `onTime` = collected on or before the promised date.'
+      required: [id, promisedDate, promisedAmountPoisha, status, onTime]
+      properties:
+        id: { type: string }
+        promisedDate: { type: string, format: date }
+        promisedAmountPoisha: { type: integer }
+        status: { type: string, enum: [open, kept, partially_kept, broken] }
+        onTime: { type: boolean }
+    DepositCoverage:
+      type: object
+      description: '1.30.0 (FR-CASH-008). Which cash collections a deposit covered, oldest first; the first and the last may be covered only in part (`coveredPoisha` < `amountPoisha`). `unmatchedPoisha` is deposit money with no collection behind it (a collection voided after the deposit). Field-system cash, not an ERP balance.'
+      required: [deposit, coveredPoisha, unmatchedPoisha, items, generatedAt]
+      properties:
+        deposit: { $ref: '#/components/schemas/Deposit' }
+        coveredPoisha: { type: integer }
+        unmatchedPoisha: { type: integer }
+        items:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/CashInHandItem'
+              - type: object
+                required: [coveredPoisha]
+                properties: { coveredPoisha: { type: integer, description: 'The part of this collection this deposit covered' } }
+        generatedAt: { type: string, format: date-time }
     DepositCreate:
       type: object
       required: [clientId, amountPoisha, destination, depositedAt]

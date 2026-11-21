@@ -46,6 +46,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Collection board: verified money, every branch, month and all time, any role (ADR-045, contract 1.26.0) | FR-REP-007 | ✅ API |
 | Cash in hand, collection by collection (contract 1.27.0) | FR-CASH-007 | ✅ API |
 | Paid this month / not paid this month filter on the customer list and map (contract 1.29.0) | FR-CUS-019 | ✅ API; admin-web filter follows |
+| Which collections a deposit covered; the promise behind every cash line (contract 1.30.0) | FR-CASH-008 | ✅ API; admin-web deposit drawer follows |
 | Staff activity feed for admins: collections, visits, promises, pins, with a seen count (module `activity`, contract 1.28.0) | FR-ACT-001 | ✅ API |
 | Extra phone numbers: add several at once, ERP / added marker, kept in FOS (ADR-042, contract 1.23.0) | FR-CUS-016 | ✅ API; screens in admin-web and staff-app follow |
 | This month on a customer (visited, paid, pending, promises) and invoice counts per row and per list (contract 1.24.0) | FR-CUS-017, FR-CUS-018 | ✅ API; screens in admin-web and staff-app follow |

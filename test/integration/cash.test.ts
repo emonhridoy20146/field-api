@@ -123,3 +123,67 @@ describe('cash in hand, collection by collection (FR-CASH-007)', () => {
     expect((await t.app.inject({ method: 'GET', url: '/api/v1/cash/me/collections' })).statusCode).toBe(401);
   });
 });
+
+describe('which collections a deposit covered; the promise behind each line (FR-CASH-008, contract 1.30.0)', () => {
+  type Item = { collectionId: string; amountPoisha: number; coveredPoisha?: number; inHandPoisha?: number; promise: null | { id: string; promisedDate: string; status: string; onTime: boolean } };
+
+  it('a pending deposit covers the oldest cash collections, one of them in part; the deposit lines and the cash in hand never overlap', async () => {
+    const fs = await as(t, '01700000003');
+    const deposits = (await fs.get('/cash/deposits?status=pending')).body.items as { id: string; amountPoisha: number }[];
+    const dep = deposits.find((d) => d.amountPoisha === 600_000)!;
+    const r = await fs.get(`/cash/deposits/${dep.id}/collections`);
+    expect(r.status).toBe(200);
+    expectConforms('GET', '/cash/deposits/{id}/collections', 200, r.body);
+    expect(r.body.deposit).toMatchObject({ id: dep.id, amountPoisha: 600_000, status: 'pending', userId: s.fs1.id });
+    expect(r.body.deposit.userName).toBeTruthy();
+    const items = r.body.items as Item[];
+    // the 5,000 BDT collection whole, 1,000 of the 3,500 one; oldest first
+    expect(items.map((i) => [i.amountPoisha, i.coveredPoisha])).toEqual([[500_000, 500_000], [350_000, 100_000]]);
+    expect(r.body).toMatchObject({ coveredPoisha: 600_000, unmatchedPoisha: 0 });
+    expect(items.map((i) => i.inHandPoisha)).toEqual([0, 250_000]);
+    const inHand = (await fs.get('/cash/me/collections')).body.items as Item[];
+    const byId = new Map(inHand.map((i) => [i.collectionId, i.inHandPoisha!]));
+    // the partly covered collection: the rest is in hand; the whole one is not in hand at all
+    expect(byId.get(items[1]!.collectionId)).toBe(250_000);
+    expect(byId.has(items[0]!.collectionId)).toBe(false);
+
+    // a rejected deposit covers nothing
+    const rejected = (await fs.get('/cash/deposits?status=rejected')).body.items as { id: string }[];
+    expect(rejected.length).toBeGreaterThan(0);
+    const rj = await fs.get(`/cash/deposits/${rejected[0]!.id}/collections`);
+    expectConforms('GET', '/cash/deposits/{id}/collections', 200, rj.body);
+    expect(rj.body).toMatchObject({ coveredPoisha: 0, unmatchedPoisha: 0, items: [] });
+
+    // scope follows the deposit: own branch manager yes, the other branch and a colleague 404, unknown 404
+    expect((await (await as(t, '01700000002')).get(`/cash/deposits/${dep.id}/collections`)).status).toBe(200);
+    expect((await (await as(t, '01700000005')).get(`/cash/deposits/${dep.id}/collections`)).status).toBe(404);
+    expect((await (await as(t, '01700000004')).get(`/cash/deposits/${dep.id}/collections`)).status).toBe(404);
+    expect((await fs.get('/cash/deposits/nope/collections')).status).toBe(404);
+    expect((await t.app.inject({ method: 'GET', url: `/api/v1/cash/deposits/${dep.id}/collections` })).statusCode).toBe(401);
+  });
+
+  it('each line names the promise it was collected against, on time or not; no promise → null', async () => {
+    const fs = await as(t, '01700000003');
+    // the customer has several active invoices: the promise names the one the cash lines are for
+    const erpPlanId = ((await fs.get('/cash/me/collections')).body.items as { erpPlanId: string }[])[0]!.erpPlanId;
+    const promise = await fs.post('/promises', { clientId: randomUUID(), customerId: cust, erpPlanId, promisedDate: '2026-11-16', promisedAmountPoisha: 40_000 });
+    expect(promise.status).toBe(201);
+    expect((await collect(fs, 50_000, 'cash', { recordedAt: '2026-11-15T03:20:00Z' })).status).toBe(201);
+    const mine = await fs.get('/cash/me/collections');
+    expectConforms('GET', '/cash/me/collections', 200, mine.body);
+    const newest = (mine.body.items as Item[])[0]!;
+    expect(newest.amountPoisha).toBe(50_000);
+    expect(newest.promise).toMatchObject({ id: promise.body.id, promisedDate: '2026-11-16', status: 'open', onTime: true });
+    // a person whose customers made no promise: every line says null
+    const fs2 = await as(t, '01700000004');
+    const other = (await getByErpId('100247'))!.id;
+    await applyAssignments([{ customerId: other, assigneeId: s.fs2.id }]);
+    // the invoice is named: this customer's only plan is not active in the fixture
+    const otherPlan = ((await fs2.get(`/customers/${other}`)).body.plans as { erpPlanId: string }[])[0]?.erpPlanId ?? '54001';
+    const c2 = await fs2.post('/collections', { clientId: randomUUID(), customerId: other, erpPlanId: otherPlan, amountPoisha: 20_000, method: 'cash', receiptNo: 'BRL01-FS015-261115-0001', recordedAt: '2026-11-15T03:30:00Z', geo: { lat: 22.7, lng: 90.36, accuracyM: 10 } }, { 'idempotency-key': randomUUID() });
+    expect(c2.status, JSON.stringify(c2.body)).toBe(201);
+    const theirs = (await fs2.get('/cash/me/collections')).body.items as Item[];
+    expect(theirs.length).toBeGreaterThan(0);
+    expect(theirs.every((i) => i.promise === null)).toBe(true);
+  });
+});

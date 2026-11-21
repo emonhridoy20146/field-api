@@ -12,7 +12,7 @@ export const manifest: ModuleManifest = {
   version: '1.0.0',
   description: 'Cash on hand, limits, deposits, verification, end-of-day closing (FR-CASH-*)',
   featureFlag: { key: 'module.cash', default: false, description: 'Cash on hand and deposits', owner: 'field-api' },
-  dependsOn: ['audit', 'settings', 'users', 'collections', 'handovers'],
+  dependsOn: ['audit', 'settings', 'users', 'collections', 'handovers', 'promises'],
   permissions: [
     { key: 'cash.view', description: { en: 'View cash positions (own only for FS)', bn: 'হাতে নগদ দেখা' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
     { key: 'cash.deposit.record', description: { en: 'Record a deposit', bn: 'জমা রেকর্ড' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
