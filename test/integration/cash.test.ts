@@ -179,7 +179,7 @@ describe('which collections a deposit covered; the promise behind each line (FR-
     const other = (await getByErpId('100247'))!.id;
     await applyAssignments([{ customerId: other, assigneeId: s.fs2.id }]);
     const c2 = await fs2.post('/collections', { clientId: randomUUID(), customerId: other, amountPoisha: 20_000, method: 'cash', receiptNo: 'BRL01-FS015-261115-0001', recordedAt: '2026-11-15T03:30:00Z', geo: { lat: 22.7, lng: 90.36, accuracyM: 10 } }, { 'idempotency-key': randomUUID() });
-    expect(c2.status).toBe(201);
+    expect(c2.status, JSON.stringify(c2.body)).toBe(201);
     const theirs = (await fs2.get('/cash/me/collections')).body.items as Item[];
     expect(theirs.length).toBeGreaterThan(0);
     expect(theirs.every((i) => i.promise === null)).toBe(true);
