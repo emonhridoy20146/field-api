@@ -140,6 +140,7 @@ describe('which collections a deposit covered; the promise behind each line (FR-
     // the 5,000 BDT collection whole, 1,000 of the 3,500 one; oldest first
     expect(items.map((i) => [i.amountPoisha, i.coveredPoisha])).toEqual([[500_000, 500_000], [350_000, 100_000]]);
     expect(r.body).toMatchObject({ coveredPoisha: 600_000, unmatchedPoisha: 0 });
+    expect(items.map((i) => i.inHandPoisha)).toEqual([0, 250_000]);
     const inHand = (await fs.get('/cash/me/collections')).body.items as Item[];
     const byId = new Map(inHand.map((i) => [i.collectionId, i.inHandPoisha!]));
     // the partly covered collection: the rest is in hand; the whole one is not in hand at all
@@ -163,7 +164,9 @@ describe('which collections a deposit covered; the promise behind each line (FR-
 
   it('each line names the promise it was collected against, on time or not; no promise → null', async () => {
     const fs = await as(t, '01700000003');
-    const promise = await fs.post('/promises', { clientId: randomUUID(), customerId: cust, promisedDate: '2026-11-16', promisedAmountPoisha: 40_000 });
+    // the customer has several active invoices: the promise names the one the cash lines are for
+    const erpPlanId = ((await fs.get('/cash/me/collections')).body.items as { erpPlanId: string }[])[0]!.erpPlanId;
+    const promise = await fs.post('/promises', { clientId: randomUUID(), customerId: cust, erpPlanId, promisedDate: '2026-11-16', promisedAmountPoisha: 40_000 });
     expect(promise.status).toBe(201);
     expect((await collect(fs, 50_000, 'cash', { recordedAt: '2026-11-15T03:20:00Z' })).status).toBe(201);
     const mine = await fs.get('/cash/me/collections');

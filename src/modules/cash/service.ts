@@ -120,14 +120,18 @@ export async function depositCollections(user: AuthUser, id: string) {
   const deposit = await getDeposit(user, id);
   const deps = (await DepositModel.find({ userId: deposit.userId, status: { $in: ['pending', 'verified'] } }).sort({ depositedAt: 1, _id: 1 }).select({ amountPoisha: 1 }).lean()) as Lean[];
   const order = deps.map((d) => ({ id: d._id.toHexString() as string, amountPoisha: d.amountPoisha as number }));
-  const cov = deposit.status === 'rejected' ? { items: [], coveredPoisha: 0, unmatchedPoisha: 0 } : depositCoverage(await cashCollectionRows(deposit.userId), order, deposit.id);
+  const rows = await cashCollectionRows(deposit.userId);
+  const cov = deposit.status === 'rejected' ? { items: [], coveredPoisha: 0, unmatchedPoisha: 0 } : depositCoverage(rows, order, deposit.id);
   if (!cov) throw notFound('deposit');
+  // the same line also says what is still in hand of it after every deposit (0 for most covered lines)
+  const total = order.reduce((n, d) => n + d.amountPoisha, 0);
+  const inHand = new Map(inHandBreakdown(rows, total).map((c) => [c.collectionId, c.inHandPoisha]));
   const u = await getUser(deposit.userId);
   return {
     deposit: { ...deposit, userName: u?.name.en || u?.name.bn || '' },
     coveredPoisha: cov.coveredPoisha,
     unmatchedPoisha: cov.unmatchedPoisha,
-    items: await withPromises(cov.items),
+    items: await withPromises(cov.items.map((c) => ({ ...c, inHandPoisha: inHand.get(c.collectionId) ?? 0 }))),
     generatedAt: ctx().clock.now().toISOString(),
   };
 }
