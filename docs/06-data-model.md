@@ -170,6 +170,9 @@ Retention: permanent (≥ 8 years, OD-09).
 ### attendance_days
 Derived, rebuildable from events. `{ userId, branchId, businessDate, status: 'not_started'|'on_duty'|'on_break'|'off_duty'|'present'|'late'|'absent'|'leave'|'holiday'|'weekly_off', state, firstIn, lastOut, lateMin, breakMin, overBreakMin, windowBreakMin (1.25.0), overtimeMin (1.25.0; absent on older days, which are derived again on read), breaks: [{start,end}], dutyMin, autoClosed, corrected, closed, flags[], shift: {start,end} }` · `{ userId:1, businessDate:1 } unique`, `{ branchId:1, businessDate:1 }`, `{ closed:1, state:1 }`.
 
+### activity_items · activity_seen [ADDED 2026-11-21]
+`activity_items { key (unique: 'collection:<id>', 'visit:<id>', 'promise:<id>', 'pin:<proposalId>'), type: 'collection'|'visit'|'promise'|'pin', branchId, actorId, customerId, entity, entityId, data { amountPoisha?, method?, outcome?, promisedDate?, applied?, flags? }, at }` · `{ key:1 } unique`, `{ branchId:1, _id:-1 }`, TTL `{ at:1 }` 45 days. Written only from domain events (FR-ACT-001). `activity_seen { userId (unique), at }`: until when each person has looked at the feed.
+
 ### leave_requests [ADDED]
 `{ userId, branchId, type: 'casual'|'sick'|'other', from, to, reason, status: 'pending'|'approved'|'rejected'|'cancelled', decidedBy, decidedAt, decisionReason, cancelledAt, createdAt }` (`cancelled`/`cancelledAt` since 1.12.0; only the requester cancels, only while pending) · `{ userId:1, from:1 }`, `{ branchId:1, status:1, createdAt:-1 }`.
 
