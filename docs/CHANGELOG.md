@@ -4,6 +4,15 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.29.0] — contract 1.29.0 (deposit detail, the promise behind a cash line)
+### Added (owner request 2026-11-21, FR-CASH-008)
+- `GET /cash/deposits/{id}/collections` (`cash.view`, scope of the deposit): the cash collections one deposit covered. The person's pending and verified deposits, oldest first, pay off cash collections oldest-first — the same order as the cash in hand (1.27.0), so a deposit's lines and the cash in hand split every collection with nothing lost or counted twice. First and last line may be covered in part (`coveredPoisha`); `unmatchedPoisha` is deposit money with no collection behind it; a rejected deposit covers nothing.
+- Every cash line (`CashInHandItem`, in hand and per deposit) carries `promise`: the promise the money was collected against — same customer and invoice (a promise without an invoice covers any), made on or before the collection's business date and not past its promised date plus the branch's grace that day; the newest when several — with its current status (`open` / `kept` / `partially_kept` / `broken`, decided by ERP money as before) and `onTime`; `null` when no promise covered that day.
+- `promises` exports `promisesBehind`; pure rules `depositCoverage` (`cash/domain/position.ts`) and `promiseFor` (`promises/domain/evaluate.ts`). `cash` now depends on `promises`.
+### Notes for the clients
+- Additive; no data change. admin-web: a deposit row opens its collections; the cash-on-hand drawer shows the promise per line.
+
+
 ## [1.28.0] — contract 1.28.0 (paid this month filter)
 ### Added (owner request 2026-11-21, FR-CUS-019)
 - `GET /customers` and `GET /customers/map` take `paidThisMonth=yes|no`. `yes` = an ERP payment dated in the current Dhaka month (removed ones left out) or a field collection of this month still waiting for the ERP; `no` = neither. Same sources as the row's `activity.paidPoisha` / `activity.pendingPoisha`, so the filter never disagrees with the row's money mark. `total` and `invoiceTotals` follow it.

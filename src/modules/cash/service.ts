@@ -12,7 +12,8 @@ import * as audit from '../audit/index.js';
 import { getSetting } from '../settings/index.js';
 import { getUser, getUsers, listByRole, type UserView } from '../users/index.js';
 import { cashCollectionRows, cashCollectionsOf, cashSums } from '../collections/index.js';
-import { inHandBreakdown, oldestUndeposited, onHand, stateOf } from './domain/position.js';
+import { promisesBehind } from '../promises/index.js';
+import { depositCoverage, inHandBreakdown, oldestUndeposited, onHand, stateOf } from './domain/position.js';
 import { ClosingModel, DepositModel } from './models/cash.model.js';
 
 type Lean = LeanDoc;
@@ -94,7 +95,39 @@ export async function inHandOf(actor: AuthUser, userId: string) {
     onHandPoisha: all.reduce((n, c) => n + c.inHandPoisha, 0),
     pendingDepositsPoisha: deps.pending,
     count: all.length,
-    items: items.map((c) => ({ ...c, recordedAt: c.recordedAt.toISOString() })),
+    items: await withPromises(items),
+    generatedAt: ctx().clock.now().toISOString(),
+  };
+}
+
+type CashRow = Awaited<ReturnType<typeof cashCollectionRows>>[number];
+
+/** FR-CASH-008: each line says which promise it was collected against and how that promise ended (or null). */
+async function withPromises<T extends CashRow>(rows: T[]) {
+  const promises = await promisesBehind(rows.map((c) => ({ id: c.collectionId, customerId: c.customer.id, erpPlanId: c.erpPlanId || null, businessDate: c.businessDate, branchId: c.branchId })));
+  return rows.map(({ branchId: _b, ...c }) => {
+    void _b;
+    return { ...c, recordedAt: c.recordedAt.toISOString(), promise: promises.get(c.collectionId) ?? null };
+  });
+}
+
+/**
+ * FR-CASH-008: the collections one deposit covered. The person's deposits (pending and verified, oldest first) pay
+ * off their cash collections oldest-first, the same order the cash in hand uses, so a deposit's lines and the cash
+ * in hand never overlap. Scope is the deposit's (`getDeposit`): out of scope is 404.
+ */
+export async function depositCollections(user: AuthUser, id: string) {
+  const deposit = await getDeposit(user, id);
+  const deps = (await DepositModel.find({ userId: deposit.userId, status: { $in: ['pending', 'verified'] } }).sort({ depositedAt: 1, _id: 1 }).select({ amountPoisha: 1 }).lean()) as Lean[];
+  const order = deps.map((d) => ({ id: d._id.toHexString() as string, amountPoisha: d.amountPoisha as number }));
+  const cov = deposit.status === 'rejected' ? { items: [], coveredPoisha: 0, unmatchedPoisha: 0 } : depositCoverage(await cashCollectionRows(deposit.userId), order, deposit.id);
+  if (!cov) throw notFound('deposit');
+  const u = await getUser(deposit.userId);
+  return {
+    deposit: { ...deposit, userName: u?.name.en || u?.name.bn || '' },
+    coveredPoisha: cov.coveredPoisha,
+    unmatchedPoisha: cov.unmatchedPoisha,
+    items: await withPromises(cov.items),
     generatedAt: ctx().clock.now().toISOString(),
   };
 }

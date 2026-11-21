@@ -549,6 +549,7 @@ export async function cashCollectionRows(userId: string) {
     erpPlanId: c.erpPlanId as string,
     amountPoisha: c.amountPoisha as number,
     status: c.status as Status,
+    branchId: c.branchId as string,
   }));
 }
 

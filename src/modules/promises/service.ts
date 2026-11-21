@@ -10,7 +10,7 @@ import { branchQuery, isSuperAdmin, type AuthUser } from '../../core/security/ty
 import { getSetting } from '../settings/index.js';
 import { getUsers } from '../users/index.js';
 import { erpPaidBetween, getCustomerRef, getCustomerRefs, setOpenPromiseDates, type TimelineItem } from '../customers/index.js';
-import { dateInRange, isDue, verdict } from './domain/evaluate.js';
+import { dateInRange, isDue, promiseFor, verdict } from './domain/evaluate.js';
 import { PromiseModel } from './models/promise.model.js';
 
 type Lean = LeanDoc;
@@ -288,6 +288,36 @@ export async function statsByOwner(user: AuthUser, branchId: string | undefined,
     if (r._id.s === 'kept') d.kept += r.n;
     if (r._id.s !== 'open') d.decided += r.n;
     out.set(r._id.o, d);
+  }
+  return out;
+}
+
+export interface PromiseMatch {
+  id: string;
+  promisedDate: string;
+  promisedAmountPoisha: number;
+  status: 'open' | 'kept' | 'partially_kept' | 'broken';
+  /** The collection was recorded on or before the promised date */
+  onTime: boolean;
+}
+
+/**
+ * FR-CASH-008: for each collection, the promise it was made against (same customer and invoice, open on that day,
+ * grace of the collection's branch) and how that promise ended. `null` where no promise covered the collection.
+ * Keys are the collection ids.
+ */
+export async function promisesBehind(
+  collections: { id: string; customerId: string; erpPlanId: string | null; businessDate: string; branchId: string }[],
+): Promise<Map<string, PromiseMatch | null>> {
+  const out = new Map<string, PromiseMatch | null>();
+  if (!collections.length) return out;
+  const rows = (await PromiseModel.find({ customerId: { $in: [...new Set(collections.map((c) => c.customerId))] }, status: { $nin: ['cancelled', 'superseded'] } }).lean()) as Lean[];
+  const promises = rows.map((p) => ({ id: p._id.toHexString() as string, customerId: p.customerId as string, erpPlanId: (p.erpPlanId ?? null) as string | null, createdDate: p.createdDate as string, promisedDate: p.promisedDate as string, status: p.status as string, promisedAmountPoisha: p.promisedAmountPoisha as number }));
+  const grace = new Map<string, number>();
+  for (const c of collections) {
+    if (!grace.has(c.branchId)) grace.set(c.branchId, (await getSetting<number>('promises.graceDays', c.branchId)) ?? 1);
+    const p = promiseFor(promises, c, grace.get(c.branchId)!);
+    out.set(c.id, p ? { id: p.id, promisedDate: p.promisedDate, promisedAmountPoisha: p.promisedAmountPoisha, status: p.status as PromiseMatch['status'], onTime: c.businessDate <= p.promisedDate } : null);
   }
   return out;
 }

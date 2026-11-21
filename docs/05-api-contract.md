@@ -266,6 +266,16 @@ GET /api/v1/customers?branchId=6730…&paidThisMonth=no&sort=-daysOverdue&includ
 ```
 → a normal `CustomerPage`; every row's `activity.paidPoisha` and `activity.pendingPoisha` are 0. `paidThisMonth=yes` gives the others (an ERP payment dated this month, or a field collection of this month not yet in the ERP). Works on `/customers/map` too; any other value is a 400.
 
+### 3.9c Deposit detail and the promise behind a cash line (1.29.0, FR-CASH-008)
+```http
+GET /api/v1/cash/deposits/6745…/collections
+```
+→ `{ "deposit": { "id": "6745…", "amountPoisha": 600000, "status": "pending", "userName": "Rakib Hasan", … }, "coveredPoisha": 600000, "unmatchedPoisha": 0,
+  "items": [ { "collectionId": "6740…", "receiptNo": "BRL01-FS014-261115-0002", "businessDate": "2026-11-15", "customer": { "id": "6731…", "code": "100246", "name": { … } }, "erpPlanId": "9921", "amountPoisha": 500000, "inHandPoisha": 0, "coveredPoisha": 500000, "status": "posted",
+                 "promise": { "id": "6744…", "promisedDate": "2026-11-15", "promisedAmountPoisha": 500000, "status": "kept", "onTime": true } },
+               { "…": "the next collection, covered in part", "amountPoisha": 350000, "coveredPoisha": 100000, "promise": null } ], "generatedAt": "…" }`
+The same `promise` field is on every line of `GET /cash/me/collections` and `/cash/positions/{id}/collections`.
+
 ### 3.10a Pin colours and invoice viewer (1.14.0)
 Yellow and orange pins of credit customers in view:
 ```http
