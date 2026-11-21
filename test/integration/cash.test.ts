@@ -124,7 +124,7 @@ describe('cash in hand, collection by collection (FR-CASH-007)', () => {
   });
 });
 
-describe('which collections a deposit covered; the promise behind each line (FR-CASH-008, contract 1.29.0)', () => {
+describe('which collections a deposit covered; the promise behind each line (FR-CASH-008, contract 1.30.0)', () => {
   type Item = { collectionId: string; amountPoisha: number; coveredPoisha?: number; inHandPoisha?: number; promise: null | { id: string; promisedDate: string; status: string; onTime: boolean } };
 
   it('a pending deposit covers the oldest cash collections, one of them in part; the deposit lines and the cash in hand never overlap', async () => {

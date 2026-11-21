@@ -4,7 +4,7 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
-## [1.29.0] — contract 1.29.0 (deposit detail, the promise behind a cash line)
+## [1.30.0] — contract 1.30.0 (deposit detail, the promise behind a cash line)
 ### Added (owner request 2026-11-21, FR-CASH-008)
 - `GET /cash/deposits/{id}/collections` (`cash.view`, scope of the deposit): the cash collections one deposit covered. The person's pending and verified deposits, oldest first, pay off cash collections oldest-first — the same order as the cash in hand (1.27.0), so a deposit's lines and the cash in hand split every collection with nothing lost or counted twice. First and last line may be covered in part (`coveredPoisha`); `unmatchedPoisha` is deposit money with no collection behind it; a rejected deposit covers nothing.
 - Every cash line (`CashInHandItem`, in hand and per deposit) carries `promise`: the promise the money was collected against — same customer and invoice (a promise without an invoice covers any), made on or before the collection's business date and not past its promised date plus the branch's grace that day; the newest when several — with its current status (`open` / `kept` / `partially_kept` / `broken`, decided by ERP money as before) and `onTime`; `null` when no promise covered that day.
@@ -13,12 +13,22 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 - Additive; no data change. admin-web: a deposit row opens its collections; the cash-on-hand drawer shows the promise per line.
 
 
-## [1.28.0] — contract 1.28.0 (paid this month filter)
+## [1.29.0] — contract 1.29.0 (paid this month filter)
 ### Added (owner request 2026-11-21, FR-CUS-019)
 - `GET /customers` and `GET /customers/map` take `paidThisMonth=yes|no`. `yes` = an ERP payment dated in the current Dhaka month (removed ones left out) or a field collection of this month still waiting for the ERP; `no` = neither. Same sources as the row's `activity.paidPoisha` / `activity.pendingPoisha`, so the filter never disagrees with the row's money mark. `total` and `invoiceTotals` follow it.
 - `customers` has a new extension point `registerMonthPendingSource`; `collections` registers `monthPendingCustomerIds(month)`. Pure rule `paidThisMonthFilter` in `customers/domain/paid-month.ts`.
 ### Notes for the clients
 - Additive; no data change. admin-web: a "paid this month / not paid" filter on the customer list. The app keeps its own chips (FR-M-046), which it derives offline.
+
+
+## [1.28.0] — contract 1.28.0 (staff activity feed)
+### Added (owner request 2026-11-21, FR-ACT-001)
+- **New module `activity`** (flag `module.activity`, off by default; permission `activity.view` for super admin, branch manager and viewer). It listens to `collection.received`, `visit.recorded`, `promise.created`, `customer.location.proposed` and `customer.location.approved` (staff pins applied at once only) and keeps one line per event: who, which customer, and a few facts (amount and method; visit outcome; promised date; whether a pin applied or waits). No other module writes to it.
+- `GET /activity` (`type`, `userId`, `branchId`, cursor): newest first, in the caller's branch scope, people and customers named. `unseen` counts lines since the caller's last `POST /activity/seen` (per person, capped at 99) for the admin's bell.
+- Lines are kept 45 days (TTL index); the records stay in their own modules.
+- The two staff pin events now carry `proposedBy` (additive payload field), so the feed can name who set the pin.
+### Notes for the clients
+- Additive. Turn on `module.activity` to use it.
 
 
 ## [1.27.0] — contract 1.27.0 (cash in hand, collection by collection)

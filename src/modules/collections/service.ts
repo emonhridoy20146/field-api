@@ -568,7 +568,7 @@ export async function monthPendingByCustomer(customerIds: string[]): Promise<Map
   return new Map(rows.map((r: { _id: string; sum: number }) => [r._id, r.sum]));
 }
 
-/** 1.28.0 (FR-CUS-019): customers with a field collection of the Dhaka month `YYYY-MM` still waiting for the ERP. */
+/** 1.29.0 (FR-CUS-019): customers with a field collection of the Dhaka month `YYYY-MM` still waiting for the ERP. */
 export async function monthPendingCustomerIds(month: string): Promise<string[]> {
   const ids = await CollectionModel.distinct('customerId', { status: { $in: PENDING_STATUSES }, businessDate: { $gte: `${month}-01`, $lte: `${month}-31` } });
   return ids.map(String);

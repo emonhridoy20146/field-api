@@ -1,5 +1,5 @@
 /**
- * FR-CUS-019 (1.28.0): the list filter "paid this month / not paid this month" for the owner's question
+ * FR-CUS-019 (1.29.0): the list filter "paid this month / not paid this month" for the owner's question
  * "who has paid something this month, and who has not". A customer counts as paid in the Dhaka month when
  *   - an ERP payment dated in the month is on the customer (removed / reversed ones left out), or
  *   - a field collection recorded in the month is still waiting for the ERP (the pending money of FR-CUS-017).

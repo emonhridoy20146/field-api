@@ -88,6 +88,7 @@ Defaults: SA = super_admin, BM = branch_manager, FS = field_staff, VW = viewer. 
 | `task.manage` **[ADDED]** | Give tasks to staff with a note; edit, cancel, verify or reject a resolve request | ● | ● | ○ | ○ | tasks |
 | `task.work` **[ADDED]** | See own tasks and ask for them to be resolved | ○ | ○ | ● | ○ | tasks |
 | `inbox.view` **[ADDED]** | "Needs attention" exceptions inbox | ● | ● | ○ | ○ | inbox |
+| `activity.view` **[ADDED 2026-11-21]** | See the staff activity feed in scope (collections, visits, promises, pins as they happen) | ● | ● | ○ | ● | activity |
 | `leave.request` **[ADDED]** | Request leave | ○ | ○ | ● | ○ | attendance |
 | `microfinance.view` | **RESERVED** — not grantable until MF-001 unblocked | — | — | — | — | microfinance |
 | `microfinance.manage` | **RESERVED** | — | — | — | — | microfinance |
@@ -229,7 +230,7 @@ Rules:
 | FR-CASH-005 | Cash positions dashboard: per staff on-hand, oldest undeposited cash age, over-limit list. | active | P1 | A W | I E |
 | FR-CASH-006 **[ADDED]** | End-of-day closing in app: summary of cash and mobile collections, deposits, remaining on hand; staff confirms; mismatch note optional. | proposed | P1 | A M | U D |
 | FR-CASH-007 **[ADDED 2026-11-21]** | Cash in hand, collection by collection: for a staff member, the cash collections that deposits (pending and verified) have not covered, oldest paid off first, each with receipt, customer, invoice, amount and the part still in hand; newest first, at most 200 with the full total. Staff read their own (`GET /cash/me/collections`), managers staff in scope (`GET /cash/positions/{id}/collections`). Contract 1.27.0. | active | P1 | A W M | U I |
-| FR-CASH-008 **[ADDED 2026-11-21]** | Deposit detail and the promise behind each line: `GET /cash/deposits/{id}/collections` lists the cash collections one deposit covered (the person's pending and verified deposits, oldest first, pay off cash collections oldest-first, the same order as FR-CASH-007, so a deposit's lines and the cash in hand never overlap; first and last line possibly in part; `unmatchedPoisha` for deposit money with no collection behind it; a rejected deposit covers nothing). Every cash line (in hand and per deposit) carries `promise`: the promise the money was collected against (same customer and invoice, open on that day within the branch's grace; the newest when several) with its current status and whether the collection came on or before the promised date, or null. Scope is the deposit's. Contract 1.29.0. | active | P2 | A W | U I |
+| FR-CASH-008 **[ADDED 2026-11-21]** | Deposit detail and the promise behind each line: `GET /cash/deposits/{id}/collections` lists the cash collections one deposit covered (the person's pending and verified deposits, oldest first, pay off cash collections oldest-first, the same order as FR-CASH-007, so a deposit's lines and the cash in hand never overlap; first and last line possibly in part; `unmatchedPoisha` for deposit money with no collection behind it; a rejected deposit covers nothing). Every cash line (in hand and per deposit) carries `promise`: the promise the money was collected against (same customer and invoice, open on that day within the branch's grace; the newest when several) with its current status and whether the collection came on or before the promised date, or null. Scope is the deposit's. Contract 1.30.0. | active | P2 | A W | U I |
 
 ### 4.8 Assignment & handover (modules `assignments`, `handovers`)
 
@@ -331,6 +332,7 @@ Rules:
 |---|---|---|---|---|---|
 | FR-INB-001 **[ADDED]** | "Needs attention" inbox aggregating: collection conflicts, posting failures, over-limit cash, unverified deposits > 24 h, mock GPS, tracking stopped while on duty, late sync, pending handovers > 24 h, tag reviews, pin proposals, unassigned customers, ERP sync stale. Each item: severity, assignee (branch manager), resolve/snooze, link. | proposed | P1 | A W | I E |
 | FR-DSH-001 | Overview dashboard: today's collected (cash/mobile), vs. target, visits, promises due/kept, present/late/absent, cash on hand total, conflicts open, ERP sync health; branch selector. | active | P1 | A W | I E |
+| FR-ACT-001 **[ADDED 2026-11-21]** | Staff activity feed for admins (owner request): every collection taken, visit recorded, promise made and map pin set or proposed by staff, newest first, with the person and the customer named, filtered by type and person, in the caller's branch scope; a per-user "seen" mark gives the bell its count of new lines. Lines are kept 45 days. Module `activity` (flag `module.activity`, off by default), permission `activity.view`. Contract 1.28.0. | active | P1 | A W | U I |
 | FR-SRCH-001 **[ADDED]** | Global search (Ctrl/⌘+K) across customers (name, phone, ERP code), staff, receipts. | proposed | P1 | A W | I E |
 
 ### 4.14 Reports (module `reports`)

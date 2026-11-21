@@ -23,7 +23,7 @@ const payStateList = z
   .pipe(z.array(z.enum(PAY_STATES as [PayState, ...PayState[]])));
 /** 1.14.0 (FR-CUS-013): customers with an open invoice of this kind. */
 const invoiceKind = z.enum(['installment', 'credit']).optional();
-/** 1.28.0 (FR-CUS-019): paid something this Dhaka month (ERP or pending field money) or not. */
+/** 1.29.0 (FR-CUS-019): paid something this Dhaka month (ERP or pending field money) or not. */
 const paidThisMonth = z.enum(PAID_THIS_MONTH as [PaidThisMonth, ...PaidThisMonth[]]).optional();
 
 const listQuery = z.object({
