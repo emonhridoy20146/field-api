@@ -169,7 +169,9 @@ describe('co-work visits (FR-CW-003)', () => {
     expect(list.body.items).toHaveLength(3); // two own + the one fs1 recorded with them
     const shared = list.body.items.find((i: { id: string }) => i.id === v.body.id);
     expect(shared.coWork.participants).toEqual([{ id: s.fs2.id, name: 'Sumon Mia' }]);
-    expect((await three.get('/visits?coWork=true')).body.items).toHaveLength(0);
+    // ADR-046: the whole branch reads the joint visits; another branch does not.
+    expect((await three.get('/visits?coWork=true')).body.items).toHaveLength(3);
+    expect((await (await as(t, '01700000005')).get('/visits?coWork=true')).body.items).toHaveLength(0);
     const pull = await fs2.get('/sync/pull?cursor=s_0');
     expect(pull.body.changes.some((c: { entity: string; id: string }) => c.entity === 'visit' && c.id === v.body.id)).toBe(true);
   });

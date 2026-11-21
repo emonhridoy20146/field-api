@@ -5,7 +5,7 @@ import { isDuplicateKey, isOid, type LeanDoc } from '../../core/db/index.js';
 import { recordChange } from '../../core/changefeed/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { formatBdt } from '../../core/money/index.js';
-import { businessDate, isIsoDate } from '../../core/time/index.js';
+import { addDays, businessDate, isIsoDate } from '../../core/time/index.js';
 import { branchQuery, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
 import { getSetting } from '../settings/index.js';
 import { getUsers } from '../users/index.js';
@@ -35,16 +35,34 @@ function view(p: Lean) {
     promisedAmountPoisha: p.promisedAmountPoisha,
     ...(p.note ? { note: p.note } : {}),
     ownerId: p.ownerId,
+    createdBy: (p.createdBy as string | undefined) ?? p.ownerId,
     status: p.status,
     paidTowardsPoisha: p.paidTowardsPoisha ?? 0,
     createdAt: (p.createdAt as Date).toISOString(),
   };
 }
 
+/** The promise with the display names of its owner (the customer's assignee) and of who made it (contract 1.31.0). */
+async function namedAll(rows: Lean[]) {
+  const users = await getUsers(rows.flatMap((r) => [r.ownerId, r.createdBy ?? r.ownerId]));
+  const nameOf = (id: string) => {
+    const u = users.get(id);
+    return u ? u.name.en || u.name.bn : '';
+  };
+  return rows.map((p) => ({ ...view(p), ownerName: nameOf(p.ownerId), createdByName: nameOf(p.createdBy ?? p.ownerId) }));
+}
+const named = async (p: Lean) => (await namedAll([p]))[0]!;
+
+/** Writes (cancel) stay with the owner; reads use [readScope]. */
 export function scopeFilter(user: AuthUser): Record<string, unknown> {
   if (isSuperAdmin(user)) return {};
   if (user.role === 'field_staff') return { ownerId: user.id };
   return { branchId: { $in: user.branchIds } };
+}
+
+/** Who may READ a promise (FR-ACT-002, ADR-046): staff see every promise of their branches. */
+export function readScope(user: AuthUser): Record<string, unknown> {
+  return isSuperAdmin(user) ? {} : { branchId: { $in: user.branchIds } };
 }
 
 /** Keep the customers overlay (`promised_today` filter) in step with open promises. */
@@ -54,15 +72,15 @@ async function syncOverlay(customerId: string) {
 }
 
 async function touch(p: Lean) {
-  await recordChange({ entity: 'promise', entityId: p._id.toHexString(), userIds: [p.ownerId], branchId: p.branchId });
+  await recordChange({ entity: 'promise', entityId: p._id.toHexString(), userIds: [p.ownerId, p.createdBy], branchId: p.branchId, fanoutBranchId: p.branchId });
 }
 
 /** FR-PRM-001: one open promise per plan; a new one supersedes the old (history kept). Idempotent by clientId. */
-export async function create(user: AuthUser, input: z.infer<typeof createSchema>): Promise<{ statusCode: 200 | 201; body: ReturnType<typeof view> }> {
+export async function create(user: AuthUser, input: z.infer<typeof createSchema>): Promise<{ statusCode: 200 | 201; body: Awaited<ReturnType<typeof named>> }> {
   const prior = (await PromiseModel.findOne({ clientId: input.clientId }).lean()) as Lean | null;
   if (prior) {
     if (prior.createdBy !== user.id) throw new AppError('IDEMPOTENCY_MISMATCH', { clientId: input.clientId });
-    return { statusCode: 200, body: view(prior) };
+    return { statusCode: 200, body: await named(prior) };
   }
   const c = await getCustomerRef(user, input.customerId);
   if (!c?.branchId) throw notFound('customer');
@@ -94,7 +112,7 @@ export async function create(user: AuthUser, input: z.infer<typeof createSchema>
     await syncOverlay(c.id);
     await touch(lean);
     await ctx().bus.emit('promise.created', { promiseId: lean._id.toHexString(), customerId: c.id, branchId: c.branchId, ownerId: lean.ownerId, promisedDate: input.promisedDate });
-    return { statusCode: 201, body: view(lean) };
+    return { statusCode: 201, body: await named(lean) };
   } catch (e) {
     if (isDuplicateKey(e)) return create(user, input);
     throw e;
@@ -109,22 +127,29 @@ export async function cancel(user: AuthUser, id: string, reason: string) {
   await PromiseModel.updateOne({ _id: id, status: 'open' }, { $set: { status: 'cancelled', closedAt: ctx().clock.now(), closeReason: reason } });
   await syncOverlay(p.customerId);
   await touch(p);
-  return view((await PromiseModel.findById(id).lean()) as Lean);
+  return named((await PromiseModel.findById(id).lean()) as Lean);
 }
 
 /** List rows carry display refs so admin tables need no extra calls (contract 1.4.0). */
 async function withRefs(rows: Lean[]) {
   const refs = await getCustomerRefs(rows.map((r) => r.customerId));
-  const users = await getUsers(rows.map((r) => r.ownerId));
+  const users = await getUsers(rows.flatMap((r) => [r.ownerId, r.createdBy ?? r.ownerId]));
   return rows.map((p) => {
     const ref = refs.get(p.customerId);
     const u = users.get(p.ownerId);
-    return { ...view(p), customer: { id: p.customerId, name: ref?.name ?? { bn: '', en: '' }, code: ref?.code ?? '' }, owner: { id: p.ownerId, name: u ? u.name.en || u.name.bn : '' } };
+    const by = users.get(p.createdBy ?? p.ownerId);
+    return {
+      ...view(p),
+      ownerName: u ? u.name.en || u.name.bn : '',
+      createdByName: by ? by.name.en || by.name.bn : '',
+      customer: { id: p.customerId, name: ref?.name ?? { bn: '', en: '' }, code: ref?.code ?? '' },
+      owner: { id: p.ownerId, name: u ? u.name.en || u.name.bn : '' },
+    };
   });
 }
 
 export async function list(user: AuthUser, q: { branchId?: string | undefined; ownerId?: string | undefined; customerId?: string | undefined; date?: string | undefined; from?: string | undefined; to?: string | undefined; status?: string | undefined; limit: number; cursor?: string | undefined }) {
-  const f: Record<string, unknown> = { ...scopeFilter(user), ...(q.branchId ? branchQuery(user, q.branchId) : {}) };
+  const f: Record<string, unknown> = { ...readScope(user), ...(q.branchId ? branchQuery(user, q.branchId) : {}) };
   if (q.ownerId && user.role !== 'field_staff') f.ownerId = q.ownerId;
   if (q.customerId) f.customerId = q.customerId;
   // `date` wins over the inclusive `from`/`to` range on the promised date.
@@ -137,19 +162,23 @@ export async function list(user: AuthUser, q: { branchId?: string | undefined; o
   return { items: await withRefs(items), nextCursor: rows.length > q.limit ? encodeCursor({ id: items[items.length - 1]!._id.toHexString() }) : null };
 }
 
-/** Bootstrap for a fresh device: the caller's own open promises, paged by id. */
+/** Bootstrap for a fresh device: the branch's open promises and those made in the last 60 Dhaka days, paged by id (ADR-046). */
 export async function syncSnapshot(user: AuthUser, cursor: string | null, limit: number) {
   const c = decodeCursor<{ id: string }>(cursor ?? undefined);
-  const rows = (await PromiseModel.find({ ownerId: user.id, status: 'open', ...(c ? { _id: { $gt: c.id } } : {}) }).sort({ _id: 1 }).limit(limit + 1).lean()) as Lean[];
+  const since = addDays(today(), -60);
+  const rows = (await PromiseModel.find({ ...readScope(user), $or: [{ status: 'open' }, { createdDate: { $gte: since } }], ...(c ? { _id: { $gt: c.id } } : {}) })
+    .sort({ _id: 1 })
+    .limit(limit + 1)
+    .lean()) as Lean[];
   const page = rows.slice(0, limit);
-  return { items: page.map(view), nextCursor: rows.length > limit ? encodeCursor({ id: page[page.length - 1]!._id.toHexString() }) : null };
+  return { items: await namedAll(page), nextCursor: rows.length > limit ? encodeCursor({ id: page[page.length - 1]!._id.toHexString() }) : null };
 }
 
 export async function get(user: AuthUser, id: string) {
   if (!isOid(id)) throw notFound('promise');
-  const p = (await PromiseModel.findOne({ _id: id, ...scopeFilter(user) }).lean()) as Lean | null;
+  const p = (await PromiseModel.findOne({ _id: id, ...readScope(user) }).lean()) as Lean | null;
   if (!p) throw notFound('promise');
-  return view(p);
+  return named(p);
 }
 
 async function paidFor(p: Lean, until: string) {

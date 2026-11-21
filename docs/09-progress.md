@@ -48,6 +48,9 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Paid this month / not paid this month filter on the customer list and map (contract 1.29.0) | FR-CUS-019 | ✅ API; admin-web filter follows |
 | Which collections a deposit covered; the promise behind every cash line (contract 1.30.0) | FR-CASH-008 | ✅ API; admin-web deposit drawer follows |
 | Staff activity feed for admins: collections, visits, promises, pins, with a seen count (module `activity`, contract 1.28.0) | FR-ACT-001 | ✅ API |
+| The office sees who voided/edited a collection; activity lines for withdraw, edit, deleted deposit (contract 1.33.0) | FR-COL-017, FR-ACT-001 | ✅ 2026-11-22 |
+| Staff withdraw or correct their own cash collection until deposited; admin deletes a deposit; depositor notified; audited (contract 1.32.0) | FR-COL-016, FR-CASH-009 | ✅ API + admin-web; staff-app follows |
+| Staff see who did what across the branch: names on visits, promises, collections, pins; branch fan-out and snapshot (contract 1.31.0) | FR-ACT-002 | ✅ API; staff-app follows |
 | Extra phone numbers: add several at once, ERP / added marker, kept in FOS (ADR-042, contract 1.23.0) | FR-CUS-016 | ✅ API; screens in admin-web and staff-app follow |
 | This month on a customer (visited, paid, pending, promises) and invoice counts per row and per list (contract 1.24.0) | FR-CUS-017, FR-CUS-018 | ✅ API; screens in admin-web and staff-app follow |
 | Devices binding/remote logout | FR-AUTH-006..008 | ✅ API |

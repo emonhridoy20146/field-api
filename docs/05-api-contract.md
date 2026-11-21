@@ -72,12 +72,15 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 | `POST /collections` | `collection.record` | FR-COL-001/004 |
 | `GET /collections` · `GET /collections/{id}` | `collection.view` | FR-COL-010 |
 | `POST /collections/{id}/void` | `collection.void` | FR-COL-009 |
+| `POST /collections/{id}/withdraw` | `collection.withdraw` | FR-COL-016 |
+| `PATCH /collections/{id}` | `collection.edit` | FR-COL-016 |
 | `POST /collections/{id}/resolve` | `collection.resolve` | FR-COL-007 |
 | `GET /collections/conflicts` | `collection.resolve` | FR-COL-006 |
 | `POST /receipts/blocks` | `collection.record` | FR-COL-002 |
 | `GET /cash/me` · `GET /cash/positions` | `cash.view` | FR-CASH-001/005 |
 | `POST /cash/deposits` · `GET /cash/deposits` | `cash.deposit.record` / `cash.view` | FR-CASH-003 |
 | `POST /cash/deposits/{id}/verify` · `/reject` | `cash.deposit.verify` | FR-CASH-004 |
+| `POST /cash/deposits/{id}/delete` | `cash.deposit.delete` | FR-CASH-009 |
 | `POST /cash/closings` | `cash.deposit.record` | FR-CASH-006 |
 | `GET/POST /areas` · `PATCH /areas/{id}` | `assignment.view` / `assignment.manage` | FR-ASG-001 |
 | `GET /assignments` · `POST /assignments` · `POST /assignments/bulk` · `DELETE /assignments/{id}` | `assignment.view` / `assignment.manage` | FR-ASG-002..004 |
@@ -275,6 +278,28 @@ GET /api/v1/cash/deposits/6745…/collections
                  "promise": { "id": "6744…", "promisedDate": "2026-11-15", "promisedAmountPoisha": 500000, "status": "kept", "onTime": true } },
                { "…": "the next collection, covered in part", "amountPoisha": 350000, "coveredPoisha": 100000, "promise": null } ], "generatedAt": "…" }`
 The same `promise` field is on every line of `GET /cash/me/collections` and `/cash/positions/{id}/collections`.
+
+### 3.9d Who did it, for the whole branch (1.31.0, FR-ACT-002, ADR-046)
+Staff read every visit, promise, collection and pin of their branch, each with the person who did it. Writes stay with the owner.
+```http
+GET /api/v1/visits?customerId=6731…          (field_staff of the same branch)
+```
+→ `{ "items": [ { "id": "6746…", "userId": "6720…", "userName": "Rakib Hasan", "outcome": "promised", … } ] }`
+- `Visit.userName`, `Promise.ownerName` (the customer's assignee), `Promise.createdBy` + `createdByName` (who made it), `Collection.collector {id,name}` (unchanged), `OwnLocationProposal.proposer {id,name}` / `decider {id,name}|null` / `direct`.
+- Sync: visit, promise, collection and location_proposal changes now reach every device of the branch (`fanoutBranchId`); each loader still applies the caller's scope, so another branch gets a tombstone. `GET /sync/bootstrap` brings the branch's last 60 Dhaka days (promises: open ones too; collections now have a snapshot; location_proposal: pending and the last 60 days, at most 500).
+- Devices that synced before 1.31.0 get `410 CURSOR_EXPIRED` once (resync floor `branch-wide-activity`) and take a fresh snapshot; the outbox is kept.
+- Changing a colleague's record (visit checkout, promise cancel, collection void/resolve) answers `404`.
+
+### 3.9e Withdraw or correct a cash collection, delete a deposit (1.32.0, FR-COL-016, FR-CASH-009)
+```http
+POST  /api/v1/collections/6750…/withdraw     { "reason": "wrong customer" }      (collection.withdraw, own cash only)
+PATCH /api/v1/collections/6750…              { "amountPoisha": 350000, "note": "corrected" }   (collection.edit)
+POST  /api/v1/cash/deposits/6751…/delete     { "reason": "entered twice by mistake" }          (cash.deposit.delete)
+```
+- Withdraw → `200` the collection with `status: "voided"` and `voided {by, at, reason}`; a repeat by the same person answers the same. Edit → `200` the collection; the same values again change nothing.
+- `409 INVALID_STATE` `details.reason`: `NOT_CASH`, `COVERED_BY_DEPOSIT` (a pending or verified deposit covers it), `NOT_EDITABLE` (edit: not `received`, or the ERP already got an attempt), `ALREADY_POSTED_OR_CLOSED`, `USE_RESOLVE` (status `conflict`), `POSTING_IN_PROGRESS`, `STATUS_CHANGED`. A deposit that is already `rejected` or `deleted` → `NOT_DELETABLE`. Another staff member's collection is `404`.
+- Deposit `status` gains `deleted` with `deletedBy`, `deletedAt`, `deleteReason`; it counts in no total and covers no collection. The depositor gets a notification of type `cash.deposit.deleted`; a collection voided by the office (not by its collector) notifies the collector with type `collection.voided`.
+- Offline: sync mutation entities `collection_withdraw` `{ collectionId | clientId, reason? }` and `collection_edit` `{ collectionId | clientId, amountPoisha?, note?, payerName? }` (send after the collection; `clientId` resolves the collector's own collection).
 
 ### 3.10a Pin colours and invoice viewer (1.14.0)
 Yellow and orange pins of credit customers in view:

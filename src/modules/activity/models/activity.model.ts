@@ -7,6 +7,7 @@ const activitySchema = new Schema(
     type: { type: String, required: true },
     branchId: { type: String, default: null },
     actorId: { type: String, default: null },
+    byId: { type: String, default: null },
     customerId: { type: String, default: null },
     entity: { type: String, required: true },
     entityId: { type: String, required: true },

@@ -4,6 +4,38 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.33.0] — contract 1.33.0 (the office sees who voided or edited a collection; activity lines)
+### Added (owner request 2026-11-22, FR-COL-017, FR-ACT-001)
+- `Collection.voided` is now documented and complete: `{ by, byName, at, reason, kind }`, `kind` = `withdrawn` (the collector deleted their own cash collection, FR-COL-016) or `admin` (an office user voided it). Rows voided before 1.33.0 have no stored kind: the collector voiding their own counts as `withdrawn`.
+- `Collection.edited` `{ count, at, by, byName, previousAmountPoisha }`: set by `PATCH /collections/{id}`; `previousAmountPoisha` is the amount before the FIRST edit, `at`/`by` the latest. Absent until the first edit. Stored on the collection (`edited`, `voided.kind`); no migration (additive, optional).
+- The activity feed (module `activity`) has three new line types: `collection_withdrawn`, `collection_edited` (one line per edit, `data.amountPoisha`, `previousAmountPoisha`, `editCount`) and `deposit_deleted` (actor = the staff member whose deposit it was, new `by` = the office user who deleted it, `entity: deposit`). `GET /activity?type=` accepts them. Lines are kept 45 days like the others.
+- The `collection.withdrawn` / `collection.voided` / `collection.edited` events now carry `customerId`; `collection.edited` also `previousAmountPoisha` and `editCount`.
+### Notes for the clients
+- Additive. admin-web: a "Voided" block and an "Edited" block in the collection drawer, an edited badge in the list, three new feed labels. The staff app may show the same on a collection; it can ignore them.
+
+## [1.32.0] — contract 1.32.0 (withdraw or correct your own cash collection, delete a deposit)
+### Added (owner request 2026-11-22, FR-COL-016, FR-CASH-009, ADR-047)
+- `POST /collections/{id}/withdraw` (`collection.withdraw`) and `PATCH /collections/{id}` (`collection.edit`: amount, note, payer name): the collector deletes or corrects their OWN **cash** collection until it is deposited. Allowed only while no pending or verified deposit covers any of it (the same oldest-first rule as the cash in hand; `cash` registers it with `collections` through `registerCoverageProvider`), the ERP has not got it (withdraw: `received` or `posting_failed`; edit: `received` and no ERP attempt, the replaced ERP post keeps its key). Never a hard delete (ADR-018): a withdraw is a void by the collector (`voided {by, at, reason}`, receipt number stays used, pending ERP post cancelled); the amount leaves cash in hand and the collected totals. A repeat of a withdraw or of the same edit answers 200. 409 `INVALID_STATE` reasons: `NOT_CASH`, `COVERED_BY_DEPOSIT`, `NOT_EDITABLE`, `ALREADY_POSTED_OR_CLOSED`, `USE_RESOLVE`, `POSTING_IN_PROGRESS`, `STATUS_CHANGED`. Audit `collection.withdrawn` and `collection.edited` (before and after); events `collection.withdrawn`, `collection.edited`.
+- Sync mutation entities `collection_withdraw` `{ collectionId | clientId, reason? }` and `collection_edit` `{ collectionId | clientId, amountPoisha?, note?, payerName? }`.
+- `POST /cash/deposits/{id}/delete` (`cash.deposit.delete`, super admin and branch manager; reason required): a pending or verified deposit becomes `deleted` (new status, with `deletedBy`, `deletedAt`, `deleteReason`), counts nowhere, so the money is back in the person's cash in hand and the deposit covers no collection. Audit `cash.deposit.deleted`; event `cash.deposit.deleted`; sync entity `deposit` carries the status; the depositor gets a notification of type `cash.deposit.deleted`. `GET /cash/deposits?status=deleted` lists them. Inbox: a pending-deposit item is closed.
+- A collection voided by the office (not by its collector) now notifies the collector (type `collection.voided`).
+- New permissions: `collection.withdraw`, `collection.edit` (super admin, branch manager, field staff), `cash.deposit.delete` (super admin, branch manager).
+### Checked, not changed
+- An accepted (verified) deposit zeroes cash in hand but not what the staff member collected: reports and performance read the collections, not the cash position. A withdrawn collection leaves the collected totals on purpose (status `voided`).
+### Notes for the clients
+- Additive. staff-app: cash in hand can offer delete and edit per line until deposited (`COVERED_BY_DEPOSIT` otherwise), show a `deleted` deposit and its notification, and a collection that became `voided`. admin-web: a "Delete deposit" button on the deposit drawer, new audit labels.
+
+## [1.31.0] — contract 1.31.0 (staff see who did what across the branch)
+### Changed (owner request 2026-11-22, FR-ACT-002, ADR-046 — amends ADR-038)
+- **Field staff now read every visit, promise and collection of their branches** (and the pins proposed or set there), each with the staff member who did it. Before, staff held only their own. New `readScope` next to the old `scopeFilter` in `visits`, `promises` and `collections`; GET lists and single reads (and the sync loaders) use it. Every write path keeps the owner rule: visit checkout (recorder), promise cancel (owner), collection void and resolve — a colleague gets `404`. Dashboards, cash and totals keep their own-scope filters.
+- Sync: visit, promise, collection and location-proposal changes also carry `fanoutBranchId`, so every device of the branch receives them. Bootstrap now covers the branch: visits and collections of the last 60 Dhaka days, promises (open or made in the last 60 days), location proposals (pending or last 60 days, ≤ 500). `collection` gets a snapshot for the first time.
+- A resync floor (`branch-wide-activity`) is raised at the first boot: phones that took their snapshot under the own-only rule get one `410 CURSOR_EXPIRED`, take a fresh snapshot and keep their outbox.
+### Added
+- `Visit.userName`; `Promise.ownerName`, `createdBy`, `createdByName`; `OwnLocationProposal.proposer {id,name}`, `decider {id,name}|null`, `direct`. `Collection.collector {id,name}` was already there. `PromiseListItem`/`VisitListItem` carry the same fields.
+### Notes for the clients
+- Additive in shape. staff-app: keep the new columns, show "by <name>", and match `proposer.id` with the signed-in user to find your own pins (the `location_proposal` entity now reaches the whole branch). `GET /location-proposals/mine` is unchanged (own only). A promise's maker is `createdBy`; `ownerId` is the customer's assignee. admin-web: nothing to change.
+- The applied pin of a customer carries no "set by" on the customer payload; the staff name comes from the `location_proposal` rows (the approved one for that customer).
+
 ## [1.30.0] — contract 1.30.0 (deposit detail, the promise behind a cash line)
 ### Added (owner request 2026-11-21, FR-CASH-008)
 - `GET /cash/deposits/{id}/collections` (`cash.view`, scope of the deposit): the cash collections one deposit covered. The person's pending and verified deposits, oldest first, pay off cash collections oldest-first — the same order as the cash in hand (1.27.0), so a deposit's lines and the cash in hand split every collection with nothing lost or counted twice. First and last line may be covered in part (`coveredPoisha`); `unmatchedPoisha` is deposit money with no collection behind it; a rejected deposit covers nothing.

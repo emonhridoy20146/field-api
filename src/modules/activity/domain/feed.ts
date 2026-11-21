@@ -1,6 +1,6 @@
 /** Pure rules of the staff activity feed (FR-ACT-001). No I/O. */
 
-export const ACTIVITY_TYPES = ['collection', 'visit', 'promise', 'pin'] as const;
+export const ACTIVITY_TYPES = ['collection', 'visit', 'promise', 'pin', 'collection_withdrawn', 'collection_edited', 'deposit_deleted'] as const;
 export type ActivityType = (typeof ACTIVITY_TYPES)[number];
 
 type P = Record<string, unknown>;
@@ -13,13 +13,15 @@ export interface ActivityDraft {
   key: string;
   type: ActivityType;
   branchId: string | null;
-  /** Who did it; null only when an older event does not say. */
+  /** Who did it; null only when an older event does not say. For a deleted deposit: the staff member whose deposit it was. */
   actorId: string | null;
+  /** 1.33.0: when somebody else did it to the actor's record (the office user who deleted the deposit). */
+  byId?: string | null;
   customerId: string | null;
   entity: string;
   entityId: string;
   /** Small facts for the line, never free text and never a phone number. */
-  data: { amountPoisha?: number; method?: string; outcome?: string; promisedDate?: string; applied?: boolean; flags?: string[] };
+  data: { amountPoisha?: number; previousAmountPoisha?: number; method?: string; outcome?: string; promisedDate?: string; applied?: boolean; flags?: string[]; editCount?: number };
 }
 
 /**
@@ -68,6 +70,57 @@ export const FROM_EVENT: Record<string, (p: P) => ActivityDraft | null> = {
       entity: 'promise',
       entityId: id,
       data: { ...(str(p.promisedDate) ? { promisedDate: str(p.promisedDate) } : {}) },
+    };
+  },
+  // 1.33.0: the collector deleted their own cash collection before it was deposited (FR-COL-016).
+  'collection.withdrawn': (p) => {
+    const id = str(p.collectionId);
+    if (!id) return null;
+    const amount = num(p.amountPoisha);
+    return {
+      key: `collection_withdrawn:${id}`,
+      type: 'collection_withdrawn',
+      branchId: str(p.branchId) || null,
+      actorId: str(p.collectorId) || str(p.byUserId) || null,
+      customerId: str(p.customerId) || null,
+      entity: 'collection',
+      entityId: id,
+      data: { ...(amount !== null ? { amountPoisha: amount } : {}), ...(str(p.method) ? { method: str(p.method) } : {}) },
+    };
+  },
+  // 1.33.0: the collector corrected the amount, note or payer of their own cash collection. One line per edit.
+  'collection.edited': (p) => {
+    const id = str(p.collectionId);
+    if (!id) return null;
+    const amount = num(p.amountPoisha);
+    const previous = num(p.previousAmountPoisha);
+    const count = num(p.editCount);
+    return {
+      key: `collection_edited:${id}:${count ?? 1}`,
+      type: 'collection_edited',
+      branchId: str(p.branchId) || null,
+      actorId: str(p.collectorId) || str(p.byUserId) || null,
+      customerId: str(p.customerId) || null,
+      entity: 'collection',
+      entityId: id,
+      data: { ...(amount !== null ? { amountPoisha: amount } : {}), ...(previous !== null ? { previousAmountPoisha: previous } : {}), ...(count !== null ? { editCount: count } : {}) },
+    };
+  },
+  // 1.33.0: an office user deleted a staff member's cash deposit (FR-CASH-009). The line is about the staff member.
+  'cash.deposit.deleted': (p) => {
+    const id = str(p.depositId);
+    if (!id) return null;
+    const amount = num(p.amountPoisha);
+    return {
+      key: `deposit_deleted:${id}`,
+      type: 'deposit_deleted',
+      branchId: str(p.branchId) || null,
+      actorId: str(p.userId) || null,
+      byId: str(p.byUserId) || null,
+      customerId: null,
+      entity: 'deposit',
+      entityId: id,
+      data: amount !== null ? { amountPoisha: amount } : {},
     };
   },
   // A pin that waits for a manager.

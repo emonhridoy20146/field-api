@@ -50,7 +50,7 @@ export async function list(user: AuthUser, q: z.infer<typeof listQuery>) {
   const rows = (await ActivityItemModel.find(f).sort({ _id: -1 }).limit(q.limit + 1).lean()) as Lean[];
   const items = rows.slice(0, q.limit);
   const last = items[items.length - 1];
-  const users = await getUsers([...new Set(items.map((i) => i.actorId as string | null).filter((x): x is string => !!x))]);
+  const users = await getUsers([...new Set(items.flatMap((i) => [i.actorId as string | null, i.byId as string | null]).filter((x): x is string => !!x))]);
   const refs = await getCustomerRefs([...new Set(items.map((i) => i.customerId as string | null).filter((x): x is string => !!x))]);
   const seen = await seenAt(user.id);
   const unseen = await ActivityItemModel.countDocuments({ ...branchQuery(user, undefined), ...(seen ? { at: { $gt: seen } } : {}) }, { limit: UNSEEN_CAP });
@@ -64,6 +64,7 @@ export async function list(user: AuthUser, q: z.infer<typeof listQuery>) {
         at: (i.at as Date).toISOString(),
         branchId: (i.branchId as string | null) ?? null,
         actor: i.actorId ? { id: i.actorId as string, name: u?.name ?? { bn: '', en: '' }, employeeCode: u?.employeeCode ?? '' } : null,
+        by: i.byId ? { id: i.byId as string, name: users.get(i.byId as string)?.name ?? { bn: '', en: '' }, employeeCode: users.get(i.byId as string)?.employeeCode ?? '' } : null,
         customer: i.customerId ? { id: i.customerId as string, name: c?.name ?? { bn: '', en: '' }, code: c?.code ?? '' } : null,
         entity: i.entity as string,
         entityId: i.entityId as string,

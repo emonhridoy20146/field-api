@@ -8,7 +8,7 @@ import { payloadHash } from '../../core/idempotency/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { haversineM } from '../../core/geo/index.js';
 import { formatBdt } from '../../core/money/index.js';
-import { businessDate } from '../../core/time/index.js';
+import { addDays, businessDate } from '../../core/time/index.js';
 import { branchQuery, canSeeBranch, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
@@ -43,6 +43,14 @@ const OUTBOX = 'erp.post_payment';
 type CashProvider = (userId: string) => Promise<Record<string, unknown>>;
 let cashProvider: CashProvider | null = null;
 export const registerCashPositionProvider = (p: CashProvider) => void (cashProvider = p);
+
+/**
+ * How much of a cash collection the person's pending and verified deposits already cover (oldest-first, the same
+ * rule as the cash in hand). The cash module plugs it in; until then nothing is covered.
+ */
+type CoverageProvider = (collectorId: string, collectionId: string) => Promise<number>;
+let coverageProvider: CoverageProvider = async () => 0;
+export const registerCoverageProvider = (p: CoverageProvider) => void (coverageProvider = p);
 
 const geoFix = z.object({
   lat: z.number().min(-90).max(90),
@@ -80,7 +88,11 @@ const HASH_FIELDS = ['customerId', 'erpPlanId', 'amountPoisha', 'method', 'trans
 
 async function views(rows: Lean[]) {
   const refs = await getCustomerRefs(rows.map((r) => r.customerId));
-  const users = await getUsers(rows.map((r) => r.collectorId));
+  const users = await getUsers([...new Set(rows.flatMap((r) => [r.collectorId as string, r.voided?.by as string | undefined, r.edited?.by as string | undefined].filter((x): x is string => !!x)))]);
+  const nameOf = (id: string) => {
+    const p = users.get(id);
+    return p ? p.name.en || p.name.bn : '';
+  };
   return rows.map((c) => {
     const ref = refs.get(c.customerId);
     const u = users.get(c.collectorId);
@@ -103,7 +115,12 @@ async function views(rows: Lean[]) {
       flags: c.flags ?? [],
       distanceToPinM: c.geo?.distanceToPinM ?? null,
       ...(c.erp?.reversed ? { erpReversed: true } : {}),
-      ...(c.voided ? { voided: { by: c.voided.by, at: (c.voided.at as Date).toISOString(), reason: c.voided.reason } } : {}),
+      // 1.33.0: who voided it and how. Rows voided before 1.33.0 have no `kind`: the collector voiding their own is a withdrawal.
+      ...(c.voided
+        ? { voided: { by: c.voided.by, byName: nameOf(c.voided.by), at: (c.voided.at as Date).toISOString(), reason: c.voided.reason, kind: (c.voided.kind as string | undefined) ?? (c.voided.by === c.collectorId ? 'withdrawn' : 'admin') } }
+        : {}),
+      // 1.33.0: the collector corrected the amount, note or payer (the first original amount is kept).
+      ...(c.edited ? { edited: { count: c.edited.count as number, at: (c.edited.at as Date).toISOString(), by: c.edited.by, byName: nameOf(c.edited.by), previousAmountPoisha: c.edited.previousAmountPoisha as number } } : {}),
     };
   });
 }
@@ -111,16 +128,21 @@ const viewOne = async (c: Lean) => (await views([c]))[0]!;
 
 // ---------------- scope ----------------
 
-/** Field staff see only their own collections (permission catalog: "own only for FS"). */
+/** The write scope: field staff change only their own collections (reads use [readScope], ADR-046). */
 export function scopeFilter(user: AuthUser): Record<string, unknown> {
   if (isSuperAdmin(user)) return {};
   if (user.role === 'field_staff') return { collectorId: user.id };
   return { branchId: { $in: user.branchIds } };
 }
 
-async function load(user: AuthUser, id: string): Promise<Lean> {
+/** Who may READ a collection (FR-ACT-002, ADR-046): staff see every collection of their branches, with the collector's name. Void and resolve keep `scopeFilter`. */
+export function readScope(user: AuthUser): Record<string, unknown> {
+  return isSuperAdmin(user) ? {} : { branchId: { $in: user.branchIds } };
+}
+
+async function load(user: AuthUser, id: string, scope: (u: AuthUser) => Record<string, unknown> = scopeFilter): Promise<Lean> {
   if (!isOid(id)) throw notFound('collection');
-  const c = (await CollectionModel.findOne({ _id: id, ...scopeFilter(user) }).lean()) as Lean | null;
+  const c = (await CollectionModel.findOne({ _id: id, ...scope(user) }).lean()) as Lean | null;
   if (!c) throw notFound('collection');
   return c;
 }
@@ -243,7 +265,7 @@ export async function record(user: AuthUser, idempotencyKey: string, input: Coll
       );
       const lean = c!.toObject() as Lean;
       await enqueue(OUTBOX, jobFor(lean, collector.erpEmployeeId, idempotencyKey) as unknown as Record<string, unknown>, session);
-      await recordChange({ entity: 'collection', entityId: lean._id.toHexString(), userIds: [user.id], branchId: customer.branchId }, session);
+      await recordChange({ entity: 'collection', entityId: lean._id.toHexString(), userIds: [user.id], branchId: customer.branchId, fanoutBranchId: customer.branchId }, session);
       await audit.record(
         {
           actor: user,
@@ -295,7 +317,7 @@ export const listSchema = z.object({
 });
 
 function filterOf(user: AuthUser, q: Partial<z.infer<typeof listSchema>>) {
-  const f: Record<string, unknown> = { ...scopeFilter(user), ...(q.branchId ? branchQuery(user, q.branchId) : {}) };
+  const f: Record<string, unknown> = { ...readScope(user), ...(q.branchId ? branchQuery(user, q.branchId) : {}) };
   if (q.collectorId && user.role !== 'field_staff') f.collectorId = q.collectorId;
   if (q.customerId) f.customerId = q.customerId;
   if (q.from || q.to) f.businessDate = { ...(q.from ? { $gte: q.from } : {}), ...(q.to ? { $lte: q.to } : {}) };
@@ -321,7 +343,19 @@ export async function list(user: AuthUser, q: z.infer<typeof listSchema>) {
 }
 
 export async function get(user: AuthUser, id: string) {
-  return viewOne(await load(user, id));
+  return viewOne(await load(user, id, readScope));
+}
+
+/** Bootstrap for a fresh device: the branch's collections of the last 60 Dhaka days, paged by id (ADR-046). */
+export async function syncSnapshot(user: AuthUser, cursor: string | null, limit: number) {
+  const c = decodeCursor<{ id: string }>(cursor ?? undefined);
+  const since = addDays(businessDate(ctx().clock.now()), -60);
+  const rows = (await CollectionModel.find({ ...readScope(user), businessDate: { $gte: since }, ...(c ? { _id: { $gt: c.id } } : {}) })
+    .sort({ _id: 1 })
+    .limit(limit + 1)
+    .lean()) as Lean[];
+  const page = rows.slice(0, limit);
+  return { items: await views(page), nextCursor: rows.length > limit ? encodeCursor({ id: page[page.length - 1]!._id.toHexString() }) : null };
 }
 
 export async function conflicts(user: AuthUser, q: { branchId?: string | undefined; limit: number; cursor?: string | undefined }) {
@@ -339,20 +373,91 @@ async function transition(c: Lean, to: Status, by: string, set: Record<string, u
     { _id: c._id, status: { $in: from } },
     { $set: { status: to, ...set }, $push: { statusHistory: { status: to, at: now, by } }, $inc: { version: 1 } },
   );
-  if (r.modifiedCount === 1) await recordChange({ entity: 'collection', entityId: c._id.toHexString(), userIds: [c.collectorId], branchId: c.branchId });
+  if (r.modifiedCount === 1) await recordChange({ entity: 'collection', entityId: c._id.toHexString(), userIds: [c.collectorId], branchId: c.branchId, fanoutBranchId: c.branchId });
   return r.modifiedCount === 1;
+}
+
+/** The server id of the caller's own collection from the clientId the app generated offline. */
+export async function idByClientId(user: AuthUser, clientId: string): Promise<string> {
+  const c = (await CollectionModel.findOne({ clientId, collectorId: user.id }).select({ _id: 1 }).lean()) as Lean | null;
+  if (!c) throw notFound('collection');
+  return c._id.toHexString();
+}
+
+/** Shared close of a collection that the ERP does not have yet: `collection.voided` (office) or `collection.withdrawn` (the collector, FR-COL-016). */
+async function closeUnposted(user: AuthUser, c: Lean, reason: string, meta: RequestMeta, action: 'collection.voided' | 'collection.withdrawn') {
+  const id = c._id.toHexString();
+  // Stop the pending ERP post first; if a worker is posting right now we cannot know the outcome yet.
+  const cancel = await cancelPending(OUTBOX, { collectionId: id });
+  if (cancel === 'in_flight') throw new AppError('INVALID_STATE', { reason: 'POSTING_IN_PROGRESS' });
+  const now = ctx().clock.now();
+  if (!(await transition(c, 'voided', user.id, { voided: { by: user.id, at: now, reason, kind: action === 'collection.withdrawn' ? 'withdrawn' : 'admin' } }, VOIDABLE))) throw new AppError('INVALID_STATE', { reason: 'STATUS_CHANGED' });
+  await audit.record({ actor: user, action, entity: 'collection', entityId: id, branchId: c.branchId, before: { status: c.status, amountPoisha: c.amountPoisha, receiptNo: c.receiptNo }, after: { status: 'voided' }, reason, meta, money: true });
+  await ctx().bus.emit(action, { collectionId: id, branchId: c.branchId, collectorId: c.collectorId, customerId: c.customerId, amountPoisha: c.amountPoisha, method: c.method, byUserId: user.id, reason });
+  return viewOne((await CollectionModel.findById(id).lean()) as Lean);
 }
 
 export async function voidCollection(user: AuthUser, id: string, reason: string, meta: RequestMeta) {
   const c = await load(user, id);
   if (!VOIDABLE.includes(c.status)) throw new AppError('INVALID_STATE', { reason: c.status === 'conflict' ? 'USE_RESOLVE' : 'ALREADY_POSTED_OR_CLOSED', status: c.status });
-  // Stop the pending ERP post first; if a worker is posting right now we cannot know the outcome yet.
+  return closeUnposted(user, c, reason, meta, 'collection.voided');
+}
+
+/** A cash collection that is still in the collector's hand: cash, and no pending or verified deposit covers any of it (FR-COL-016). */
+async function assertNotDeposited(c: Lean) {
+  if (c.method !== 'cash') throw new AppError('INVALID_STATE', { reason: 'NOT_CASH', status: c.status });
+  if ((await coverageProvider(c.collectorId, c._id.toHexString())) > 0) throw new AppError('INVALID_STATE', { reason: 'COVERED_BY_DEPOSIT', status: c.status });
+}
+
+/**
+ * FR-COL-016: the collector deletes their own cash collection until it is deposited. Never a hard delete (ADR-018):
+ * the row becomes `voided`, its receipt number stays used, and the amount leaves cash in hand and the collected totals.
+ * A repeat by the same person answers with the voided collection (offline retries).
+ */
+export async function withdrawCollection(user: AuthUser, id: string, reason: string | undefined, meta: RequestMeta) {
+  const c = await load(user, id);
+  if (c.status === 'voided' && c.voided?.by === user.id) return viewOne(c);
+  if (!VOIDABLE.includes(c.status)) throw new AppError('INVALID_STATE', { reason: c.status === 'conflict' ? 'USE_RESOLVE' : 'ALREADY_POSTED_OR_CLOSED', status: c.status });
+  await assertNotDeposited(c);
+  return closeUnposted(user, c, reason?.trim() || 'Withdrawn by the collector', meta, 'collection.withdrawn');
+}
+
+export const editSchema = z
+  .object({
+    amountPoisha: z.number().int().min(1).max(100_000_000_00).optional(),
+    note: z.string().max(500).nullable().optional(),
+    payerName: z.string().max(100).nullable().optional(),
+  })
+  .refine((b) => b.amountPoisha !== undefined || b.note !== undefined || b.payerName !== undefined, { message: 'nothing to change' });
+
+/**
+ * FR-COL-016: the collector corrects the amount, note or payer name of their own cash collection until it is
+ * deposited. Only while the ERP has never been sent it (status `received`, no attempt): the pending post is replaced
+ * with the new amount under the same ERP key. Same values again is a no-op, so an offline retry is safe.
+ */
+export async function editCollection(user: AuthUser, id: string, input: z.infer<typeof editSchema>, meta: RequestMeta) {
+  const c = await load(user, id);
+  if (c.status !== 'received' || (c.erp?.attempts ?? 0) > 0) throw new AppError('INVALID_STATE', { reason: 'NOT_EDITABLE', status: c.status });
+  await assertNotDeposited(c);
+  const next = {
+    amountPoisha: input.amountPoisha ?? (c.amountPoisha as number),
+    note: input.note === undefined ? ((c.note as string | null) ?? null) : input.note,
+    payerName: input.payerName === undefined ? ((c.payerName as string | null) ?? null) : input.payerName,
+  };
+  const before = { amountPoisha: c.amountPoisha as number, note: (c.note as string | null) ?? null, payerName: (c.payerName as string | null) ?? null };
+  if (next.amountPoisha === before.amountPoisha && next.note === before.note && next.payerName === before.payerName) return viewOne(c);
   const cancel = await cancelPending(OUTBOX, { collectionId: id });
   if (cancel === 'in_flight') throw new AppError('INVALID_STATE', { reason: 'POSTING_IN_PROGRESS' });
-  const now = ctx().clock.now();
-  if (!(await transition(c, 'voided', user.id, { voided: { by: user.id, at: now, reason } }, VOIDABLE))) throw new AppError('INVALID_STATE', { reason: 'STATUS_CHANGED' });
-  await audit.record({ actor: user, action: 'collection.voided', entity: 'collection', entityId: id, branchId: c.branchId, before: { status: c.status }, after: { status: 'voided' }, reason, meta, money: true });
-  await ctx().bus.emit('collection.voided', { collectionId: id, branchId: c.branchId, collectorId: c.collectorId, amountPoisha: c.amountPoisha, method: c.method });
+  const collector = await getUser(c.collectorId);
+  await withTransaction(async (session) => {
+    const edited = { count: ((c.edited?.count as number | undefined) ?? 0) + 1, at: ctx().clock.now(), by: user.id, previousAmountPoisha: (c.edited?.previousAmountPoisha as number | undefined) ?? before.amountPoisha };
+    const r = await CollectionModel.updateOne({ _id: c._id, status: 'received', 'erp.attempts': { $in: [0, null] } }, { $set: { ...next, edited }, $inc: { version: 1 } }, { session });
+    if (r.modifiedCount !== 1) throw new AppError('INVALID_STATE', { reason: 'STATUS_CHANGED' });
+    await enqueue(OUTBOX, jobFor({ ...c, ...next }, collector?.erpEmployeeId ?? null, c.erp.key) as unknown as Record<string, unknown>, session);
+    await recordChange({ entity: 'collection', entityId: id, userIds: [c.collectorId], branchId: c.branchId, fanoutBranchId: c.branchId }, session);
+    await audit.record({ actor: user, action: 'collection.edited', entity: 'collection', entityId: id, branchId: c.branchId, before, after: next, meta, money: true }, session);
+  });
+  await ctx().bus.emit('collection.edited', { collectionId: id, branchId: c.branchId, collectorId: c.collectorId, customerId: c.customerId, amountPoisha: next.amountPoisha, previousAmountPoisha: before.amountPoisha, editCount: ((c.edited?.count as number | undefined) ?? 0) + 1, byUserId: user.id });
   return viewOne((await CollectionModel.findById(id).lean()) as Lean);
 }
 
@@ -405,7 +510,7 @@ export async function resolve(user: AuthUser, id: string, requestKey: string, in
       { session },
     );
     if (r.modifiedCount !== 1) throw new AppError('INVALID_STATE', { reason: 'STATUS_CHANGED' });
-    await recordChange({ entity: 'collection', entityId: id, userIds: [c.collectorId], branchId: c.branchId }, session);
+    await recordChange({ entity: 'collection', entityId: id, userIds: [c.collectorId], branchId: c.branchId, fanoutBranchId: c.branchId }, session);
     await audit.record(
       { actor: user, action: `collection.resolved.${input.action}`, entity: 'collection', entityId: id, branchId: c.branchId, before: { status: c.status, conflict: c.conflict?.code ?? null }, after: { status: to, erpPlanId: input.erpPlanId ?? c.erpPlanId }, reason: input.reason, meta, money: true },
       session,
@@ -499,7 +604,7 @@ export async function onPaymentsSynced(p: { customerId: string; payments: ErpPay
     const c = (await CollectionModel.findOne({ $or: [{ 'erp.paymentId': pay.erpPaymentId }, ...(pay.idempotencyKey ? [{ 'erp.key': pay.idempotencyKey }] : [])] }).lean()) as Lean | null;
     if (!c || c.erp?.reversed) continue;
     await CollectionModel.updateOne({ _id: c._id }, { $set: { 'erp.reversed': true, 'erp.reversedAt': pay.reversedAt }, $inc: { version: 1 } });
-    await recordChange({ entity: 'collection', entityId: c._id.toHexString(), userIds: [c.collectorId], branchId: c.branchId });
+    await recordChange({ entity: 'collection', entityId: c._id.toHexString(), userIds: [c.collectorId], branchId: c.branchId, fanoutBranchId: c.branchId });
     await audit.record({ actor: null, action: 'collection.reversed_in_erp', entity: 'collection', entityId: c._id.toHexString(), branchId: c.branchId, after: { erpPaymentId: pay.erpPaymentId }, money: true });
     await ctx().bus.emit('collection.reversed', { collectionId: c._id.toHexString(), branchId: c.branchId, collectorId: c.collectorId });
   }

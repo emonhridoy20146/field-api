@@ -121,7 +121,7 @@ export async function depositCollections(user: AuthUser, id: string) {
   const deps = (await DepositModel.find({ userId: deposit.userId, status: { $in: ['pending', 'verified'] } }).sort({ depositedAt: 1, _id: 1 }).select({ amountPoisha: 1 }).lean()) as Lean[];
   const order = deps.map((d) => ({ id: d._id.toHexString() as string, amountPoisha: d.amountPoisha as number }));
   const rows = await cashCollectionRows(deposit.userId);
-  const cov = deposit.status === 'rejected' ? { items: [], coveredPoisha: 0, unmatchedPoisha: 0 } : depositCoverage(rows, order, deposit.id);
+  const cov = deposit.status === 'rejected' || deposit.status === 'deleted' ? { items: [], coveredPoisha: 0, unmatchedPoisha: 0 } : depositCoverage(rows, order, deposit.id);
   if (!cov) throw notFound('deposit');
   // the same line also says what is still in hand of it after every deposit (0 for most covered lines)
   const total = order.reduce((n, d) => n + d.amountPoisha, 0);
@@ -162,6 +162,7 @@ function view(d: Lean, userName?: string) {
     status: d.status,
     ...(d.verifiedBy ? { verifiedBy: d.verifiedBy, verifiedAt: (d.verifiedAt as Date).toISOString() } : {}),
     ...(d.rejectReason ? { rejectReason: d.rejectReason } : {}),
+    ...(d.status === 'deleted' ? { deletedBy: d.deletedBy, deletedAt: (d.deletedAt as Date).toISOString(), deleteReason: d.deleteReason } : {}),
   };
 }
 
@@ -220,6 +221,39 @@ export async function decide(user: AuthUser, id: string, decision: 'verify' | 'r
   });
   await ctx().bus.emit(`cash.deposit.${decision === 'verify' ? 'verified' : 'rejected'}`, { depositId: id, userId: d.userId, branchId: d.branchId, reason });
   return view((await DepositModel.findById(id).lean()) as Lean);
+}
+
+/**
+ * FR-CASH-009 (1.32.0): an admin deletes a pending or verified deposit. The row stays with status `deleted` and
+ * counts nowhere, so the money is back in the person's cash in hand. The depositor is told; the sync entity carries
+ * the new status; the audit log keeps who, when and why.
+ */
+export async function deleteDeposit(user: AuthUser, id: string, reason: string, meta: RequestMeta) {
+  if (!isOid(id)) throw notFound('deposit');
+  const d = (await DepositModel.findOne({ _id: id, ...branchQuery(user, undefined) }).lean()) as Lean | null;
+  if (!d) throw notFound('deposit');
+  if (!['pending', 'verified'].includes(d.status)) throw new AppError('INVALID_STATE', { reason: 'NOT_DELETABLE', status: d.status });
+  const now = ctx().clock.now();
+  await withTransaction(async (session) => {
+    const r = await DepositModel.updateOne({ _id: id, status: { $in: ['pending', 'verified'] } }, { $set: { status: 'deleted', deletedBy: user.id, deletedAt: now, deleteReason: reason } }, { session });
+    if (r.modifiedCount !== 1) throw new AppError('INVALID_STATE', { reason: 'STATUS_CHANGED', status: d.status });
+    await recordChange({ entity: 'deposit', entityId: id, userIds: [d.userId], branchId: d.branchId }, session);
+    await audit.record({ actor: user, action: 'cash.deposit.deleted', entity: 'deposit', entityId: id, branchId: d.branchId, before: { status: d.status, amountPoisha: d.amountPoisha, destination: d.destination }, after: { status: 'deleted' }, reason, meta, money: true }, session);
+  });
+  await ctx().bus.emit('cash.deposit.deleted', { depositId: id, userId: d.userId, branchId: d.branchId, amountPoisha: d.amountPoisha, byUserId: user.id, reason, wasStatus: d.status });
+  const u = await getUser(d.userId);
+  return view((await DepositModel.findById(id).lean()) as Lean, u?.name.en || u?.name.bn || '');
+}
+
+/** How much of a cash collection the person's pending and verified deposits cover (the same oldest-first rule as the cash in hand). */
+export async function coveredOfCollection(collectorId: string, collectionId: string): Promise<number> {
+  const total = (await depositTotals([collectorId])).get(collectorId)?.total ?? 0;
+  if (total <= 0) return 0;
+  const rows = await cashCollectionRows(collectorId);
+  const row = rows.find((r) => r.collectionId === collectionId);
+  if (!row) return 0;
+  const left = inHandBreakdown(rows, total).find((r) => r.collectionId === collectionId)?.inHandPoisha ?? 0;
+  return row.amountPoisha - left;
 }
 
 // ---------------- closing (FR-CASH-006) ----------------

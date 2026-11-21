@@ -64,7 +64,13 @@ describe('visits (FR-VIS-001)', () => {
     const out = await fs.patch(`/visits/${r.body.id}/checkout`, { checkOutAt: '2026-11-15T03:40:00Z', outcome: 'promised' });
     expect(out.body).toMatchObject({ outcome: 'promised', checkOutAt: '2026-11-15T03:40:00.000Z' });
     expect((await fs.patch(`/visits/${r.body.id}/checkout`, { checkOutAt: '2026-11-15T03:00:00Z' })).status).toBe(400);
-    expect((await (await as(t, '01700000004')).get('/visits')).body.items).toHaveLength(0);
+    // ADR-046: a colleague of the branch sees the visits with who made them; another branch sees none.
+    const colleague = (await (await as(t, '01700000004')).get('/visits')).body.items as { userId: string; userName: string }[];
+    expect(colleague).toHaveLength(2);
+    expect(colleague.every((v) => v.userId === s.fs1.id && v.userName !== '')).toBe(true);
+    expect((await (await as(t, '01700000005')).get('/visits')).body.items).toHaveLength(0);
+    // ...but cannot change it: checkout stays with the recorder.
+    expect((await (await as(t, '01700000004')).patch(`/visits/${r.body.id}/checkout`, { checkOutAt: '2026-11-15T05:00:00Z' })).status).toBe(404);
     expect((await (await as(t, '01700000002')).get(`/visits?customerId=${ids['100245']}`)).body.items).toHaveLength(2);
     expect((await fs.post('/visits', { ...body, clientId: randomUUID(), customerId: ids['200301'] })).status).toBe(404);
     const list = await fs.get('/customers');

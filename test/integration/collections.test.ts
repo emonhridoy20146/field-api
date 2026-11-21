@@ -189,9 +189,16 @@ describe('ERP failures (07-test-plan §3)', () => {
 });
 
 describe('list & scope (FR-COL-010)', () => {
-  it('field staff see own only; managers see branch with totals by method', async () => {
+  it('field staff see the branch (with who collected); other branches see nothing; managers see totals by method', async () => {
+    // ADR-046: a colleague of the same branch reads every collection, each with the collector's name.
     const fs2 = await as(t, '01700000004');
-    expect((await fs2.get('/collections')).body.items).toHaveLength(0);
+    const mineAndTheirs = (await fs2.get('/collections')).body.items as { id: string; collector: { id: string; name: string } }[];
+    expect(mineAndTheirs.length).toBeGreaterThan(0);
+    expect(mineAndTheirs.every((c) => c.collector.name !== '')).toBe(true);
+    expect(mineAndTheirs.some((c) => c.collector.id === s.fs1.id)).toBe(true);
+    expect(((await fs2.get(`/collections/${mineAndTheirs[0]!.id}`)).status)).toBe(200);
+    const otherBranch = await as(t, '01700000005');
+    expect((await otherBranch.get('/collections')).body.items).toHaveLength(0);
     const bm = await as(t, '01700000002');
     const r = await bm.get('/collections?from=2026-11-14&to=2026-11-30');
     expect(r.status).toBe(200);

@@ -49,7 +49,9 @@ const collectionSchema = new Schema(
     },
     conflict: { type: { code: String, message: { en: String, bn: String }, erpResponse: Schema.Types.Mixed, raisedAt: Date, _id: false }, default: null },
     resolution: { type: { action: String, by: String, at: Date, reason: String, proofMediaId: String, targetPlanId: String, _id: false }, default: null },
-    voided: { type: { by: String, at: Date, reason: String, _id: false }, default: null },
+    voided: { type: { by: String, at: Date, reason: String, kind: String, _id: false }, default: null },
+    // 1.33.0: set by PATCH /collections/{id}; previousAmountPoisha is the amount before the FIRST edit.
+    edited: { type: { count: Number, at: Date, by: String, previousAmountPoisha: Number, _id: false }, default: null },
     flags: { type: [String], default: [] },
     version: { type: Number, default: 1 },
   },

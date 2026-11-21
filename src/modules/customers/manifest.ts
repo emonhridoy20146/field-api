@@ -5,7 +5,7 @@ import { indexMigration } from '../../core/db/migrations.js';
 import { raiseResyncFloor } from '../../core/changefeed/index.js';
 import type { ErpCustomer } from '../erp-gateway/index.js';
 import { customerRoutes } from './routes.js';
-import { markMissing, recomputeAllDerived, myProposals, proposalSyncLoad, refeedBranches, syncLoad, syncSnapshot, upsertFromErp } from './service.js';
+import { branchProposalsSnapshot, markMissing, recomputeAllDerived, proposalSyncLoad, refeedBranches, syncLoad, syncSnapshot, upsertFromErp } from './service.js';
 import { listBranches } from '../branches/index.js';
 
 export const manifest: ModuleManifest = {
@@ -49,7 +49,7 @@ export const manifest: ModuleManifest = {
   jobs: [{ name: 'customers.recompute-derived', schedule: '5 0 * * *', handler: async () => void (await recomputeAllDerived()) }],
   syncEntities: [
     { entity: 'customer', load: syncLoad, snapshot: syncSnapshot },
-    { entity: 'location_proposal', load: proposalSyncLoad, snapshot: async (user) => ({ items: await myProposals(user, 'pending'), nextCursor: null }) },
+    { entity: 'location_proposal', load: proposalSyncLoad, snapshot: async (user) => branchProposalsSnapshot(user) },
   ],
   syncMutations,
   migrations: [

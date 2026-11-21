@@ -134,7 +134,12 @@ describe('pull (FR-SYNC-001/004)', () => {
   it("does not leak another staff member's changes; losing scope becomes a tombstone", async () => {
     const fs2 = await as(t, '01700000004');
     const r = await fs2.get('/sync/pull?cursor=s_0');
-    expect(r.body.changes.every((c: { entity: string; id: string }) => c.entity !== 'visit' && c.entity !== 'collection')).toBe(true);
+    // ADR-046: a colleague of the same branch receives the visits and collections (each with the staff name)...
+    expect(r.body.changes.some((c: { entity: string; data?: { userName?: string } }) => c.entity === 'visit' && !!c.data?.userName)).toBe(true);
+    expect(r.body.changes.some((c: { entity: string; data?: { collector?: { name: string } } }) => c.entity === 'collection' && !!c.data?.collector?.name)).toBe(true);
+    // ...a staff member of another branch receives none.
+    const otherBranch = await (await as(t, '01700000005')).get('/sync/pull?cursor=s_0');
+    expect(otherBranch.body.changes.every((c: { entity: string }) => !['visit', 'collection', 'promise', 'location_proposal'].includes(c.entity))).toBe(true);
     const fs = await as(t, '01700000003');
     const before = (await fs.get('/sync/pull?cursor=s_0')).body.nextCursor;
     await applyAssignments([{ customerId: ids['100245']!, assigneeId: s.fs2.id }]);
@@ -189,9 +194,14 @@ describe('bootstrap of a reinstalled app (FR-SYNC-006)', () => {
     expect(of('attendance_day')[0]!.data.firstIn).toBeTruthy();
     expect(of('visit').map((i) => i.data.clientId)).toContain(visitClientId);
     expect(of('promise').length).toBeGreaterThan(0);
-    expect(of('promise').every((i) => i.data.status === 'open' && i.data.ownerId === s.fs1.id)).toBe(true);
-    // Another staff member's work never leaks into this snapshot.
-    const other = await (await as(t, '01700000004')).get('/sync/bootstrap?limit=200');
-    expect(other.body.items.filter((i: { entity: string }) => i.entity === 'visit' || i.entity === 'promise')).toEqual([]);
+    expect(of('promise').every((i) => typeof i.data.ownerName === 'string' && typeof i.data.createdByName === 'string')).toBe(true);
+    expect(of('visit').every((i) => typeof i.data.userName === 'string' && i.data.userName !== '')).toBe(true);
+    expect(of('collection').length).toBeGreaterThan(0);
+    // ADR-046: a colleague of the branch gets the same branch snapshot; another branch's staff gets none of it.
+    const colleague = await (await as(t, '01700000004')).get('/sync/bootstrap?limit=200');
+    const kinds = new Set(colleague.body.items.map((i: { entity: string }) => i.entity));
+    expect(kinds.has('visit') && kinds.has('promise') && kinds.has('collection')).toBe(true);
+    const other = await (await as(t, '01700000005')).get('/sync/bootstrap?limit=200');
+    expect(other.body.items.filter((i: { entity: string }) => ['visit', 'promise', 'collection', 'location_proposal'].includes(i.entity))).toEqual([]);
   });
 });

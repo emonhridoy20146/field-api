@@ -259,10 +259,16 @@ describe('pin corrections (FR-CUS-008)', () => {
     expect(changes.map((c: { id: string; op: string; data: { status: string } }) => [c.id, c.op, c.data.status]).sort()).toEqual([[proposalId, 'upsert', 'approved'], [second.body.id, 'upsert', 'rejected']].sort());
     expect(changes.find((c: { id: string }) => c.id === second.body.id).data.decisionReason).toBe('Pin is on the main road, not the house');
 
-    // Nobody else sees them: not another staff member, not the manager's own list, not their sync feed.
+    // The proposal carries who proposed and who decided (1.31.0).
+    expect(mine.body[0].proposer).toEqual({ id: s.fs1.id, name: 'Rakib Hasan' });
+    expect(mine.body[0].decider).toMatchObject({ id: s.bm.id });
+    expect(mine.body[1].decider).toMatchObject({ id: s.bm.id });
+    // ADR-046: a colleague of the branch sees them on their feed (to know who pinned); another branch does not.
+    // "My proposals" stays personal.
     const other = await as(t, '01700000004');
     expect((await other.get('/location-proposals/mine')).body).toEqual([]);
-    expect((await other.get('/sync/pull?cursor=s_0')).body.changes.filter((c: { entity: string }) => c.entity === 'location_proposal')).toEqual([]);
+    expect((await other.get('/sync/pull?cursor=s_0')).body.changes.filter((c: { entity: string }) => c.entity === 'location_proposal').map((c: { id: string }) => c.id).sort()).toEqual([proposalId, second.body.id].sort());
+    expect((await (await as(t, '01700000005')).get('/sync/pull?cursor=s_0')).body.changes.filter((c: { entity: string }) => c.entity === 'location_proposal')).toEqual([]);
     expect((await bm.get('/location-proposals/mine')).body).toEqual([]);
     expect((await (await as(t, '01700000006')).get('/location-proposals/mine')).status).toBe(403); // viewer cannot propose
     expect((await t.app.inject({ method: 'GET', url: '/api/v1/location-proposals/mine' })).statusCode).toBe(401);

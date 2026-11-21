@@ -20,7 +20,22 @@ describe('activity feed lines (FR-ACT-001)', () => {
     // an older pin event without the staff member still makes a line
     expect(FROM_EVENT['customer.location.proposed']!({ proposalId: 'x4', customerId: 'k1' })?.actorId).toBeNull();
   });
+  it('a withdrawn or edited collection and a deleted deposit (1.33.0) name the staff member, the customer and the amount', () => {
+    expect(FROM_EVENT['collection.withdrawn']!({ collectionId: 'c1', branchId: 'b1', collectorId: 'u1', customerId: 'k1', amountPoisha: 90000, method: 'cash', byUserId: 'u1', reason: 'free text is dropped' })).toEqual({
+      key: 'collection_withdrawn:c1', type: 'collection_withdrawn', branchId: 'b1', actorId: 'u1', customerId: 'k1', entity: 'collection', entityId: 'c1', data: { amountPoisha: 90000, method: 'cash' },
+    });
+    expect(FROM_EVENT['collection.edited']!({ collectionId: 'c1', branchId: 'b1', collectorId: 'u1', customerId: 'k1', amountPoisha: 80000, previousAmountPoisha: 90000, editCount: 2, byUserId: 'u1' })).toMatchObject({
+      key: 'collection_edited:c1:2', type: 'collection_edited', actorId: 'u1', data: { amountPoisha: 80000, previousAmountPoisha: 90000, editCount: 2 },
+    });
+    // a second edit is a second line; a repeated event is the same line
+    expect(FROM_EVENT['collection.edited']!({ collectionId: 'c1', editCount: 3 })?.key).toBe('collection_edited:c1:3');
+    expect(FROM_EVENT['cash.deposit.deleted']!({ depositId: 'd1', userId: 'u1', byUserId: 'a1', branchId: 'b1', amountPoisha: 500000, reason: 'dropped', wasStatus: 'verified' })).toEqual({
+      key: 'deposit_deleted:d1', type: 'deposit_deleted', branchId: 'b1', actorId: 'u1', byId: 'a1', customerId: null, entity: 'deposit', entityId: 'd1', data: { amountPoisha: 500000 },
+    });
+    expect(FROM_EVENT['collection.withdrawn']!({})).toBeNull();
+    expect(FROM_EVENT['cash.deposit.deleted']!({})).toBeNull();
+  });
   it('listens to exactly these events', () => {
-    expect(CONSUMED_EVENTS.sort()).toEqual(['collection.received', 'customer.location.approved', 'customer.location.proposed', 'promise.created', 'visit.recorded']);
+    expect(CONSUMED_EVENTS.sort()).toEqual(['cash.deposit.deleted', 'collection.edited', 'collection.received', 'collection.withdrawn', 'customer.location.approved', 'customer.location.proposed', 'promise.created', 'visit.recorded']);
   });
 });

@@ -29,6 +29,11 @@ export const collectionRoutes = defineRoutes((r) => {
     const b = parse(z.object({ reason: z.string().trim().min(5).max(500) }), req.body);
     return s.voidCollection(requireUser(req), idOf(req), b.reason, requestMeta(req));
   });
+  r.patch('/collections/:id', { access: perm('collection.edit') }, async (req) => s.editCollection(requireUser(req), idOf(req), parse(s.editSchema, req.body), requestMeta(req)));
+  r.post('/collections/:id/withdraw', { access: perm('collection.withdraw') }, async (req) => {
+    const b = parse(z.object({ reason: z.string().trim().max(500).optional() }), req.body ?? {});
+    return s.withdrawCollection(requireUser(req), idOf(req), b.reason, requestMeta(req));
+  });
   r.post('/collections/:id/resolve', { access: perm('collection.resolve') }, async (req) => s.resolve(requireUser(req), idOf(req), keyOf(req), parse(s.resolveSchema, req.body), requestMeta(req)));
   r.post('/receipts/blocks', { access: perm('collection.record') }, async (req, reply) => {
     reply.code(201);

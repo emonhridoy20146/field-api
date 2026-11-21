@@ -1230,7 +1230,7 @@ export async function proposeLocation(
       await ctx().bus.emit('customer.location.proposed', { proposalId: id, customerId, branchId: c.branchId, proposedBy: user.id });
     }
     // The proposer follows the proposal's fate on /sync/pull (contract 1.7.0).
-    await recordChange({ entity: 'location_proposal', entityId: id, userIds: [user.id], branchId: c.branchId });
+    await recordChange({ entity: 'location_proposal', entityId: id, userIds: [user.id], branchId: c.branchId, fanoutBranchId: c.branchId });
     return { id, status: auto ? 'approved' : 'pending', replayed: false };
   } catch (e) {
     if (isDuplicateKey(e)) return proposeLocation(user, customerId, input, meta);
@@ -1280,6 +1280,7 @@ export async function setLocation(
     throw e;
   }
   const { after } = await applyPin(customerId, point, { approvedBy: user.id, approvedAt: now, proposalId: id, direct: true });
+  await recordChange({ entity: 'location_proposal', entityId: id, userIds: [], branchId: c.branchId, fanoutBranchId: c.branchId });
   await audit.record({
     actor: user,
     action: 'customer.location.set',
@@ -1470,8 +1471,11 @@ export async function listProposals(user: AuthUser, q: { branchId?: string; stat
 }
 
 /** What the proposing staff member sees of their own proposal (sync entity `location_proposal`, contract 1.7.0). */
-function ownProposalView(p: LooseObject) {
+function ownProposalView(p: LooseObject, nameOf: (id: string) => string = () => '') {
   return {
+    proposer: { id: (p.proposedBy ?? '') as string, name: nameOf(p.proposedBy ?? '') },
+    decider: p.decidedBy ? { id: p.decidedBy as string, name: nameOf(p.decidedBy) } : null,
+    direct: !!p.direct,
     id: p._id.toHexString() as string,
     clientId: p.clientId as string,
     customerId: p.customerId as string,
@@ -1488,16 +1492,40 @@ function ownProposalView(p: LooseObject) {
   };
 }
 
+/** Proposals with the names of who proposed and who decided (contract 1.31.0). */
+async function proposalViews(rows: LooseObject[]) {
+  const people = await getUsers([...rows.map((r) => r.proposedBy ?? ''), ...rows.map((r) => r.decidedBy ?? '')].filter(Boolean));
+  const nameOf = (id: string) => {
+    const u = people.get(id);
+    return u ? u.name.en || u.name.bn : '';
+  };
+  return rows.map((r) => ownProposalView(r, nameOf));
+}
+
 /** Own proposals, newest first (after a reinstall the app has no sync history to learn them from). */
 export async function myProposals(user: AuthUser, status?: string) {
   const rows = (await LocationProposalModel.find({ proposedBy: user.id, direct: { $ne: true }, ...(status ? { status } : {}) }).sort({ createdAt: -1 }).limit(200).lean()) as LooseObject[];
-  return rows.map(ownProposalView);
+  return proposalViews(rows);
 }
 
-/** Sync loader: only the proposer ever receives a proposal; anyone else's id resolves to nothing. */
+/**
+ * Bootstrap for the `location_proposal` sync entity (ADR-046): the pins proposed or set in the user's branches, so every
+ * device can say who pinned a customer. Pending ones plus those of the last 60 days, newest first, at most 500.
+ */
+export async function branchProposalsSnapshot(user: AuthUser) {
+  const since = new Date(ctx().clock.now().getTime() - 60 * 86_400_000);
+  const rows = (await LocationProposalModel.find({ branchId: { $in: user.branchIds }, $or: [{ status: 'pending' }, { createdAt: { $gte: since } }] })
+    .sort({ createdAt: -1 })
+    .limit(500)
+    .lean()) as LooseObject[];
+  return { items: await proposalViews(rows), nextCursor: null };
+}
+
+/** Sync loader: a proposal reaches the devices of its branch (every loader applies the caller's scope); other branches resolve to nothing. */
 export async function proposalSyncLoad(ids: string[], user: AuthUser): Promise<Map<string, Record<string, unknown>>> {
-  const rows = (await LocationProposalModel.find({ _id: { $in: ids.filter(isOid) }, proposedBy: user.id }).lean()) as LooseObject[];
-  return new Map(rows.map((r) => [r._id.toHexString() as string, ownProposalView(r)]));
+  const rows = (await LocationProposalModel.find({ _id: { $in: ids.filter(isOid) }, branchId: { $in: user.branchIds } }).lean()) as LooseObject[];
+  const views = await proposalViews(rows);
+  return new Map(views.map((v) => [v.id, v]));
 }
 
 export async function decideProposal(
@@ -1523,7 +1551,7 @@ export async function decideProposal(
       },
     },
   );
-  if (p.proposedBy) await recordChange({ entity: 'location_proposal', entityId: id, userIds: [p.proposedBy], branchId: p.branchId ?? null });
+  await recordChange({ entity: 'location_proposal', entityId: id, userIds: p.proposedBy ? [p.proposedBy] : [], branchId: p.branchId ?? null, fanoutBranchId: p.branchId ?? null });
   if (input.decision === 'approve') {
     const { before } = await applyPin(p.customerId, p.point as { type: 'Point'; coordinates: number[] }, { approvedBy: user.id, approvedAt: now, proposalId: id });
     await audit.record({

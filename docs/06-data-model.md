@@ -112,6 +112,7 @@ Materialized: `assignment_scopes { _id: userId, customerIds: [...], recomputedAt
 `{ branchId, fromUserId, toUserId, areaIds, customerIds, reason, effectiveDate, endDate?, status, createdBy, decidedAt, decisionNote, summary: {customers, outstandingPoisha, overdue, openPromises, openConflicts}, expiresAt }` · `{ toUserId:1, status:1 }`, `{ fromUserId:1, createdAt:-1 }`.
 
 ### collections
+> 1.33.0 (FR-COL-017): optional `voided.kind` (`withdrawn`\|`admin`; absent on older rows, derived from who voided) and `edited { count, at, by, previousAmountPoisha }` (set by PATCH /collections/{id}). No migration: additive and optional. The activity feed's `activity_items` has an optional `byId` (who deleted a deposit).
 ```json
 { "_id": "6750…", "clientId": "0193a5e2-7c1f-7a3b-9e2d-4f6a8b1c2d3e", "idempotencyKey": "0193a5e2-7c1f-7a3b-9e2d-4f6a8b1c2d3e",
   "payloadHash": "sha256:…", "branchId": "6731…", "customerId": "6740…", "erpCustomerId": "C-100245", "erpPlanId": "P-55021",
@@ -124,7 +125,7 @@ Materialized: `assignment_scopes { _id: userId, customerIds: [...], recomputedAt
   "erp": { "paymentId": "PAY-10233", "receiptNo": "R-78010", "postedAt": "…", "lastError": null, "attempts": 1, "reversed": false },
   "conflict": null, "flags": ["late_sync"], "voided": null, "resolution": null }
 ```
-`conflict`: `{ code, message, erpResponse, raisedAt }`. `resolution`: `{ action, by, at, reason, proofMediaId, targetPlanId }`.
+`voided`: `{ by, at, reason }` (an office void, or the collector's own withdraw, FR-COL-016, 1.32.0: same shape, the audit action tells them apart). A cash collection edited before the ERP got it keeps its row, `version` rises, and the change is in the audit log (`collection.edited`). `conflict`: `{ code, message, erpResponse, raisedAt }`. `resolution`: `{ action, by, at, reason, proofMediaId, targetPlanId }`.
 Indexes: `{ idempotencyKey:1 } unique`, `{ receiptNo:1 } unique`, `{ collectorId:1, businessDate:-1 }`, `{ branchId:1, businessDate:-1, status:1 }`, `{ customerId:1, recordedAt:-1 }`, `{ status:1, 'erp.attempts':1 }`, `{ method:1, transactionRef:1 } sparse`.
 Retention: permanent (≥ 8 years, OD-09).
 
@@ -135,7 +136,7 @@ Retention: permanent (≥ 8 years, OD-09).
 `{ _id: key, scope: 'collection'|'sync', payloadHash, response, entityId, createdAt }` · TTL 400 days on `createdAt` (collections themselves keep the key permanently).
 
 ### cash_deposits
-`{ clientId, branchId, userId, amountPoisha, destination: 'branch_cashier'|'bank'|'manager', reference, slipMediaId, depositedAt, geo, status: 'pending'|'verified'|'rejected', verifiedBy, verifiedAt, rejectReason }` · `{ clientId:1 } unique`, `{ userId:1, status:1 }`, `{ branchId:1, status:1, depositedAt:-1 }`.
+`{ clientId, branchId, userId, amountPoisha, destination: 'branch_cashier'|'bank'|'manager', reference, slipMediaId, depositedAt, geo, status: 'pending'|'verified'|'rejected'|'deleted', verifiedBy, verifiedAt, rejectReason, deletedBy, deletedAt, deleteReason }` · `{ clientId:1 } unique`, `{ userId:1, status:1 }`, `{ branchId:1, status:1, depositedAt:-1 }`.
 
 ### cash_closings [ADDED]
 `{ userId, businessDate, cashCollectedPoisha, mobileCollectedPoisha, depositedPoisha, onHandPoisha, confirmedAt, note }` · `{ userId:1, businessDate:1 } unique`.

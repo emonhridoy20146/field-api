@@ -96,6 +96,23 @@ const RULES: Rule[] = [
     data: (p) => ({ depositId: str(p.depositId), decision: 'rejected' }),
   },
   {
+    event: 'cash.deposit.deleted',
+    type: 'cash.deposit.deleted',
+    to: (p) => [str(p.userId)],
+    title: () => t('জমা মুছে ফেলা হয়েছে', 'Deposit deleted'),
+    body: (p) => t(`অফিস আপনার ${formatBdt(Number(p.amountPoisha ?? 0), 'bn')} জমা মুছে ফেলেছে। টাকা আবার আপনার হাতে নগদে যুক্ত হয়েছে।`, `The office deleted your ${formatBdt(Number(p.amountPoisha ?? 0))} deposit. The money is back in your cash on hand.`),
+    data: (p) => ({ depositId: str(p.depositId), reason: str(p.reason) }),
+  },
+  {
+    // Only when somebody else voided it: the collector's own withdraw needs no message.
+    event: 'collection.voided',
+    type: 'collection.voided',
+    to: (p) => (str(p.byUserId) && str(p.byUserId) !== str(p.collectorId) ? [str(p.collectorId)] : []),
+    title: () => t('আদায় বাতিল', 'Collection cancelled'),
+    body: (p) => t(`অফিস আপনার ${formatBdt(Number(p.amountPoisha ?? 0), 'bn')} আদায় বাতিল করেছে।`, `The office cancelled your ${formatBdt(Number(p.amountPoisha ?? 0))} collection.`),
+    data: (p) => ({ collectionId: str(p.collectionId), reason: str(p.reason) }),
+  },
+  {
     event: 'cash.limit_reached',
     type: 'cash.limit_reached',
     to: (p) => [str(p.userId)],

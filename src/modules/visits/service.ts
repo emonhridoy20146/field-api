@@ -5,7 +5,7 @@ import { isDuplicateKey, isOid, type LeanDoc } from '../../core/db/index.js';
 import { recordChange } from '../../core/changefeed/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { haversineM } from '../../core/geo/index.js';
-import { businessDate, startOfBusinessDay } from '../../core/time/index.js';
+import { addDays, businessDate, startOfBusinessDay } from '../../core/time/index.js';
 import { branchQuery, canSeeBranch, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
 import { getSetting } from '../settings/index.js';
 import { getUsers } from '../users/index.js';
@@ -42,6 +42,14 @@ export function scopeFilter(user: AuthUser): Record<string, unknown> {
   return { branchId: { $in: user.branchIds } };
 }
 
+/**
+ * Who may READ a visit (FR-ACT-002, ADR-046): staff see every visit of their branches, each with the name of who made
+ * it. Writing stays with the recorder (`checkout` matches `userId`), never this filter.
+ */
+export function readScope(user: AuthUser): Record<string, unknown> {
+  return isSuperAdmin(user) ? {} : { branchId: { $in: user.branchIds } };
+}
+
 function view(v: Lean) {
   return {
     id: v._id.toHexString(),
@@ -60,12 +68,22 @@ function view(v: Lean) {
   };
 }
 
+/** The visit with the display name of who recorded it (`userName`, contract 1.31.0). */
+async function namedAll(rows: Lean[]) {
+  const users = await getUsers(rows.map((r) => r.userId));
+  return rows.map((v) => {
+    const u = users.get(v.userId);
+    return { ...view(v), userName: u ? u.name.en || u.name.bn : '' };
+  });
+}
+const named = async (v: Lean) => (await namedAll([v]))[0]!;
+
 /** FR-VIS-001. Idempotent by clientId (offline retries); the visit never waits for its photos (FR-VIS-003). */
-export async function create(user: AuthUser, input: z.infer<typeof createSchema>): Promise<{ statusCode: 200 | 201; body: ReturnType<typeof view> }> {
+export async function create(user: AuthUser, input: z.infer<typeof createSchema>): Promise<{ statusCode: 200 | 201; body: Awaited<ReturnType<typeof named>> }> {
   const prior = (await VisitModel.findOne({ clientId: input.clientId }).lean()) as Lean | null;
   if (prior) {
     if (prior.userId !== user.id) throw new AppError('IDEMPOTENCY_MISMATCH', { clientId: input.clientId });
-    return { statusCode: 200, body: view(prior) };
+    return { statusCode: 200, body: await named(prior) };
   }
   const c = await getCustomerRef(null, input.customerId);
   if (!c?.branchId || !canSeeBranch(user, c.branchId)) throw notFound('customer');
@@ -101,9 +119,9 @@ export async function create(user: AuthUser, input: z.infer<typeof createSchema>
       coWork,
     });
     const lean = v.toObject() as Lean;
-    await recordChange({ entity: 'visit', entityId: lean._id.toHexString(), userIds: [user.id, ...(coWork?.participantIds ?? [])], branchId: c.branchId });
+    await recordChange({ entity: 'visit', entityId: lean._id.toHexString(), userIds: [user.id, ...(coWork?.participantIds ?? [])], branchId: c.branchId, fanoutBranchId: c.branchId });
     await ctx().bus.emit('visit.recorded', { visitId: lean._id.toHexString(), customerId: c.id, branchId: c.branchId, userId: user.id, outcome: input.outcome, flags });
-    return { statusCode: 201, body: view(lean) };
+    return { statusCode: 201, body: await named(lean) };
   } catch (e) {
     if (isDuplicateKey(e)) return create(user, input);
     throw e;
@@ -123,10 +141,10 @@ export async function checkout(user: AuthUser, id: string, input: { checkOutAt: 
   if (!v) throw notFound('visit');
   const at = new Date(input.checkOutAt);
   if (at < v.checkInAt) throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'checkOutAt', message: 'before check-in' }] });
-  if (v.checkOutAt) return view(v); // idempotent
+  if (v.checkOutAt) return named(v); // idempotent
   await VisitModel.updateOne({ _id: id }, { $set: { checkOutAt: at, ...(input.outcome ? { outcome: input.outcome } : {}) } });
-  await recordChange({ entity: 'visit', entityId: id, userIds: [user.id, ...((v.coWork?.participantIds ?? []) as string[])], branchId: v.branchId });
-  return view((await VisitModel.findById(id).lean()) as Lean);
+  await recordChange({ entity: 'visit', entityId: id, userIds: [user.id, ...((v.coWork?.participantIds ?? []) as string[])], branchId: v.branchId, fanoutBranchId: v.branchId });
+  return named((await VisitModel.findById(id).lean()) as Lean);
 }
 
 /** List rows carry display refs so admin tables need no extra calls (contract 1.4.0). */
@@ -140,14 +158,14 @@ async function withRefs(rows: Lean[]) {
   return rows.map((v) => {
     const ref = refs.get(v.customerId);
     const u = users.get(v.userId);
-    const base = view(v);
+    const base = { ...view(v), userName: u ? u.name.en || u.name.bn : '' };
     return { ...base, coWork: base.coWork ? { ...base.coWork, participants: base.coWork.participantIds.map((id) => ({ id, name: nameOf(id) })) } : null, customer: { id: v.customerId, name: ref?.name ?? { bn: '', en: '' }, code: ref?.code ?? '' }, user: { id: v.userId, name: u ? u.name.en || u.name.bn : '' } };
   });
 }
 
 export async function list(user: AuthUser, q: { branchId?: string | undefined; userId?: string | undefined; customerId?: string | undefined; date?: string | undefined; from?: string | undefined; to?: string | undefined; outcome?: string | undefined; coWork?: 'true' | 'false' | undefined; coWorkSessionId?: string | undefined; limit: number; cursor?: string | undefined }) {
   const f: Record<string, unknown> = { ...(q.branchId ? branchQuery(user, q.branchId) : {}) };
-  const and: Record<string, unknown>[] = [scopeFilter(user)];
+  const and: Record<string, unknown>[] = [readScope(user)];
   // A person's visits include the joint visits they took part in without recording them (1.9.0).
   if (q.userId && user.role !== 'field_staff') and.push({ $or: [{ userId: q.userId }, { 'coWork.participantIds': q.userId }] });
   if (q.coWork) f['coWork.sessionId'] = q.coWork === 'true' ? { $ne: null } : null;
@@ -167,18 +185,21 @@ export async function list(user: AuthUser, q: { branchId?: string | undefined; u
 
 export async function get(user: AuthUser, id: string) {
   if (!isOid(id)) throw notFound('visit');
-  const v = (await VisitModel.findOne({ _id: id, ...scopeFilter(user) }).lean()) as Lean | null;
+  const v = (await VisitModel.findOne({ _id: id, ...readScope(user) }).lean()) as Lean | null;
   if (!v) throw notFound('visit');
-  return view(v);
+  return named(v);
 }
 
-/** Bootstrap for a fresh device: today's visits the caller recorded or took part in, paged by id. */
+/** How far back a fresh device receives the branch's visits, promises and collections (ADR-046). */
+export const ACTIVITY_DAYS = 60;
+
+/** Bootstrap for a fresh device: the last 60 Dhaka days of visits in the user's branches, paged by id. */
 export async function syncSnapshot(user: AuthUser, cursor: string | null, limit: number) {
   const c = decodeCursor<{ id: string }>(cursor ?? undefined);
   const date = businessDate(ctx().clock.now());
-  const rows = (await VisitModel.find({ $or: [{ userId: user.id }, { 'coWork.participantIds': user.id }], checkInAt: range(date, date), ...(c ? { _id: { $gt: c.id } } : {}) }).sort({ _id: 1 }).limit(limit + 1).lean()) as Lean[];
+  const rows = (await VisitModel.find({ ...readScope(user), checkInAt: range(addDays(date, -ACTIVITY_DAYS), date), ...(c ? { _id: { $gt: c.id } } : {}) }).sort({ _id: 1 }).limit(limit + 1).lean()) as Lean[];
   const page = rows.slice(0, limit);
-  return { items: page.map(view), nextCursor: rows.length > limit ? encodeCursor({ id: page[page.length - 1]!._id.toHexString() }) : null };
+  return { items: await namedAll(page), nextCursor: rows.length > limit ? encodeCursor({ id: page[page.length - 1]!._id.toHexString() }) : null };
 }
 
 export async function lastVisits(customerIds: string[]): Promise<Map<string, Date>> {

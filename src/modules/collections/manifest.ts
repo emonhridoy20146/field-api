@@ -1,6 +1,7 @@
 import type { ModuleManifest } from '../../core/module/types.js';
 import { syncMutations } from './sync.js';
 import { ctx } from '../../core/context/index.js';
+import { raiseResyncFloor } from '../../core/changefeed/index.js';
 import { indexMigration } from '../../core/db/migrations.js';
 import type { AuthUser } from '../../core/security/types.js';
 import { registerDetailContributor, registerListEnricher, registerMonthPendingSource, registerTimelineSource } from '../customers/index.js';
@@ -16,13 +17,15 @@ export const manifest: ModuleManifest = {
   dependsOn: ['audit', 'settings', 'branches', 'users', 'customers', 'erp-gateway', 'handovers'],
   permissions: [
     { key: 'collection.record', description: { en: 'Record a field collection', bn: 'মাঠে টাকা আদায় রেকর্ড' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
-    { key: 'collection.view', description: { en: 'View collections in scope (own only for FS)', bn: 'আদায় দেখা' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
+    { key: 'collection.view', description: { en: 'View collections in scope (the branch for FS)', bn: 'আদায় দেখা' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
     { key: 'collection.void', description: { en: 'Void a collection not yet posted to ERP', bn: 'পোস্টের আগে আদায় বাতিল' }, defaults: { super_admin: true, branch_manager: true } },
+    { key: 'collection.withdraw', description: { en: 'Withdraw (delete) your own cash collection until it is deposited', bn: 'জমার আগে নিজের নগদ আদায় বাতিল' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
+    { key: 'collection.edit', description: { en: 'Correct the amount, note or payer of your own cash collection until it is deposited', bn: 'জমার আগে নিজের নগদ আদায় সংশোধন' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
     { key: 'collection.resolve', description: { en: 'Resolve collection conflicts', bn: 'আদায়ের সমস্যা সমাধান' }, defaults: { super_admin: true, branch_manager: true } },
   ],
   routes: collectionRoutes,
   events: {
-    emits: ['collection.received', 'collection.posted', 'collection.conflict', 'collection.posting_failed', 'collection.voided', 'collection.resolved', 'collection.reversed', 'collection.posted_after_close'],
+    emits: ['collection.received', 'collection.posted', 'collection.conflict', 'collection.posting_failed', 'collection.voided', 'collection.withdrawn', 'collection.edited', 'collection.resolved', 'collection.reversed', 'collection.posted_after_close'],
     consumes: ['erp.payment.posting', 'erp.payment.posted', 'erp.payment.rejected', 'erp.payment.retrying', 'erp.payment.failed', 'erp.payment.deferred', 'customer.payments_synced'],
   },
   settings: [
@@ -36,7 +39,7 @@ export const manifest: ModuleManifest = {
     { type: 'collection.posting_failed', severity: 'critical' },
     { type: 'collection.flagged', severity: 'medium' },
   ],
-  notificationTypes: [{ type: 'collection.conflict' }, { type: 'collection.resolved' }],
+  notificationTypes: [{ type: 'collection.conflict' }, { type: 'collection.resolved' }, { type: 'collection.voided' }],
   syncEntities: [
     {
       entity: 'collection',
@@ -51,6 +54,7 @@ export const manifest: ModuleManifest = {
         }
         return out;
       },
+      snapshot: s.syncSnapshot,
     },
   ],
   syncMutations,
@@ -67,7 +71,9 @@ export const manifest: ModuleManifest = {
       { collection: 'receipt_blocks', key: { userId: 1, businessDate: -1 } },
     ]),
   ],
-  init() {
+  async init() {
+    // ADR-046: phones that took their snapshot when staff held only their own records reload once.
+    await raiseResyncFloor('branch-wide-activity');
     const bus = ctx().bus;
     bus.on('erp.payment.posting', async (p) => s.onPosting(p as never));
     bus.on('erp.payment.posted', async (p) => s.onPosted(p as never));
