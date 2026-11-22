@@ -9,7 +9,7 @@ import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { getSetting, isHoliday, resolveShift, type ShiftView } from '../settings/index.js';
 import { getUser, getUsers, listByRole, type UserView } from '../users/index.js';
-import { isUploadedBy } from '../media/index.js';
+import { isUploadedBy, markMediaDeleted, removeDeletedMediaFiles, type RemovalBatch } from '../media/index.js';
 import { autoCloseAt, deriveDay, dutyIntervals, dutyStateAt, lateAbsences, type DayEvent, type DayKind, type DutyIntervals, type EventType } from './domain/day.js';
 import { AttendanceDayModel, AttendanceEventModel, LeaveModel } from './models/attendance.model.js';
 import { weekday } from '../../core/time/index.js';
@@ -189,7 +189,8 @@ export async function attachSelfie(user: AuthUser, input: z.infer<typeof attachS
   const ev = (await AttendanceEventModel.findOne({ clientId: input.eventClientId }).lean()) as Lean | null;
   if (!ev || ev.userId !== user.id) throw notFound('attendance_event');
   if (!(await isUploadedBy(input.selfieMediaId, user.id))) throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'selfieMediaId', message: 'not a photo you uploaded' }] });
-  if (!ev.selfieMediaId) await AttendanceEventModel.updateOne({ _id: ev._id, selfieMediaId: null }, { $set: { selfieMediaId: input.selfieMediaId }, $pull: { flags: 'no_selfie' } });
+  // A photo an admin deleted is not replaced from the phone's queue (FR-MED-004).
+  if (!ev.selfieMediaId && !ev.selfieDeleted) await AttendanceEventModel.updateOne({ _id: ev._id, selfieMediaId: null, selfieDeleted: null }, { $set: { selfieMediaId: input.selfieMediaId }, $pull: { flags: 'no_selfie' } });
   const u = await getUser(user.id);
   if (!u) throw notFound('user');
   const day = await recompute(u, ev.businessDate as string);
@@ -218,10 +219,44 @@ export async function eventsOfDay(user: AuthUser, q: { userId: string; date: str
     at: (e.at as Date).toISOString(),
     geo: e.geo ? { lat: e.geo.lat, lng: e.geo.lng, accuracyM: e.geo.accuracyM, mock: !!e.geo.mock } : null,
     selfieMediaId: (e.selfieMediaId ?? null) as string | null,
+    selfieDeleted: e.selfieDeleted ? { at: (e.selfieDeleted.at as Date).toISOString(), by: e.selfieDeleted.by as string, byName: e.selfieDeleted.byName as string } : null,
     flags: (e.flags ?? []) as string[],
     source: (e.source ?? 'app') as string,
     replaced: !!e.replacedBy,
   }));
+}
+
+export const deletePhotosSchema = z.object({
+  userId: z.string().max(64),
+  date: z.string().refine(isIsoDate, 'YYYY-MM-DD'),
+  reason: z.string().trim().max(500).optional(),
+});
+
+/**
+ * FR-MED-004 (1.37.0): an admin deletes one staff member's attendance photos of one day. The events keep a log in place
+ * of the photo (`selfieDeleted`); the files leave Cloudinary and the base store (media module). Branch scope → 404.
+ */
+export async function deletePhotosOfDay(actor: AuthUser, input: z.infer<typeof deletePhotosSchema>, meta: RequestMeta) {
+  const [u] = isOid(input.userId) ? await staffInScope(actor, undefined, input.userId) : [];
+  if (!u) throw notFound('user');
+  const rows = (await AttendanceEventModel.find({ userId: u.id, businessDate: input.date, selfieMediaId: { $ne: null } }).lean()) as Lean[];
+  let batches: RemovalBatch[] = [];
+  if (rows.length) {
+    const mediaIds = rows.map((e) => e.selfieMediaId as string);
+    const at = ctx().clock.now();
+    const byName = actor.name.en || actor.name.bn || actor.employeeCode;
+    await withTransaction(async (session) => {
+      ({ batches } = await markMediaDeleted(mediaIds, actor, { scope: 'attendance_day', reason: input.reason ?? null }, session));
+      for (const e of rows)
+        await AttendanceEventModel.updateOne({ _id: e._id }, { $set: { selfieMediaId: null, selfieDeleted: { at, by: actor.id, byName, mediaId: e.selfieMediaId } } }, { session });
+      await audit.record(
+        { actor, action: 'attendance.photos_deleted', entity: 'attendance_day', entityId: `${u.id}:${input.date}`, branchId: u.branchIds[0] ?? null, before: { mediaIds }, after: { deleted: mediaIds.length }, reason: input.reason ?? null, meta },
+        session,
+      );
+    });
+    await removeDeletedMediaFiles(batches);
+  }
+  return { deleted: rows.length, events: await eventsOfDay(actor, { userId: u.id, date: input.date }) };
 }
 
 /**

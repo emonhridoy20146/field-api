@@ -83,6 +83,7 @@ Defaults: SA = super_admin, BM = branch_manager, FS = field_staff, VW = viewer. 
 | `report.export` | Export reports (CSV/XLSX/PDF) | ● | ● | ○ | ○ | reports |
 | `notification.broadcast` **[ADDED]** | Send announcements to staff in scope | ● | ● | ○ | ○ | notifications |
 | `audit.view` | View audit log in scope | ● | ○ | ○ | ● | audit |
+| `media.delete` **[ADDED 2026-11-22]** | Delete photos: all photos of previous months (typed confirmation), or one staff member's attendance photos of a day (1.37.0; the media row stays as a log) | ● | ○ | ○ | ○ | media |
 | `cowork.use` **[ADDED]** | Ask colleagues to work together, accept, leave | ○ | ○ | ● | ○ | cowork |
 | `cowork.view` **[ADDED]** | See co-work sessions in scope | ● | ● | ○ | ● | cowork |
 | `cowork.manage` **[ADDED]** | End a co-work session with a reason (1.34.0; the row is kept as ended) | ● | ● | ○ | ○ | cowork |
@@ -272,6 +273,9 @@ Rules:
 | FR-PRM-003 | Promise auto-evaluation nightly: `kept` if ERP + field payments since promise ≥ promised amount by end of promised date (+ grace days setting, default 1); `partially_kept`; `broken`. | active | P1 | A | U I |
 | FR-PRM-004 | Promise fulfilment rate per staff/branch for reports. | active | P3 | A W | U I |
 | FR-MED-001 | Media service: presigned upload/download URLs (5 min expiry), content-type and size validation, SHA-256 dedupe, private bucket, thumbnail generation. | active | P1 | A | I |
+| FR-MED-002 **[ADDED 2026-11-22, owner request]** | Photos are kept in the company's Cloudinary account: after a confirmed upload the server copies the photo to Cloudinary (private, delivery type `authenticated`) in the background and then removes the copy from its own store; reads are signed Cloudinary download links that expire after 5 minutes. Without Cloudinary (not configured, or until the copy is done) the server's own store (S3 or MongoDB) keeps and serves the photo. The phone protocol is unchanged; the phone compresses photos (≤ 1280 px, ≤ 250 KB JPEG). Contract 1.37.0, ADR-050. | active | P1 | A | U I |
+| FR-MED-003 **[ADDED 2026-11-22, owner request]** | Delete the photos of previous months: a preview per month (count and size; selfies, visit and location photos; deposit slips and refund proofs only when asked), an alert in the admin panel from the 5th of the month when there is something to delete, and one action that deletes them all after the admin types `DELETE <YYYY-MM>` (`media.delete`; batches of 200, the client repeats until none remain; audited `media.purged`). A deleted photo is removed from Cloudinary and from the server's store; its link answers 404 `MEDIA_DELETED`. | active | P1 | A W | U I E |
+| FR-MED-004 **[ADDED 2026-11-22, owner request]** | Delete the attendance photos of any staff member on any day (`media.delete`, branch scope). Where the photo was, the event keeps "Deleted by admin <name>" and the date-time (`selfieDeleted`); the files are removed from Cloudinary and the server's store; audited `attendance.photos_deleted`. | active | P1 | A W | I E |
 
 ### 4.9a Co-work **[ADDED 2026-11-16, owner request]** (module `cowork`)
 | ID | Requirement | Status | Phase | Repos | Test |
@@ -361,7 +365,7 @@ Rules:
 
 | ID | Requirement | Status | Phase | Repos | Test |
 |---|---|---|---|---|---|
-| FR-AUD-001 | Append-only audit log for: money (collections, voids, resolutions, deposits), location edits (pin corrections, attendance corrections), handovers, tags, permission and role changes, settings and flag changes (incl. branch map points, `branch.location_set`), customer phone numbers added or removed in FOS (`customer.phone.added` / `customer.phone.removed`), logins/failed logins, exports, device unbinds. | active | P0 | A | U I |
+| FR-AUD-001 | Append-only audit log for: money (collections, voids, resolutions, deposits), location edits (pin corrections, attendance corrections), handovers, tags, permission and role changes, settings and flag changes (incl. branch map points, `branch.location_set`), customer phone numbers added or removed in FOS (`customer.phone.added` / `customer.phone.removed`), photo deletions (`media.purged`, `attendance.photos_deleted`, 1.37.0), logins/failed logins, exports, device unbinds. | active | P0 | A | U I |
 | FR-AUD-002 | Entry: `actorId`, `actorRole`, `action`, `entity`, `entityId`, `branchId`, `before`, `after`, `reason`, `ip`, `userAgent`/`deviceId`, `at`, `requestId`, hash chain (`prevHash`) for tamper evidence. | active | P0 | A | U |
 | FR-AUD-003 | Audit viewer with filters (actor, action, entity, date) and diff view. | active | P1 | A W | E |
 | FR-AUD-004 | Audit log cannot be modified or deleted through the API; retention 8 years for money, 3 years other (OD-09). | active | P0 | A | I |

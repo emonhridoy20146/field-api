@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.36.0
+  version: 1.37.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -152,7 +152,7 @@ paths:
       security: []
       operationId: health
       responses:
-        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [ok, degraded] }, version: { type: string }, contract: { type: string, description: 'API contract version this build implements; use it to check a deploy (added in 1.20.1)' }, mongo: { type: string }, erp: { type: string }, storage: { type: string, enum: [s3, db, memory], description: 'Added in 1.21.0. Where photos and exports are kept (ADR-039); memory = this instance only, phone uploads fail.' } } } } } }
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [ok, degraded] }, version: { type: string }, contract: { type: string, description: 'API contract version this build implements; use it to check a deploy (added in 1.20.1)' }, mongo: { type: string }, erp: { type: string }, storage: { type: string, enum: [s3, db, memory], description: 'Added in 1.21.0. Where photos and exports are kept (ADR-039); memory = this instance only, phone uploads fail.' }, cloudStorage: { type: string, enum: [cloudinary, none], description: 'Added in 1.37.0 (ADR-050). cloudinary = CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET are set and photos are copied there.' } } } } } }
   /system/erp-status:
     get:
       tags: [system]
@@ -1371,6 +1371,7 @@ paths:
     post:
       tags: [media]
       operationId: createUploadUrl
+      description: 'Presigned PUT to the server''s store (S3 or `db`). Since 1.37.0 the server copies a confirmed photo to Cloudinary in the background when Cloudinary is configured (ADR-050); the phone protocol is unchanged. 409 `INVALID_STATE` reason `MEDIA_DELETED` when the same file was uploaded before and an admin deleted it.'
       requestBody:
         required: true
         content:
@@ -1403,8 +1404,60 @@ paths:
       tags: [media]
       operationId: mediaUrl
       parameters: [ { $ref: '#/components/parameters/Id' }, { name: variant, in: query, schema: { type: string, enum: [original, thumb] } } ]
+      description: |
+        A link that works for 5 minutes. Since 1.37.0 (ADR-050) a photo copied to Cloudinary is served as a signed private
+        Cloudinary download link (`api.cloudinary.com/v1_1/<cloud>/image/download?...&expires_at=...`); until it is copied, or
+        when Cloudinary is not configured, the link points at the server's own store as before. Clients just open `url`.
+        A photo deleted by an admin (FR-MED-003/004) answers 404 `NOT_FOUND` with `details.reason = MEDIA_DELETED`,
+        `details.deletedAt` and `details.deletedByName`.
       responses:
         '200': { description: Signed GET URL (5 min), content: { application/json: { schema: { type: object, properties: { url: { type: string }, expiresAt: { type: string } } } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /media/purge/preview:
+    get:
+      tags: [media]
+      operationId: mediaPurgePreview
+      description: |
+        media.delete (1.37.0, FR-MED-003). Photos taken before the first day (Asia/Dhaka) of month `before`, per month, with
+        their count and size. Kinds: selfie, visit_photo, location_proof; deposit_slip and refund_proof (money proofs) only
+        with `includeMoneyProofs=true`. Voice notes are never included. `suggest` is true from the 5th of the month on when
+        there is something to delete (the admin panel shows an alert). Branch scope: a super admin sees all.
+      parameters:
+        - { name: before, in: query, schema: { type: string, pattern: '^\d{4}-\d{2}$' }, description: 'YYYY-MM, default the current Dhaka month (= every earlier month). Not later than the current month.' }
+        - { name: includeMoneyProofs, in: query, schema: { type: boolean, default: false } }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MediaPurgePreview' } } } }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /media/purge:
+    post:
+      tags: [media]
+      operationId: mediaPurge
+      description: |
+        media.delete (1.37.0, FR-MED-003). Deletes the photos the preview counts, at most 200 per call, oldest first, and
+        returns how many were deleted and how many remain; call again until `remaining` is 0. `confirmText` must be exactly
+        `DELETE <before>` (e.g. `DELETE 2026-11`), else 422 `BUSINESS_RULE` rule `CONFIRM_TEXT_MISMATCH` and nothing is deleted.
+        A deleted photo is marked `deleted` at once (its link answers 404 `MEDIA_DELETED`) and its files are removed from
+        Cloudinary and from the server's store (retried in the background if a store is down). One audit entry
+        (`media.purged`) per call with the counts. Branch scope: a super admin deletes in every branch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [before, confirmText]
+              properties:
+                before: { type: string, pattern: '^\d{4}-\d{2}$' }
+                includeMoneyProofs: { type: boolean, default: false }
+                confirmText: { type: string, maxLength: 40 }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/MediaPurgeResult' } } } }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
 
   /storage/o:
     parameters: [ { name: t, in: query, required: true, schema: { type: string, maxLength: 4096 }, description: Signed grant (key, method, expiry; for PUT also type, size and sha256) } ]
@@ -1536,6 +1589,40 @@ paths:
       parameters: [ { name: userId, in: query, required: true, schema: { type: string } }, { name: date, in: query, required: true, schema: { type: string, format: date } } ]
       responses:
         '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/AttendanceEvent' } } } } }
+  /attendance/photos/delete:
+    post:
+      tags: [attendance]
+      operationId: deleteAttendancePhotos
+      description: |
+        media.delete (1.37.0, FR-MED-004). Deletes the attendance photos of one staff member on one business date. Each
+        event that had a photo gets `selfieDeleted { at, by, byName }` and `selfieMediaId: null`; the photo files are removed
+        from Cloudinary and from the server's store. Branch scope: a user outside the caller's branches is 404. A day without
+        photos answers `deleted: 0`. Audited as `attendance.photos_deleted`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, date]
+              properties:
+                userId: { type: string }
+                date: { type: string, format: date }
+                reason: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted, events]
+                properties:
+                  deleted: { type: integer, description: Number of photos deleted }
+                  events: { type: array, items: { $ref: '#/components/schemas/AttendanceEvent' } }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
   /attendance/me/today:
     get:
       tags: [attendance]
@@ -2914,10 +3001,42 @@ components:
         type: { type: string, enum: [work_in, break_start, break_end, work_out] }
         at: { type: string, format: date-time }
         geo: { type: [object, 'null'], properties: { lat: { type: number }, lng: { type: number }, accuracyM: { type: number }, mock: { type: boolean } } }
-        selfieMediaId: { type: [string, 'null'] }
+        selfieMediaId: { type: [string, 'null'], description: 'null when there was no photo or an admin deleted it (see selfieDeleted)' }
+        selfieDeleted:
+          type: [object, 'null']
+          description: '1.37.0 (FR-MED-004): set when an admin deleted the photo of this event; show "Deleted by admin <byName> · <at>" where the photo was'
+          required: [at, by, byName]
+          properties:
+            at: { type: string, format: date-time }
+            by: { type: string }
+            byName: { type: string }
         flags: { type: array, items: { type: string }, description: 'e.g. no_selfie, no_location, mock_location, clock_skew, late_sync' }
         source: { type: string, enum: [app, correction, system] }
         replaced: { type: boolean, description: 'true when a correction replaced this event; it no longer counts in the day' }
+    MediaPurgePreview:
+      type: object
+      description: 1.37.0 (FR-MED-003)
+      required: [before, cutoff, today, kinds, includeMoneyProofs, months, total, suggest]
+      properties:
+        before: { type: string, description: YYYY-MM }
+        cutoff: { type: string, format: date-time, description: 'First instant of month `before` in Asia/Dhaka; photos created earlier count' }
+        today: { type: string, format: date, description: Dhaka business date }
+        kinds: { type: array, items: { type: string } }
+        includeMoneyProofs: { type: boolean }
+        months:
+          type: array
+          description: Oldest first
+          items: { type: object, required: [month, count, bytes], properties: { month: { type: string, description: YYYY-MM (Dhaka) }, count: { type: integer }, bytes: { type: integer } } }
+        total: { type: object, required: [count, bytes], properties: { count: { type: integer }, bytes: { type: integer } } }
+        suggest: { type: boolean, description: 'true from the 5th of the month on when there is something to delete' }
+    MediaPurgeResult:
+      type: object
+      description: 1.37.0 (FR-MED-003)
+      required: [deleted, remaining, bytes]
+      properties:
+        deleted: { type: integer }
+        bytes: { type: integer, description: Size of the photos deleted by this call }
+        remaining: { type: integer, description: 'Photos still to delete for the same request; call again while > 0' }
     LocationPoint:
       type: object
       required: [t, lat, lng, acc]

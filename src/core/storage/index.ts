@@ -1,11 +1,12 @@
 import { createHmac } from 'node:crypto';
-import { HeadObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, HeadObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { Config } from '../config/index.js';
 import { DbStorage, storageSecret } from './db-storage.js';
 import { URL_TTL_SEC, type ObjectStorage } from './types.js';
 
 export { URL_TTL_SEC, type ObjectStorage } from './types.js';
+export { CloudinaryClient, CloudinaryError, cloudinary, setCloudinary, cloudinaryFromConfig, signParams, CLOUD_DELETE_CHUNK, type CloudUpload, type FetchLike } from './cloudinary.js';
 
 export class S3Storage implements ObjectStorage {
   private s3: S3Client;
@@ -29,6 +30,20 @@ export class S3Storage implements ObjectStorage {
   }
   async put(key: string, body: Uint8Array, contentType: string) {
     await this.s3.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: body, ContentType: contentType }));
+  }
+  async get(key: string) {
+    try {
+      const r = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+      if (!r.Body) return null;
+      return { body: await r.Body.transformToByteArray(), contentType: r.ContentType ?? 'application/octet-stream' };
+    } catch (e) {
+      if ((e as { name?: string }).name === 'NoSuchKey') return null;
+      throw e;
+    }
+  }
+  async delete(key: string) {
+    // S3 DeleteObject succeeds for a missing key too.
+    await this.s3.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
   }
   async exists(key: string) {
     try {
@@ -59,6 +74,13 @@ export class MemoryStorage implements ObjectStorage {
   }
   markUploaded(key: string) {
     this.uploaded.add(key);
+  }
+  async get(key: string) {
+    return this.objects.get(key) ?? null;
+  }
+  async delete(key: string) {
+    this.objects.delete(key);
+    this.uploaded.delete(key);
   }
 }
 

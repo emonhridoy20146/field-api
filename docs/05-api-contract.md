@@ -88,7 +88,9 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 | `POST /handovers` · `GET /handovers` · `GET /handovers/{id}` | `handover.create` / auth (party) | FR-HO-001/004 |
 | `POST /handovers/{id}/accept` · `/reject` · `/cancel` | receiver / creator | FR-HO-002 |
 | `POST /visits` · `PATCH /visits/{id}/checkout` · `GET /visits` | `visit.record` / `visit.view` | FR-VIS-001 |
-| `POST /media/upload-url` · `POST /media/{id}/confirm` · `GET /media/{id}/url` | auth + entity permission | FR-MED-001 |
+| `POST /media/upload-url` · `POST /media/{id}/confirm` · `GET /media/{id}/url` | auth + entity permission | FR-MED-001/002 |
+| `GET /media/purge/preview` · `POST /media/purge` (photos of previous months, 1.37.0) | `media.delete` | FR-MED-003 |
+| `POST /attendance/photos/delete` (one staff member's attendance photos of a day, 1.37.0) | `media.delete` | FR-MED-004 |
 | `GET/POST /customers/{id}/notes` | `note.view` / `note.create` | FR-NOTE-001 |
 | `GET /promises` · `POST /promises` · `POST /promises/{id}/cancel` | `promise.view` / `promise.create` | FR-PRM-001 |
 | `POST /attendance/events` · `GET /attendance/me/today` | `attendance.record` | FR-ATT-001 |
@@ -301,6 +303,21 @@ POST  /api/v1/cash/deposits/6751…/delete     { "reason": "entered twice by mis
 - `409 INVALID_STATE` `details.reason`: `NOT_CASH`, `COVERED_BY_DEPOSIT` (a pending or verified deposit covers it), `NOT_EDITABLE` (edit: not `received`, or the ERP already got an attempt), `ALREADY_POSTED_OR_CLOSED`, `USE_RESOLVE` (status `conflict`), `POSTING_IN_PROGRESS`, `STATUS_CHANGED`. A deposit that is already `rejected` or `deleted` → `NOT_DELETABLE`. Another staff member's collection is `404`.
 - Deposit `status` gains `deleted` with `deletedBy`, `deletedAt`, `deleteReason`; it counts in no total and covers no collection. The depositor gets a notification of type `cash.deposit.deleted`; a collection voided by the office (not by its collector) notifies the collector with type `collection.voided`.
 - Offline: sync mutation entities `collection_withdraw` `{ collectionId | clientId, reason? }` and `collection_edit` `{ collectionId | clientId, amountPoisha?, note?, payerName? }` (send after the collection; `clientId` resolves the collector's own collection).
+
+### 3.9f Photos in Cloudinary; deleting photos (1.37.0, FR-MED-002..004, ADR-050)
+```http
+GET  /api/v1/media/purge/preview                     (media.delete; default before = this Dhaka month)
+→ 200 { "before": "2026-12", "cutoff": "2026-11-30T18:00:00.000Z", "today": "2026-12-06", "kinds": ["selfie","visit_photo","location_proof"],
+        "includeMoneyProofs": false, "months": [{ "month": "2026-10", "count": 412, "bytes": 98304000 }, { "month": "2026-11", "count": 388, "bytes": 91750400 }],
+        "total": { "count": 800, "bytes": 190054400 }, "suggest": true }
+POST /api/v1/media/purge { "before": "2026-12", "confirmText": "DELETE 2026-12" }
+→ 200 { "deleted": 200, "bytes": 47513600, "remaining": 600 }     … repeat until "remaining": 0
+POST /api/v1/attendance/photos/delete { "userId": "6740…", "date": "2026-11-21", "reason": "privacy request" }
+→ 200 { "deleted": 2, "events": [{ "id": "…", "type": "work_in", "selfieMediaId": null, "selfieDeleted": { "at": "2026-11-22T06:10:00Z", "by": "6739…", "byName": "Owner" }, … }] }
+```
+- A wrong `confirmText` → `422 BUSINESS_RULE` `details.rule = CONFIRM_TEXT_MISMATCH` (`details.expected` names the text); a month after the current one → `422` `NOT_A_PAST_MONTH`. Deposit slips and refund proofs only with `includeMoneyProofs: true`.
+- `GET /media/{id}/url` of a deleted photo → `404 NOT_FOUND` `details { reason: "MEDIA_DELETED", deletedAt, deletedByName }`; `POST /media/upload-url` with the same file → `409 INVALID_STATE` `MEDIA_DELETED`.
+- With Cloudinary configured, `GET /media/{id}/url` of a copied photo returns `https://api.cloudinary.com/v1_1/<cloud>/image/download?public_id=…&format=jpg&type=authenticated&timestamp=…&expires_at=…&api_key=…&signature=…` (5 minutes). Before the copy, the link points at the server's store as before.
 
 ### 3.10a Pin colours and invoice viewer (1.14.0)
 Yellow and orange pins of credit customers in view:

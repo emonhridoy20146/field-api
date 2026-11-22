@@ -13,6 +13,7 @@ export const attendanceRoutes = defineRoutes((r) => {
     return res.body;
   });
   r.get('/attendance/events', { access: perm('attendance.view') }, async (req) => s.eventsOfDay(requireUser(req), parse(z.object({ userId: z.string().max(64), date }), req.query)));
+  r.post('/attendance/photos/delete', { access: perm('media.delete') }, async (req) => s.deletePhotosOfDay(requireUser(req), parse(s.deletePhotosSchema, req.body), requestMeta(req)));
   r.get('/attendance/me/today', { access: perm('attendance.record') }, async (req) => s.myToday(requireUser(req)));
   r.get('/attendance/me/shift', { access: perm('attendance.record') }, async (req) => s.myShift(requireUser(req)));
   r.get('/attendance/days', { access: perm('attendance.view') }, async (req) =>

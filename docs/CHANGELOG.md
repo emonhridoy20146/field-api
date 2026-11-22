@@ -4,6 +4,29 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.37.0] — contract 1.37.0 (photos in Cloudinary; admins delete photos)
+### Added (owner request 2026-11-22, FR-MED-002..004, ADR-050)
+- **Photos go to the company's Cloudinary account.** The phone still uploads to the server's store and confirms (no app change); after the confirm the server copies the photo to Cloudinary in the background (outbox `media.cloud_copy`, retried if Cloudinary is down), private (`type: authenticated`), then removes the server's copy to save hosting space. Media rows gain `cloud { provider, publicId, version, bytes, format, copiedAt }` and `baseRemovedAt`.
+- `GET /media/{id}/url` returns a signed Cloudinary download link valid 5 minutes for a copied photo; otherwise (not copied yet, or Cloudinary not configured) the server's store link as before. A deleted photo answers 404 with `details.reason = MEDIA_DELETED`, `deletedAt`, `deletedByName`.
+- `GET /media/purge/preview?before=YYYY-MM&includeMoneyProofs=` and `POST /media/purge { before, includeMoneyProofs?, confirmText }` (confirmText exactly `DELETE <before>`, else 422 `CONFIRM_TEXT_MISMATCH`): count and size per month, `suggest` from the 5th; deletes 200 per call and returns `{ deleted, bytes, remaining }`. Selfies, visit and location photos; deposit slips and refund proofs only with `includeMoneyProofs`. Audit `media.purged` per call.
+- `POST /attendance/photos/delete { userId, date, reason? }`: deletes that staff member's attendance photos of the day; each event gets `selfieDeleted { at, by, byName }` and `selfieMediaId: null` (also in `GET /attendance/events`). Branch scope (404). Audit `attendance.photos_deleted`.
+- Deleted photos are removed from Cloudinary (Admin API bulk delete, CDN invalidated) and from the server's store at once; a failure is retried by the outbox (`media.remote_delete`). The media row stays as the log (`status: deleted`, `deleted {…}`). `POST /media/upload-url` of the same file again → 409 `MEDIA_DELETED`.
+- New permission `media.delete` (super admin; not branch managers by default).
+- `ObjectStorage` gains `get` and `delete` (S3, MongoDB `db` and memory drivers). `/system/health` gains `cloudStorage: cloudinary | none`.
+### Environment variables (field-api: `.env` locally, Vercel → Project → Settings → Environment Variables)
+| Name | Required | Value |
+|---|---|---|
+| `CLOUDINARY_CLOUD_NAME` | yes, to turn Cloudinary on | the cloud name from the Cloudinary dashboard (Settings → API Keys / Product environment) |
+| `CLOUDINARY_API_KEY` | yes | the API key |
+| `CLOUDINARY_API_SECRET` | yes (secret) | the API secret; keep it only in the host's settings, never in git |
+| `CLOUDINARY_FOLDER` | no | folder / public id prefix, default `fos` |
+
+All three of name, key and secret must be set; otherwise photos stay in the server's store (S3 or MongoDB) exactly as before. Redeploy after setting them and check `GET /api/v1/system/health` → `"cloudStorage": "cloudinary"`. On Vercel the copy runs on the next `/api/cron` call.
+### Migration
+- `media/20261122-0001-media-purge-index` (`media { kind: 1, status: 1, createdAt: 1 }`). No data migration; photos stored before Cloudinary is configured stay in the server's store.
+### Notes for the clients
+- admin-web: a "Photo storage" section with the preview, the alert from the 5th and the typed confirmation; "Delete photos of this day" in the attendance day view and "Deleted by admin <name> · <date time>" where a photo was. staff-app: no change needed; a deleted photo's upload answers 409 `MEDIA_DELETED` and may be dropped from the queue.
+
 ## [1.36.0] — contract 1.36.0 (attendance survives a reinstall; no photo at breaks; 09:00–21:00 by default)
 ### Changed (owner request 2026-11-22)
 - `GET /attendance/me/today` also returns `events` (`id`, `clientId`, `type`, `at`, `source`, oldest first), so a phone that lost its local data (app reinstalled, data cleared) restores today's work-in, breaks and work-out instead of asking for attendance again. Additive.

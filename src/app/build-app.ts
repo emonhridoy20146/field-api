@@ -11,7 +11,7 @@ import { AppError, toProblem } from '../core/errors/index.js';
 import { EventBus } from '../core/events/bus.js';
 import { createLogger, type Logger } from '../core/logger/index.js';
 import { initJwtKeys, verifyAccessToken } from '../core/security/jwt.js';
-import { setStorage, storage, storageFromConfig } from '../core/storage/index.js';
+import { cloudinaryFromConfig, setCloudinary, setStorage, storage, storageFromConfig } from '../core/storage/index.js';
 import { DbStorage, storageRoutes } from '../core/storage/db-storage.js';
 import { systemClock, type Clock } from '../core/time/index.js';
 import { compareVersions, parseClientHeader } from '../core/http/index.js';
@@ -42,6 +42,7 @@ export async function bootModules(opts: BuildOptions): Promise<AppContext> {
   setContext(ctx);
   await initJwtKeys(opts.config);
   setStorage(storageFromConfig(opts.config, () => ctx.clock.now()));
+  setCloudinary(cloudinaryFromConfig(opts.config, () => ctx.clock.now()));
   for (const m of manifests) await m.init?.();
   if (opts.migrate) await runMigrations(manifests.map((m) => ({ module: m.name, migrations: m.migrations ?? [] })), (msg) => logger.info(msg));
   return ctx;

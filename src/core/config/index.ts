@@ -4,6 +4,8 @@ const bool = z
   .enum(['true', 'false', '1', '0'])
   .transform((v) => v === 'true' || v === '1');
 
+const blank = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? undefined : v);
+
 const schema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'staging', 'production']).default('development'),
@@ -37,6 +39,11 @@ const schema = z
     S3_SECRET_ACCESS_KEY: z.string().optional(),
     // s3 | db (files in MongoDB, for hosts without S3) | memory (development). Empty = chosen automatically.
     STORAGE_DRIVER: z.preprocess((v) => (v === '' ? undefined : v), z.enum(['s3', 'db', 'memory']).optional()),
+    // Cloudinary (ADR-050): photos are copied there after upload when all three are set. The secret is never logged.
+    CLOUDINARY_CLOUD_NAME: z.preprocess(blank, z.string().regex(/^[a-z0-9_-]+$/i, 'cloud name').optional()),
+    CLOUDINARY_API_KEY: z.preprocess(blank, z.string().optional()),
+    CLOUDINARY_API_SECRET: z.preprocess(blank, z.string().optional()),
+    CLOUDINARY_FOLDER: z.preprocess(blank, z.string().regex(/^[\w-]+(\/[\w-]+)*$/, 'folder like fos or fos/media').default('fos')),
     FCM_PROJECT_ID: z.string().optional(),
     FCM_SERVICE_ACCOUNT_JSON: z.string().optional(),
     SENTRY_DSN: z.string().optional(),
@@ -62,6 +69,11 @@ const schema = z
   }));
 
 export type Config = z.infer<typeof schema>;
+
+/** Cloudinary is on only when the cloud name, key and secret are all set (ADR-050). */
+export function cloudinaryConfigured(c: Pick<Config, 'CLOUDINARY_CLOUD_NAME' | 'CLOUDINARY_API_KEY' | 'CLOUDINARY_API_SECRET'>): boolean {
+  return !!(c.CLOUDINARY_CLOUD_NAME && c.CLOUDINARY_API_KEY && c.CLOUDINARY_API_SECRET);
+}
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
   const parsed = schema.safeParse(env);

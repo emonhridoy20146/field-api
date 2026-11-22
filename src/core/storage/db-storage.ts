@@ -92,6 +92,10 @@ export class DbStorage implements ObjectStorage {
       .updateOne({ _id: key as never }, { $set: { contentType, sizeBytes: body.byteLength, body: Buffer.from(body), storedAt: this.opts.now() } }, { upsert: true });
   }
 
+  async delete(key: string) {
+    await db().collection(COLLECTION).deleteOne({ _id: key as never });
+  }
+
   async get(key: string): Promise<{ body: Buffer; contentType: string } | null> {
     const doc = await db().collection(COLLECTION).findOne({ _id: key as never });
     if (!doc) return null;
