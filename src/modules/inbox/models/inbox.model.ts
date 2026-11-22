@@ -7,6 +7,8 @@ const inboxSchema = new Schema(
     severity: { type: String, enum: ['low', 'medium', 'high', 'critical'], required: true },
     severityRank: { type: Number, required: true }, // 0 low … 3 critical, for sorting
     branchId: { type: String, default: null },
+    /** 1.42.0 (ADR-054): also shown to every holder of this permission, whatever their branch (e.g. `place.manage`). */
+    permission: { type: String, default: null },
     entity: { type: String, required: true },
     entityId: { type: String, required: true },
     summary: { type: { bn: String, en: String, _id: false }, required: true },

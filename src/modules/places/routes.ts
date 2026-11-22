@@ -14,7 +14,7 @@ export const placesRoutes = defineRoutes((r) => {
     return res.body;
   });
   // Static path, registered before `/places/:id`; the static route wins either way.
-  r.get('/places/move-requests', { access: perm('place.manage') }, async (req) => s.moveRequests(requireUser(req), parse(z.object({ branchId: z.string().max(64).optional() }), req.query).branchId));
+  r.get('/places/move-requests', { access: perm('place.manage') }, async (req) => s.moveRequests(parse(z.object({ branchId: z.string().max(64).optional() }), req.query).branchId));
   r.get('/places/:id', { access: perm('place.view') }, async (req) => s.get(requireUser(req), idOf(req)));
   // place.create: the service lets a staff member change only their own places' words; anything else needs place.manage.
   r.patch('/places/:id', { access: perm('place.create') }, async (req) =>

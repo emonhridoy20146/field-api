@@ -1,5 +1,6 @@
 import type { ModuleManifest } from '../../core/module/types.js';
 import { indexMigration } from '../../core/db/migrations.js';
+import { raiseResyncFloor } from '../../core/changefeed/index.js';
 import { placesRoutes } from './routes.js';
 import { syncMutations } from './sync.js';
 import * as s from './service.js';
@@ -12,7 +13,7 @@ export const manifest: ModuleManifest = {
   featureFlag: { key: 'module.places', default: false, description: 'Map places (text markers on the map)', owner: 'field-api' },
   dependsOn: ['audit', 'rbac', 'users', 'branches'],
   permissions: [
-    { key: 'place.view', description: { en: 'See map places in scope', bn: 'ম্যাপে জায়গার নাম দেখা' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
+    { key: 'place.view', description: { en: 'See map places (all branches)', bn: 'ম্যাপে জায়গার নাম দেখা (সব শাখা)' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
     {
       key: 'place.create',
       description: { en: 'Add a place to the map, edit own places, ask for a place to be moved', bn: 'ম্যাপে জায়গা যোগ, নিজের জায়গা সম্পাদনা, সরানোর অনুরোধ' },
@@ -37,5 +38,12 @@ export const manifest: ModuleManifest = {
       { collection: 'map_places', key: { status: 1, 'pendingMove.requestedAt': 1 }, options: { partialFilterExpression: { 'pendingMove.requestedAt': { $exists: true } } } },
       { collection: 'map_places', key: { createdBy: 1, clientId: 1 }, options: { unique: true, partialFilterExpression: { clientId: { $type: 'string' } } } },
     ]),
+    // 1.42.0 (ADR-054): lists and the office queue now filter by status only, no longer by branch.
+    indexMigration('20261122-0002-places-status-index', [{ collection: 'map_places', key: { status: 1, _id: -1 } }]),
   ],
+  async init() {
+    // ADR-054: places are shared by every branch; phones that took their snapshot when they held only their branch's
+    // places reload once, so they also get the places of other branches.
+    await raiseResyncFloor('places-all-branches');
+  },
 };

@@ -4,6 +4,18 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.42.0] — contract 1.42.0 (map places are shared by every branch)
+### Changed (owner decision 2026-11-22, FR-PLC-001..005, ADR-054)
+- **Places are shared landmarks for the whole area, not per branch.** Everyone with `place.view` sees every place of every branch: `GET /places`, `GET /places/{id}`, the sync entity `place` (pull and bootstrap). `?branchId=` on `GET /places` and `GET /places/move-requests` is now only a filter (places added from that branch), not a scope.
+- **Creating a place needs no branch.** `PlaceCreate.branchId` is accepted and ignored (marked deprecated); `PLACE_INVALID_BRANCH` is no longer returned. The place records the creator's first branch for information and the audit only; `Place.branchId` is `''` when the creator has none.
+- **Office actions on any place:** with `place.manage`, move, edit, remove and decide move requests on places of any branch. Staff rules are unchanged: they edit their own places and may request a move of any place.
+- **Move requests reach every `place.manage` holder:** the `place.move_request` notification goes to all holders in all branches; the inbox item is shown to every holder (new `inbox_items.permission`, ADR-054) and closes for everyone on the decision.
+- Sync: a place change is fanned out to every branch. Resync floor `places-all-branches`: devices with an older pull cursor get `410 CURSOR_EXPIRED` once and take a fresh snapshot, so they also get other branches' places.
+- Index `map_places { status:1, _id:-1 }` (migration `places/20261122-0002-places-status-index`, idempotent). No data migration: existing places keep their `branchId` (now informational).
+- **Map default centre:** the API serves no map default centre or zoom (only `map.tileProvider` in `/meta/app-config`), so nothing was changed; the clients hold their own default (Galachipa, Patuakhali: lat 22.164, lng 90.426, zoom 12 was requested).
+### Notes for the clients
+- staff-app: stop sending or asking for a branch when adding a place; keep places from other branches in the local table (they arrive after the one-time resync). admin-web: the places list and the move-request queue show every branch; the branch filter narrows by the adding branch only.
+
 ## [1.41.0] — contract 1.41.0 (visit outcome "Runaway")
 ### Added (owner request 2026-11-22, FR-VIS-006)
 - Visit outcome `runaway` (bn **পলাতক**, en **Runaway**): the customer has absconded and cannot be found. Added to `VisitOutcome` (`POST /visits`, `PATCH /visits/{id}/checkout`, sync mutations `visit` / `visit_checkout`) and to the `GET /visits?outcome=` filter.

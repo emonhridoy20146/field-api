@@ -135,8 +135,9 @@ export async function setUserOverrides(actor: AuthUser, userId: string, changes:
 }
 
 /** Users who hold a key within a branch (for notifications/inbox routing, e.g. tag.approve holders). */
-export async function holdersOf(key: string, branchId: string): Promise<string[]> {
-  const candidates = await listByRole(['super_admin', 'branch_manager', 'viewer', 'field_staff'], [branchId]);
+/** Active users holding `key` in `branchId`, plus super admins; `null` = every branch (shared records, ADR-054). */
+export async function holdersOf(key: string, branchId: string | null): Promise<string[]> {
+  const candidates = await listByRole(['super_admin', 'branch_manager', 'viewer', 'field_staff'], branchId === null ? undefined : [branchId]);
   const sas = await listByRole(['super_admin']);
   const all = new Map([...candidates, ...sas].map((u) => [u.id, u]));
   const out: string[] = [];

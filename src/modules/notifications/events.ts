@@ -20,6 +20,8 @@ interface Rule {
 }
 
 const managers = (permission: string) => async (p: P) => (str(p.branchId) ? holdersOf(permission, str(p.branchId)) : []);
+/** Every holder of the permission in any branch: for records shared by all branches (map places, ADR-054). */
+const allHolders = (permission: string) => async () => holdersOf(permission, null);
 
 /** FR-NOT-002: which domain event tells whom what. Texts carry no phone numbers and no balances. */
 const RULES: Rule[] = [
@@ -205,9 +207,10 @@ const RULES: Rule[] = [
   },
   {
     // 1.38.0 (FR-PLC-004): the office learns that a staff member wants a map place moved.
+    // 1.42.0 (ADR-054): places belong to no branch, so every `place.manage` holder is told.
     event: 'place.move_requested',
     type: 'place.move_request',
-    to: managers('place.manage'),
+    to: allHolders('place.manage'),
     title: () => t('জায়গা সরানোর অনুরোধ', 'Place move request'),
     body: (p) => t(`${str(p.requestedByName)} "${str(p.name)}" ম্যাপে সরাতে চান। অনুমোদন বা প্রত্যাখ্যান করুন।`, `${str(p.requestedByName)} wants to move "${str(p.name)}" on the map. Approve or reject it.`),
     data: (p) => ({ placeId: str(p.placeId) }),
