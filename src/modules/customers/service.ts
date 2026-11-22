@@ -1171,7 +1171,7 @@ export async function proposeLocation(
 ) {
   const c = await loadInScope(user, customerId);
   const existing = await LocationProposalModel.findOne({ clientId: input.clientId }).lean();
-  if (existing) return { id: existing._id.toHexString(), status: existing.status, replayed: true };
+  if (existing) return { id: existing._id.toHexString(), status: existing.status, replayed: true, direct: !!existing.direct };
   const method = input.method ?? 'gps';
   // A GPS pin is only as good as the fix; a map pin is chosen by eye, so these checks apply to the phone fix only.
   if (method === 'gps') {
@@ -1183,6 +1183,11 @@ export async function proposeLocation(
   const deviceMock = !!device?.mock;
   // Owner decision 2026-11-17 (ADR-031): a staff pin for a customer without a usable pin is applied at once,
   // unless the branch asks for approval of every pin. Moving an existing pin always waits for a manager.
+  // 1.39.0 (owner request 2026-11-22, ADR-052): someone who may approve pins in the customer's branch does not wait
+  // for themselves; their pin from the app applies at once like a map pin set on the web. A map pin picked while the
+  // phone reports a mock position stays a proposal (flagged) for another look, exactly as for field staff.
+  const direct = !deviceMock && (await canApprovePinIn(user, c.branchId));
+  if (direct) return applyOfficePin(user, c, input, method, device, meta);
   const policy = await getSetting<string>('customers.staffPinApproval', c.branchId);
   const auto = policy === 'when_missing' && !hasUsablePin(c) && !deviceMock;
   const now = ctx().clock.now();
@@ -1231,11 +1236,80 @@ export async function proposeLocation(
     }
     // The proposer follows the proposal's fate on /sync/pull (contract 1.7.0).
     await recordChange({ entity: 'location_proposal', entityId: id, userIds: [user.id], branchId: c.branchId, fanoutBranchId: c.branchId });
-    return { id, status: auto ? 'approved' : 'pending', replayed: false };
+    return { id, status: auto ? 'approved' : 'pending', replayed: false, direct: false };
   } catch (e) {
     if (isDuplicateKey(e)) return proposeLocation(user, customerId, input, meta);
     throw e;
   }
+}
+
+/**
+ * Whether the caller holds `customer.location.approve` for this customer's branch. The permission key is checked
+ * (never the role, CLAUDE.md §2.6) and evaluated for that one branch, so a branch override that denies it there wins.
+ */
+async function canApprovePinIn(user: AuthUser, branchId: string | null | undefined): Promise<boolean> {
+  const subject = branchId ? { ...user, branchIds: [branchId] } : user;
+  return (await ctx().ports.permissions?.(subject))?.has('customer.location.approve') ?? false;
+}
+
+/**
+ * ADR-052: an approver's pin from the app. Stored like the web's direct set (`direct: true`, approved, decidedBy =
+ * the caller) with the phone's fix kept for the history; audited `customer.location.set`; no `customer.location.proposed`
+ * event, so nothing lands in the office inbox. The caller's devices and the branch learn it on /sync/pull.
+ */
+async function applyOfficePin(
+  user: AuthUser,
+  c: Doc,
+  input: { clientId: string; geo: GeoInput; photoMediaId?: string | undefined; note?: string | undefined },
+  method: 'gps' | 'map',
+  device: GeoInput | null,
+  meta: RequestMeta,
+) {
+  const customerId = (c._id as Types.ObjectId).toHexString();
+  const now = ctx().clock.now();
+  const point = { type: 'Point' as const, coordinates: [input.geo.lng, input.geo.lat] };
+  let id: string;
+  try {
+    const p = await LocationProposalModel.create({
+      clientId: input.clientId,
+      customerId,
+      branchId: c.branchId,
+      proposedBy: user.id,
+      point,
+      accuracyM: input.geo.accuracyM,
+      method,
+      ...(device ? { devicePoint: { type: 'Point', coordinates: [device.lng, device.lat] }, deviceAccuracyM: device.accuracyM } : {}),
+      deviceMock: false,
+      photoMediaId: input.photoMediaId ?? null,
+      note: input.note ?? null,
+      direct: true,
+      status: 'approved',
+      decidedBy: user.id,
+      decidedAt: now,
+    });
+    id = p._id.toHexString();
+  } catch (e) {
+    if (isDuplicateKey(e)) {
+      const again = await LocationProposalModel.findOne({ clientId: input.clientId }).lean();
+      if (again) return { id: again._id.toHexString(), status: again.status, replayed: true, direct: !!again.direct };
+    }
+    throw e;
+  }
+  await applyPin(customerId, point, { approvedBy: user.id, approvedAt: now, proposalId: id, direct: true });
+  await recordChange({ entity: 'location_proposal', entityId: id, userIds: [user.id], branchId: c.branchId, fanoutBranchId: c.branchId });
+  await audit.record({
+    actor: user,
+    action: 'customer.location.set',
+    entity: 'customer',
+    entityId: customerId,
+    branchId: c.branchId,
+    before: { location: c.location ?? null, status: c.locationStatus },
+    after: { location: point, proposalId: id, method, accuracyM: input.geo.accuracyM, from: 'app' },
+    reason: input.note ?? null,
+    meta,
+  });
+  await ctx().bus.emit('customer.location.approved', { customerId, branchId: c.branchId, proposalId: id, direct: true, fromApp: true, proposedBy: user.id });
+  return { id, status: 'approved', replayed: false, direct: true };
 }
 
 /**

@@ -38,6 +38,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Inbox, dashboard, global search | FR-INB-001, FR-DSH-001, FR-SRCH-001 | ✅ API (inbox items for mock GPS / tracking stopped come with the location module; daily target is 0 until phase 3) |
 | Pin corrections | FR-CUS-008 | ✅ API |
 | Map pins: manager sets on the map, staff map pins, pinless customers applied at once (ADR-031, contract 1.11.0) | FR-CUS-011 | ✅ API |
+| Office pin from the app applies at once (super admin / branch manager / anyone with `customer.location.approve` for the branch; mock map pin stays a proposal; added 2026-11-22, contract 1.39.0) | FR-CUS-020 | ✅ API (ADR-052); staff-app wording follows |
 | Pin colour by payment state, invoice filters and invoice viewer data (ADR-035, contract 1.14.0) | FR-CUS-012, FR-CUS-013 | ✅ API; screens in admin-web |
 | Staff see every customer of their branches, staff in several branches, branch on list rows (ADR-038, contract 1.19.0) | FR-CUS-015 | ✅ API |
 | Phones from before branch-wide visibility reload once (resync floor); health shows the contract (ADR-038 addendum, contract 1.20.1) | FR-CUS-015, FR-SYNC-001 | ✅ API |

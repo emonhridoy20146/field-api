@@ -11,6 +11,8 @@ describe('activity feed lines (FR-ACT-001)', () => {
     expect(FROM_EVENT['promise.created']!({ promiseId: 'p1', branchId: 'b1', ownerId: 'u2', customerId: 'k1', promisedDate: '2026-11-25' })).toMatchObject({ key: 'promise:p1', type: 'promise', actorId: 'u2', data: { promisedDate: '2026-11-25' } });
     expect(FROM_EVENT['customer.location.proposed']!({ proposalId: 'x1', customerId: 'k1', branchId: 'b1', proposedBy: 'u3' })).toMatchObject({ key: 'pin:x1', type: 'pin', actorId: 'u3', entity: 'customer', entityId: 'k1', data: { applied: false } });
     expect(FROM_EVENT['customer.location.approved']!({ proposalId: 'x2', customerId: 'k2', branchId: 'b1', autoApplied: true, proposedBy: 'u3' })).toMatchObject({ key: 'pin:x2', data: { applied: true } });
+    // 1.39.0 (ADR-052): an approver's pin from the app applies at once and shows as applied.
+    expect(FROM_EVENT['customer.location.approved']!({ proposalId: 'x4', customerId: 'k2', branchId: 'b1', direct: true, fromApp: true, proposedBy: 'u9' })).toMatchObject({ key: 'pin:x4', actorId: 'u9', data: { applied: true } });
   });
   it('a manager deciding a pin or setting one directly is not staff activity; events without their id are skipped', () => {
     expect(FROM_EVENT['customer.location.approved']!({ proposalId: 'x3', customerId: 'k1', direct: true })).toBeNull();

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.38.0
+  version: 1.39.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -600,6 +600,11 @@ paths:
         Both must be inside Bangladesh. When the customer has no usable pin and the branch setting `customers.staffPinApproval` is
         `when_missing` (default) the pin is applied at once and the answer is `status: approved`; otherwise it waits for a manager
         (`pending`). A mock `deviceGeo` never applies at once.
+        1.39.0 (FR-CUS-020, ADR-052): when the caller holds `customer.location.approve` for the customer's branch (super admin, branch
+        manager by default, or anyone granted the key) the pin applies at once whatever the policy and whether or not the customer had a
+        pin: the answer is `status: approved, direct: true`, it is stored and audited like `POST /customers/{id}/location`
+        (`customer.location.set`, decided by the caller) and no inbox item is raised. A map pin with a mock `deviceGeo` stays a pending
+        proposal (flagged `deviceMock`) even then; a mock `gps` fix is refused as before. Field staff behave as before.
       parameters: [ { $ref: '#/components/parameters/Id' } ]
       requestBody:
         required: true
@@ -619,6 +624,8 @@ paths:
         '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/PinResult' } } } }
         '200': { description: Replay of the same clientId, content: { application/json: { schema: { $ref: '#/components/schemas/PinResult' } } } }
         '404': { $ref: '#/components/responses/Problem' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
         '422': { description: 'BUSINESS_RULE: LOW_ACCURACY, MOCK_LOCATION (gps only), OUTSIDE_BANGLADESH', content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
   /customers/{id}/location:
     post:
@@ -3069,6 +3076,7 @@ components:
       properties:
         id: { type: string }
         status: { type: string, enum: [pending, approved, rejected], description: '`approved` when it was applied at once' }
+        direct: { type: boolean, description: 'Added in 1.39.0. true = applied at once because the caller may approve pins in that branch (no manager step); the app says "Pin updated" instead of "Sent for approval"' }
     PhoneDetail:
       type: object
       description: Added in 1.23.0. One phone number of a customer and where it came from

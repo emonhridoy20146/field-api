@@ -332,10 +332,15 @@ describe('map pins (FR-CUS-011, contract 1.11.0)', () => {
     const mock = await bm.post(`/customers/${ids['100248']}/location-proposals`, { clientId: randomUUID(), method: 'map', geo: { ...near, accuracyM: 0 }, deviceGeo: { ...phone, mock: true } });
     expect(mock.body.status).toBe('pending');
     expect((await bm.get('/location-proposals')).body.find((p: { id: string }) => p.id === mock.body.id)).toMatchObject({ deviceMock: true, autoApplied: false });
+    // The policy is for field staff; an approver's own pin applies at once (1.39.0, ADR-052, office-pin.test.ts).
+    // fs2 sees the unassigned 100248 only with branch-wide visibility.
+    await setSystem('customers.staffVisibility', 'branch', s.branchA);
     await setSystem('customers.staffPinApproval', 'always', s.branchA);
-    const held = await bm.post(`/customers/${ids['100248']}/location-proposals`, { clientId: randomUUID(), method: 'map', geo: { ...near, accuracyM: 0 } });
-    expect(held.body.status).toBe('pending');
+    const fs2 = await as(t, '01700000004');
+    const held = await fs2.post(`/customers/${ids['100248']}/location-proposals`, { clientId: randomUUID(), method: 'map', geo: { ...near, accuracyM: 0 } });
+    expect(held.body).toMatchObject({ status: 'pending', direct: false });
     await setSystem('customers.staffPinApproval', 'when_missing', s.branchA);
+    await setSystem('customers.staffVisibility', 'assigned', s.branchA);
     expect((await bm.get(`/customers/${ids['100248']}`)).body.location.status).toBe('missing');
   });
 

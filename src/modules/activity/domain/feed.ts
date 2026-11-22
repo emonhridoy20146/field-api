@@ -129,10 +129,11 @@ export const FROM_EVENT: Record<string, (p: P) => ActivityDraft | null> = {
     if (!id) return null;
     return { key: `pin:${id}`, type: 'pin', branchId: str(p.branchId) || null, actorId: str(p.proposedBy) || null, customerId: str(p.customerId) || null, entity: 'customer', entityId: str(p.customerId) || id, data: { applied: false } };
   },
-  // A staff pin that applied at once (the customer had none). A manager's own decision or direct pin is not staff activity.
+  // A pin from the app that applied at once (the customer had none, or an approver dropped it). A manager's decision or web pin is not.
   'customer.location.approved': (p) => {
     const id = str(p.proposalId);
-    if (!id || p.autoApplied !== true) return null;
+    // 1.39.0 (ADR-052): an approver's pin from the app is field work too; the web's direct set is not.
+    if (!id || (p.autoApplied !== true && p.fromApp !== true)) return null;
     return { key: `pin:${id}`, type: 'pin', branchId: str(p.branchId) || null, actorId: str(p.proposedBy) || null, customerId: str(p.customerId) || null, entity: 'customer', entityId: str(p.customerId) || id, data: { applied: true } };
   },
 };
