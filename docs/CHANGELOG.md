@@ -11,6 +11,7 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 - Confirm of a photo already in Cloudinary writes `cloud` and `baseRemovedAt` on the media row and queues no copy. Links: signed Cloudinary download link (5 min) when it is there, else the MongoDB store's signed link.
 - Photos uploaded to S3 before the switch stay readable (and are copied to Cloudinary by the job, and deleted there by admin deletes) while the `S3_*` settings stay. New photos never touch S3.
 - Admin deletes (FR-MED-003/004) remove the file from Cloudinary, MongoDB and old S3; the store is no longer asked for a file whose base copy is already gone.
+- **S3 is chosen only with real keys:** both `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`. Before, `S3_ENDPOINT` or a key id alone selected S3, which is how live health showed `storage: s3` without S3 being set up. On Vercel a leftover `STORAGE_DRIVER=s3` without both keys is ignored (warning in the log).
 - Automatic choice: on Vercel, when `STORAGE_DRIVER` is empty and the three `CLOUDINARY_*` settings are set, the driver is `cloudinary` (before S3). Elsewhere unchanged. `/system/health` `storage` can be `cloudinary`. Voice notes and exports stay in MongoDB under this driver.
 ### Environment variables (Vercel → field-api project → Settings → Environment Variables, then Redeploy)
 | Name | Value |
@@ -18,7 +19,7 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 | `STORAGE_DRIVER` | `cloudinary` (set it explicitly; it overrides any older `s3` value) |
 | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | as set for 1.37.0 (all three needed) |
 | `CLOUDINARY_FOLDER` | optional, default `fos` |
-| `S3_*` | keep them only if photos were ever stored in S3 and are still wanted; remove them later once those are copied or deleted |
+| **delete** `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`, `S3_BUCKET_MEDIA`, `S3_BUCKET_EXPORTS` | S3 is not used (owner 2026-11-22); one of these is what made health say `storage: s3`. Also delete `STORAGE_DRIVER=s3` if present (replace it with `cloudinary`). |
 
 `/api/cron` must still be called (Vercel cron, ADR-034): it moves photos that fell back to MongoDB into Cloudinary. Check: `GET /api/v1/system/health` → `"storage": "cloudinary"`, `"cloudStorage": "cloudinary"`, `"contract": "1.38.0"`; take an attendance photo; it appears in Cloudinary Media Library under the folder `fos/selfie/<userId>/`.
 ### Migration

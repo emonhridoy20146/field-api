@@ -43,6 +43,7 @@ export async function bootModules(opts: BuildOptions): Promise<AppContext> {
   await initJwtKeys(opts.config);
   setStorage(storageFromConfig(opts.config, () => ctx.clock.now()));
   setCloudinary(cloudinaryFromConfig(opts.config, () => ctx.clock.now()));
+  if (opts.config.VERCEL && opts.config.STORAGE_DRIVER === 's3' && storageDriver(opts.config) !== 's3') logger.warn('STORAGE_DRIVER=s3 ignored: S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY are not both set');
   if (storageDriver(opts.config) === 'cloudinary' && !cloudinary()) logger.warn('STORAGE_DRIVER=cloudinary but CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET are not all set: photos are kept in MongoDB');
   for (const m of manifests) await m.init?.();
   if (opts.migrate) await runMigrations(manifests.map((m) => ({ module: m.name, migrations: m.migrations ?? [] })), (msg) => logger.info(msg));

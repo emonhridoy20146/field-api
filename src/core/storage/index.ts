@@ -103,14 +103,16 @@ export function setStorage(s: ObjectStorage) {
  */
 export type StorageDriver = 's3' | 'db' | 'memory' | 'cloudinary';
 export function storageDriver(config: Config): StorageDriver {
-  if (config.STORAGE_DRIVER) return config.STORAGE_DRIVER;
+  // On Vercel a leftover `STORAGE_DRIVER=s3` without real S3 keys is ignored (owner 2026-11-22: S3 is not used there).
+  if (config.STORAGE_DRIVER && !(config.VERCEL && config.STORAGE_DRIVER === 's3' && !s3Configured(config))) return config.STORAGE_DRIVER;
   if (config.VERCEL && cloudinaryConfigured(config)) return 'cloudinary';
   if (s3Configured(config)) return 's3';
   if (config.VERCEL) return 'db';
   return config.NODE_ENV === 'production' ? 's3' : 'memory';
 }
 
-const s3Configured = (config: Config) => !!(config.S3_ENDPOINT || config.S3_ACCESS_KEY_ID);
+/** S3 counts as set up only with both keys; an endpoint or a key id alone used to select it and broke uploads. */
+export const s3Configured = (config: Pick<Config, 'S3_ACCESS_KEY_ID' | 'S3_SECRET_ACCESS_KEY'>) => !!(config.S3_ACCESS_KEY_ID && config.S3_SECRET_ACCESS_KEY);
 const s3From = (config: Config) =>
   new S3Storage(config.S3_BUCKET_MEDIA, { endpoint: config.S3_ENDPOINT, region: config.S3_REGION, accessKeyId: config.S3_ACCESS_KEY_ID, secretAccessKey: config.S3_SECRET_ACCESS_KEY });
 

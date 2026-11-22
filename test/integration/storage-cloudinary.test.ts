@@ -69,13 +69,16 @@ afterAll(async () => {
 
 describe('driver choice (ADR-051)', () => {
   const cl = { CLOUDINARY_CLOUD_NAME: 'demo', CLOUDINARY_API_KEY: 'k', CLOUDINARY_API_SECRET: 's' };
-  it('explicit setting wins; on Vercel with Cloudinary configured it is Cloudinary first, even with S3 set', () => {
+  it('on Vercel with Cloudinary configured it is Cloudinary first; S3 only with both keys', () => {
     expect(storageDriver(loadConfig({ NODE_ENV: 'test', STORAGE_DRIVER: 'cloudinary' }))).toBe('cloudinary');
     expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', ...cl }))).toBe('cloudinary');
-    expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', S3_ACCESS_KEY_ID: 'a', ...cl }))).toBe('cloudinary');
-    expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', STORAGE_DRIVER: 's3', ...cl }))).toBe('s3');
-    expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', S3_ACCESS_KEY_ID: 'a' }))).toBe('s3'); // no Cloudinary: as before
-    expect(storageDriver(loadConfig({ NODE_ENV: 'staging', S3_ACCESS_KEY_ID: 'a', ...cl }))).toBe('s3'); // not Vercel: unchanged
+    const keys = { S3_ACCESS_KEY_ID: 'a', S3_SECRET_ACCESS_KEY: 'b' };
+    expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', ...keys, ...cl }))).toBe('cloudinary');
+    expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', STORAGE_DRIVER: 's3', ...cl }))).toBe('cloudinary'); // leftover s3 without keys
+    expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', STORAGE_DRIVER: 's3', ...keys, ...cl }))).toBe('s3'); // real S3 asked for
+    expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', S3_ENDPOINT: 'https://r2.example.test', ...cl }))).toBe('cloudinary');
+    expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', ...keys }))).toBe('s3'); // no Cloudinary: as before
+    expect(storageDriver(loadConfig({ NODE_ENV: 'staging', ...keys, ...cl }))).toBe('s3'); // not Vercel: unchanged
   });
 
   it('keeps the S3 reader for old photos only when S3 is still configured', () => {
