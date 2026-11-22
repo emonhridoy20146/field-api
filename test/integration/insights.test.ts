@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { as, createTestApp, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
+import { as, createTestApp, handIn, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
 import { expectConforms } from '../helpers/openapi.js';
 import { deltaSync, syncBranches } from '../../src/modules/erp-gateway/index.js';
 import { applyAssignments, getByErpId } from '../../src/modules/customers/index.js';
@@ -41,8 +41,9 @@ beforeAll(async () => {
   await fs.post('/visits', { clientId: randomUUID(), customerId: ids['100245'], checkInAt: '2026-11-15T03:30:00Z', outcome: 'partial_paid', geo });
   expect((await collect(fs, 1, 150000, 'cash')).status).toBe(201);
   expect((await collect(fs, 2, 50000, 'bkash', { transactionRef: 'BKX1234567' })).status).toBe(201);
+  await handIn(fs); // 1.35.0: a collection goes to the ERP once deposited
   await dispatchOutbox(); // both posted to the mock ERP
-  expect((await collect(fs, 3, 20000, 'cash')).status).toBe(201); // still waiting for the worker
+  expect((await collect(fs, 3, 20000, 'cash')).status).toBe(201); // still in hand, not deposited
 });
 afterAll(async () => t.close());
 
@@ -359,9 +360,10 @@ describe('exports: data quality and PDF (FR-REP-003, OD-26)', () => {
 
 describe('collection board (FR-REP-007, ADR-045)', () => {
   it('ranks everyone by money the ERP has accepted, across branches, for a month and for all time; pending money is not counted', async () => {
-    await dispatchOutbox(); // whatever was still waiting is posted now: FS014 has 150000 + 50000 + 20000
     const bm = await as(t, BM);
     const fs = await as(t, FS1);
+    await handIn(fs);
+    await dispatchOutbox(); // whatever was still waiting is posted now: FS014 has 150000 + 50000 + 20000
     // one more collection that the ERP does not have yet
     expect((await collect(fs, 5, 70000, 'cash')).status).toBe(201);
 
@@ -380,6 +382,8 @@ describe('collection board (FR-REP-007, ADR-045)', () => {
 
     // a manager who collects is on the board, by collections alone
     expect((await collect(bm, 6, 300000, 'cash', { receiptNo: 'BRL01-BM001-261115-0006' })).status).toBe(201);
+    await handIn(bm);
+    await handIn(fs);
     await dispatchOutbox(); // posts the manager's 300000 and the 70000 that was waiting
     const all = await bm.get('/reports/collection-board?period=all');
     expectConforms('GET', '/reports/collection-board', 200, all.body);

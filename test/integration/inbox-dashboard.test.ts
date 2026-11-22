@@ -27,7 +27,8 @@ beforeAll(async () => {
   await fs.post('/collections', { clientId: randomUUID(), customerId: ids['100246'], amountPoisha: 150000, method: 'cash', recordedAt: '2026-11-15T03:35:00Z', receiptNo: 'BRL01-FS014-261115-0001', geo: { ...geo, mock: true } }, { 'idempotency-key': randomUUID() });
   await fs.post('/collections', { clientId: randomUUID(), customerId: ids['100246'], amountPoisha: 50000, method: 'bkash', transactionRef: 'BKX1234567', recordedAt: '2026-11-15T03:40:00Z', receiptNo: 'BRL01-FS014-261115-0002', geo }, { 'idempotency-key': randomUUID() });
   await fs.post('/promises', { clientId: randomUUID(), customerId: ids['100245'], promisedDate: '2026-11-15', promisedAmountPoisha: 100000 });
-  const dep = await fs.post('/cash/deposits', { clientId: randomUUID(), amountPoisha: 100000, destination: 'branch_cashier', depositedAt: '2026-11-15T03:50:00Z' }, { 'idempotency-key': randomUUID() });
+  // 1.35.0: a deposit hands in all of it (the cash and the bKash collection) and is final
+  const dep = await fs.post('/cash/deposits', { clientId: randomUUID(), amountPoisha: 150000, destination: 'branch_cashier', depositedAt: '2026-11-15T03:50:00Z' }, { 'idempotency-key': randomUUID() });
   depositId = dep.body.id;
   await fs.post('/leave-requests', { type: 'casual', from: '2026-11-20', to: '2026-11-20' });
 });
@@ -50,15 +51,12 @@ describe('inbox (FR-INB-001)', () => {
     expect((await bm.get(`/inbox?branchId=${'a'.repeat(24)}`)).body.items).toEqual([]);
   });
 
-  it('delayed items appear later and close themselves when the cause is gone', async () => {
-    const bm = await as(t, '01700000002');
+  it('1.35.0: a final deposit never waits for the office, so no "unverified deposit" item appears, even after 24 h', async () => {
+    expect(depositId).toBeTruthy();
     t.clock.advance(25 * 3_600_000);
     const bm2 = await as(t, '01700000002');
-    expect((await bm2.get('/inbox?type=cash.deposit.pending')).body.items).toHaveLength(1);
-    expect((await bm2.post(`/cash/deposits/${depositId}/verify`)).status).toBe(200);
     expect((await bm2.get('/inbox?type=cash.deposit.pending')).body.items).toHaveLength(0);
-    expect((await bm2.get('/inbox?status=resolved&type=cash.deposit.pending')).body.items).toHaveLength(1);
-    void bm;
+    expect((await bm2.get('/inbox?status=resolved&type=cash.deposit.pending')).body.items).toHaveLength(0);
   });
 
   it('snooze hides until the time passes; resolve is audited and idempotent; out of scope is 404', async () => {
@@ -92,7 +90,7 @@ describe('dashboard (FR-DSH-001)', () => {
     expect(r.body.trend7d[6]).toEqual({ date: '2026-11-15', collectedPoisha: 200000, visits: 1 });
     expect(r.body.overdue.customers).toBeGreaterThanOrEqual(0);
     const today = await bm.get('/dashboard/overview');
-    expect(today.body.cash.onHandPoisha).toBe(50000); // 150000 cash − 100000 verified deposit
+    expect(today.body.cash.onHandPoisha).toBe(0); // all 150000 cash handed in
     expect((await bm.get('/dashboard/overview?date=2030-01-01')).status).toBe(400);
     expect((await bm.get(`/dashboard/overview?branchId=${'a'.repeat(24)}`)).status).toBe(404);
     expect((await (await as(t, '01700000003')).get('/dashboard/overview')).status).toBe(403);

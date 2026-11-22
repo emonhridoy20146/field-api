@@ -5,12 +5,12 @@ import { indexMigration } from '../../core/db/migrations.js';
 import { registerCashPositionProvider, registerCoverageProvider } from '../collections/index.js';
 import { registerSummaryContributor } from '../handovers/index.js';
 import { cashRoutes } from './routes.js';
-import { coveredOfCollection, getDeposit, onCollectionReceived, positionOf } from './service.js';
+import { coveredOfCollection, getDeposit, linkLegacyDeposits, onCollectionReceived, positionOf } from './service.js';
 
 export const manifest: ModuleManifest = {
   name: 'cash',
   version: '1.0.0',
-  description: 'Cash on hand, limits, deposits, verification, end-of-day closing (FR-CASH-*)',
+  description: 'Cash on hand, limits, final deposits that send collections to the ERP, end-of-day closing (FR-CASH-*)',
   featureFlag: { key: 'module.cash', default: false, description: 'Cash on hand and deposits', owner: 'field-api' },
   dependsOn: ['audit', 'settings', 'users', 'collections', 'handovers', 'promises'],
   permissions: [
@@ -46,6 +46,9 @@ export const manifest: ModuleManifest = {
       { collection: 'cash_deposits', key: { branchId: 1, status: 1, depositedAt: -1 } },
       { collection: 'cash_closings', key: { userId: 1, businessDate: 1 }, options: { unique: true } },
     ]),
+    indexMigration('20261122-0001-collection-deposit-index', [{ collection: 'collections', key: { 'deposit.id': 1 } }]),
+    // 1.35.0 (ADR-049): deposits from before mark the collections they fully covered, so those go to the ERP.
+    { id: '20261122-0002-link-legacy-deposits', up: async () => void (await linkLegacyDeposits()) },
   ],
   init() {
     ctx().bus.on('collection.received', async (p) => onCollectionReceived(p as never));

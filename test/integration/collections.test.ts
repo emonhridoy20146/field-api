@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { as, createTestApp, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
+import { as, createTestApp, handIn, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
 import { expectConforms } from '../helpers/openapi.js';
 import { deltaSync } from '../../src/modules/erp-gateway/index.js';
 import { applyAssignments, getByErpId } from '../../src/modules/customers/index.js';
@@ -24,7 +24,12 @@ const body = (over: Record<string, unknown> = {}) => ({
   geo: { lat: 22.7053, lng: 90.3651, accuracyM: 12 },
   ...over,
 });
-const post = async (c: Awaited<ReturnType<typeof as>>, b: Record<string, unknown>, key = randomUUID()) => ({ key, res: await c.post('/collections', b, { 'idempotency-key': key }) });
+// 1.35.0 (FR-CASH-010): a collection goes to the ERP once it is deposited, so these journeys hand it in right away.
+const post = async (c: Awaited<ReturnType<typeof as>>, b: Record<string, unknown>, key = randomUUID()) => {
+  const res = await c.post('/collections', b, { 'idempotency-key': key });
+  if (res.status === 201) await handIn(c);
+  return { key, res };
+};
 
 beforeAll(async () => {
   t = await createTestApp();
@@ -175,6 +180,32 @@ describe('ERP failures (07-test-plan §3)', () => {
     expect((await (await as(t, '01700000003')).get(`/collections/${r.res.body.id}`)).body.status).toBe('posted');
   });
 
+  it('1.35.0: a collection not deposited yet is never sent, not even when ERP posting is switched on again', async () => {
+    const fs = await as(t, '01700000003');
+    const calls = t.erp.postCalls;
+    const held = await fs.post('/collections', body({ amountPoisha: 2500 }), { 'idempotency-key': randomUUID() });
+    expect(held.status).toBe(201);
+    expect(held.body.depositId).toBeNull();
+    await dispatchOutbox();
+    t.clock.advance(11 * 60_000);
+    const { requeueStuck } = await import('../../src/modules/collections/service.js');
+    await requeueStuck();
+    await dispatchOutbox();
+    expect(t.erp.postCalls).toBe(calls);
+    expect((await fs.get(`/collections/${held.body.id}`)).body.status).toBe('received');
+    // handed in while the ERP is read-only: it waits, then goes by itself once posting is on
+    await setSystem('erp.recordOnly', true);
+    const dep = await handIn(fs);
+    await dispatchOutbox();
+    expect((await fs.get(`/collections/${held.body.id}`)).body).toMatchObject({ status: 'received', depositId: dep.body.id });
+    await setSystem('erp.recordOnly', false);
+    t.clock.advance(11 * 60_000);
+    expect(await requeueStuck()).toBe(1);
+    await dispatchOutbox();
+    expect((await (await as(t, '01700000003')).get(`/collections/${held.body.id}`)).body.status).toBe('posted');
+    expect(t.erp.postCalls).toBe(calls + 1);
+  });
+
   it('office reversal of a field payment is reflected after sync', async () => {
     const bm = await as(t, '01700000002');
     const list = await bm.get('/collections?status=posted');
@@ -249,7 +280,7 @@ describe('rules of the real ERP (1.13.0, ADR-033)', () => {
     }
   });
 
-  it('a collector with no ERP employee gets COLLECTOR_NOT_LINKED; linking is picked from the ERP list', async () => {
+  it('1.35.0: a collector with no ERP employee is posted by name (ADR-049); linking is picked from the ERP list', async () => {
     const sa = await as(t, '01700000001');
     const emp = await sa.get('/system/erp-employees');
     expect(emp.status).toBe(200);
@@ -265,8 +296,9 @@ describe('rules of the real ERP (1.13.0, ADR-033)', () => {
       expect(r.res.status).toBe(201);
       await dispatchOutbox();
       const c = await fs2.get(`/collections/${r.res.body.id}`);
-      expect(c.body.status).toBe('conflict');
-      expect(c.body.conflict.code).toBe('COLLECTOR_NOT_LINKED');
+      // the ERP takes it with an empty referrer and the staff member's name as the reference
+      expect(c.body.status).toBe('posted');
+      expect(c.body.conflict).toBeNull();
     } finally {
       await sa.patch(`/users/${s.fs2.id}`, { erpEmployeeId: '8', reason: 'linked' });
     }

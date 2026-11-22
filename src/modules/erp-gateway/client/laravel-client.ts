@@ -168,12 +168,12 @@ export class LaravelErpClient implements ErpClient {
   }
 
   async postPayment(input: PostPaymentInput): Promise<PostPaymentResult> {
-    // The ERP requires a collector employee (findings §2.5); say so instead of sending a request that must fail.
-    if (!input.employeeId)
+    // 1.35.0 (ADR-049): a collector with no ERP employee is posted by name; the ERP leaves the referrer empty.
+    if (!input.employeeId && !input.collectorName?.trim())
       return {
         kind: 'business_error',
         code: 'COLLECTOR_NOT_LINKED',
-        message: 'Collector has no ERP employee id',
+        message: 'Collector has no ERP employee id and no name',
         details: {},
       };
     let r: RawResponse;

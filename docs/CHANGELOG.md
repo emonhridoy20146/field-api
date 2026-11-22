@@ -4,6 +4,19 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.35.0] — contract 1.35.0 (a collection goes to the ERP when it is deposited; deposits are final)
+### Changed (owner request 2026-11-22, FR-CASH-010, ADR-049)
+- **Recording a collection no longer sends it to the ERP.** It stays in the collector's hand (any method) and may be edited or withdrawn (`PATCH /collections/{id}`, `POST /collections/{id}/withdraw`; `NOT_CASH` is no longer returned) until it is deposited.
+- **`POST /cash/deposits` hands in everything at once and sends it.** `amountPoisha` must equal all the cash in hand (422 `BUSINESS_RULE` `DEPOSIT_MUST_BE_ALL`, `details.onHandPoisha`; more is still `DEPOSIT_EXCEEDS_ON_HAND`); every mobile banking, bank or card collection not handed in goes with it; `amountPoisha` may be 0 when only those are handed in; nothing at all is `NOTHING_TO_DEPOSIT`. The deposit is `submitted` (new status) with `collectionCount`, `nonCashPoisha`, `nonCashCount`. Each collection gets `depositId` and `depositedAt` (new on `Collection`) and is posted to the ERP under its own key; while ERP posting is off they wait and go once it is on. 409 `INVALID_STATE` `STATUS_CHANGED` if another deposit or a void took one meanwhile (nothing saved).
+- **A deposit is final.** `POST /cash/deposits/{id}/verify`, `/reject` and `/delete` answer 409 `INVALID_STATE` reason `DEPOSIT_FINAL` (404 out of scope). A deposited collection answers `COVERED_BY_DEPOSIT` to edit and withdraw. No `cash.deposit.pending` inbox item is raised for new deposits.
+- `GET /cash/deposits/{id}/collections` for a `submitted` deposit lists every collection it took, whole, with `method`, `status` and `erpReceiptNo`. Older deposits keep the oldest-first view.
+- `GET /cash/deposits?status=submitted`.
+- **A collector with no ERP employee is posted by name.** The ERP post always carries `collector_name`; without an ERP employee id the ERP (field API change of 2026-11-22) leaves the referrer empty instead of refusing. Deploy that ERP change first.
+### Migration
+- `cash/20261122-0001-collection-deposit-index` (`collections { 'deposit.id': 1 }`), `cash/20261122-0002-link-legacy-deposits`: old pending/verified deposits take the cash collections they covered in full (those then go to the ERP). Cash in hand totals do not change.
+### Notes for the clients
+- staff-app: one Deposit button for everything in hand, a confirm that says it goes to the ERP and cannot be changed; lock a collection once `depositId` is set; send the whole cash in hand. admin-web: deposits are read-only (no verify, reject, delete); show the collections per deposit with their ERP state.
+
 ## [1.34.0] — contract 1.34.0 (cancel a co-work request; the office ends a co-work)
 ### Added (owner request 2026-11-22, FR-CW-006, ADR-048)
 - **A co-work with nobody working ends at once.** `shouldEnd` now also ends a session when no accepted member is left, even with invitations unanswered. Before, the person who asked could leave but the session stayed open for the invitees, so the request could not be cancelled. One person working with an invitation pending stays open, as at creation. A later `respond` answers 409 `SESSION_ENDED` as before.

@@ -126,6 +126,7 @@ Materialized: `assignment_scopes { _id: userId, customerIds: [...], recomputedAt
   "conflict": null, "flags": ["late_sync"], "voided": null, "resolution": null }
 ```
 `voided`: `{ by, at, reason }` (an office void, or the collector's own withdraw, FR-COL-016, 1.32.0: same shape, the audit action tells them apart). A cash collection edited before the ERP got it keeps its row, `version` rises, and the change is in the audit log (`collection.edited`). `conflict`: `{ code, message, erpResponse, raisedAt }`. `resolution`: `{ action, by, at, reason, proofMediaId, targetPlanId }`.
+> 1.35.0: `deposit: { id, at } | null`, set when a deposit hands the collection in; only then is it posted to the ERP, and from then on it cannot be edited or withdrawn.
 Indexes: `{ idempotencyKey:1 } unique`, `{ receiptNo:1 } unique`, `{ collectorId:1, businessDate:-1 }`, `{ branchId:1, businessDate:-1, status:1 }`, `{ customerId:1, recordedAt:-1 }`, `{ status:1, 'erp.attempts':1 }`, `{ method:1, transactionRef:1 } sparse`.
 Retention: permanent (≥ 8 years, OD-09).
 
@@ -136,6 +137,7 @@ Retention: permanent (≥ 8 years, OD-09).
 `{ _id: key, scope: 'collection'|'sync', payloadHash, response, entityId, createdAt }` · TTL 400 days on `createdAt` (collections themselves keep the key permanently).
 
 ### cash_deposits
+> 1.35.0 (FR-CASH-010, ADR-049): new deposits are `status: 'submitted'` (final) with `collectionIds[]` (cash and the rest), `nonCashPoisha`, `nonCashCount` and, when it took a collection an older deposit had partly paid, `legacyAbsorbedPoisha`. Deposits from before have no `collectionIds`. Migration `cash/20261122-0002-link-legacy-deposits` links old pending/verified deposits to the cash collections they covered in full. Index `collections { 'deposit.id':1 }`.
 `{ clientId, branchId, userId, amountPoisha, destination: 'branch_cashier'|'bank'|'manager', reference, slipMediaId, depositedAt, geo, status: 'pending'|'verified'|'rejected'|'deleted', verifiedBy, verifiedAt, rejectReason, deletedBy, deletedAt, deleteReason }` · `{ clientId:1 } unique`, `{ userId:1, status:1 }`, `{ branchId:1, status:1, depositedAt:-1 }`.
 
 ### cash_closings [ADDED]

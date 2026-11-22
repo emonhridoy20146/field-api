@@ -11,7 +11,14 @@ const depositSchema = new Schema(
     slipMediaId: { type: String, default: null },
     depositedAt: { type: Date, required: true },
     geo: { type: { lat: Number, lng: Number, accuracyM: Number, _id: false }, default: null },
-    status: { type: String, enum: ['pending', 'verified', 'rejected', 'deleted'], default: 'pending' },
+    // 1.35.0: new deposits are `submitted` (final); pending/verified/rejected/deleted are from before.
+    status: { type: String, enum: ['pending', 'verified', 'rejected', 'deleted', 'submitted'], default: 'pending' },
+    // 1.35.0 (FR-CASH-010): the collections it handed in (cash and the rest); absent on older deposits.
+    collectionIds: { type: [String], default: undefined },
+    nonCashPoisha: { type: Number, default: undefined },
+    nonCashCount: { type: Number, default: undefined },
+    // 1.35.0: what older (pre-1.35.0) deposits had already paid of the collections this one took
+    legacyAbsorbedPoisha: { type: Number, default: undefined },
     verifiedBy: { type: String, default: null },
     verifiedAt: { type: Date, default: null },
     rejectReason: { type: String, default: null },

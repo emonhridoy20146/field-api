@@ -74,6 +74,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Latest-location map, route history, stops | FR-LOC-006..008 | ✅ API (with visit/collection overlay, stop ↔ visit link, today's totals on the marker); screens in admin-web |
 | Visit suggestion from dwell | FR-VIS-005 | ☐ |
 | Retention TTL + daily summaries | FR-LOC-009, 012 | ✅ |
+| A collection goes to the ERP when it is deposited; one Deposit for everything in hand; deposits final (no verify, reject, delete); unlinked collectors posted by name (added 2026-11-22, contract 1.35.0) | FR-CASH-010 | ✅ API (ADR-049) |
 | Co-work: a request is cancelled when the asker leaves and nobody is working; the office ends a session with a reason (added 2026-11-22, contract 1.34.0) | FR-CW-006 | ✅ API (ADR-048) |
 | Co-work: requests, joint visits, manager view, single / co-work statistics with credit weight (added 2026-11-16) | FR-CW-001..005 | ✅ API (ADR-029); screens in staff-app and admin-web |
 | Staff tasks: admin gives a task with a note, staff resolve request, admin verifies (added 2026-11-18) | FR-TASK-001..005 | ✅ API (contract 1.20.0, ADR-037, flag `module.tasks`); screens in admin-web and staff-app |

@@ -164,3 +164,18 @@ export async function as(t: TestApp, phone: string, deviceId?: string) {
   const l = await login(t.app, phone, deviceId ? { deviceId } : {});
   return client(t.app, l.accessToken, { 'x-device-id': deviceId ?? `dev-${phone}` });
 }
+
+/**
+ * 1.35.0 (FR-CASH-010): nothing goes to the ERP until the collector deposits it. Hands in everything the caller holds
+ * (all cash in hand plus mobile/bank collections) like the app's Deposit button; nothing held is fine.
+ */
+export async function handIn(c: ReturnType<typeof client>, over: Record<string, unknown> = {}) {
+  const me = await c.get('/cash/me');
+  const r = await c.post(
+    '/cash/deposits',
+    { clientId: randomUUID(), amountPoisha: me.body.onHandPoisha ?? 0, destination: 'branch_cashier', depositedAt: '2026-11-15T12:00:00Z', ...over },
+    { 'idempotency-key': randomUUID() },
+  );
+  if (r.status !== 201 && r.body?.details?.rule !== 'NOTHING_TO_DEPOSIT' && r.body?.rule !== 'NOTHING_TO_DEPOSIT') throw new Error(`handIn failed: ${r.status} ${JSON.stringify(r.body)}`);
+  return r;
+}

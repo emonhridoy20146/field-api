@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ctx } from '../../core/context/index.js';
 import { AppError, businessRule, notFound } from '../../core/errors/index.js';
+import type { ClientSession } from 'mongoose';
 import { isDuplicateKey, isOid, withTransaction, type LeanDoc } from '../../core/db/index.js';
 import { recordChange } from '../../core/changefeed/index.js';
 import { cancelPending, enqueue, hasActive } from '../../core/events/outbox.js';
@@ -115,6 +116,9 @@ async function views(rows: Lean[]) {
       flags: c.flags ?? [],
       distanceToPinM: c.geo?.distanceToPinM ?? null,
       ...(c.erp?.reversed ? { erpReversed: true } : {}),
+      // 1.35.0: the deposit that handed this collection in; from then on it goes to the ERP and cannot be changed.
+      depositId: (c.deposit?.id as string | undefined) ?? null,
+      depositedAt: c.deposit?.at ? (c.deposit.at as Date).toISOString() : null,
       // 1.33.0: who voided it and how. Rows voided before 1.33.0 have no `kind`: the collector voiding their own is a withdrawal.
       ...(c.voided
         ? { voided: { by: c.voided.by, byName: nameOf(c.voided.by), at: (c.voided.at as Date).toISOString(), reason: c.voided.reason, kind: (c.voided.kind as string | undefined) ?? (c.voided.by === c.collectorId ? 'withdrawn' : 'admin') } }
@@ -149,7 +153,7 @@ async function load(user: AuthUser, id: string, scope: (u: AuthUser) => Record<s
 
 // ---------------- record (FR-COL-001..006, 013) ----------------
 
-function jobFor(c: Lean, employeeId: string | null, key: string): PostPaymentJob {
+function jobFor(c: Lean, employeeId: string | null, key: string, collectorName: string | null = null): PostPaymentJob {
   const lat = c.geo?.point?.coordinates?.[1];
   const lng = c.geo?.point?.coordinates?.[0];
   return {
@@ -164,6 +168,7 @@ function jobFor(c: Lean, employeeId: string | null, key: string): PostPaymentJob
       transactionRef: c.transactionRef,
       collectedAt: (c.recordedAt as Date).toISOString(),
       employeeId,
+      collectorName,
       fieldReceiptNo: c.receiptNo,
       physicalReceiptNo: c.physicalReceiptNo,
       note: c.note,
@@ -264,7 +269,7 @@ export async function record(user: AuthUser, idempotencyKey: string, input: Coll
         { session },
       );
       const lean = c!.toObject() as Lean;
-      await enqueue(OUTBOX, jobFor(lean, collector.erpEmployeeId, idempotencyKey) as unknown as Record<string, unknown>, session);
+      // 1.35.0 (FR-CASH-010, ADR-049): nothing goes to the ERP until the collector deposits it (`submitForDeposit`).
       await recordChange({ entity: 'collection', entityId: lean._id.toHexString(), userIds: [user.id], branchId: customer.branchId, fanoutBranchId: customer.branchId }, session);
       await audit.record(
         {
@@ -403,10 +408,13 @@ export async function voidCollection(user: AuthUser, id: string, reason: string,
   return closeUnposted(user, c, reason, meta, 'collection.voided');
 }
 
-/** A cash collection that is still in the collector's hand: cash, and no pending or verified deposit covers any of it (FR-COL-016). */
+/**
+ * A collection that is still in the collector's hand (FR-COL-016, 1.35.0 FR-CASH-010): no deposit has taken it, and for
+ * cash no older deposit covers any of it either (deposits recorded before 1.35.0 cover cash oldest-first).
+ */
 async function assertNotDeposited(c: Lean) {
-  if (c.method !== 'cash') throw new AppError('INVALID_STATE', { reason: 'NOT_CASH', status: c.status });
-  if ((await coverageProvider(c.collectorId, c._id.toHexString())) > 0) throw new AppError('INVALID_STATE', { reason: 'COVERED_BY_DEPOSIT', status: c.status });
+  if (c.deposit?.id) throw new AppError('INVALID_STATE', { reason: 'COVERED_BY_DEPOSIT', status: c.status });
+  if (c.method === 'cash' && (await coverageProvider(c.collectorId, c._id.toHexString())) > 0) throw new AppError('INVALID_STATE', { reason: 'COVERED_BY_DEPOSIT', status: c.status });
 }
 
 /**
@@ -448,12 +456,11 @@ export async function editCollection(user: AuthUser, id: string, input: z.infer<
   if (next.amountPoisha === before.amountPoisha && next.note === before.note && next.payerName === before.payerName) return viewOne(c);
   const cancel = await cancelPending(OUTBOX, { collectionId: id });
   if (cancel === 'in_flight') throw new AppError('INVALID_STATE', { reason: 'POSTING_IN_PROGRESS' });
-  const collector = await getUser(c.collectorId);
   await withTransaction(async (session) => {
     const edited = { count: ((c.edited?.count as number | undefined) ?? 0) + 1, at: ctx().clock.now(), by: user.id, previousAmountPoisha: (c.edited?.previousAmountPoisha as number | undefined) ?? before.amountPoisha };
     const r = await CollectionModel.updateOne({ _id: c._id, status: 'received', 'erp.attempts': { $in: [0, null] } }, { $set: { ...next, edited }, $inc: { version: 1 } }, { session });
     if (r.modifiedCount !== 1) throw new AppError('INVALID_STATE', { reason: 'STATUS_CHANGED' });
-    await enqueue(OUTBOX, jobFor({ ...c, ...next }, collector?.erpEmployeeId ?? null, c.erp.key) as unknown as Record<string, unknown>, session);
+    // 1.35.0: not deposited yet, so nothing is queued for the ERP; the deposit sends the corrected amount under the same key.
     await recordChange({ entity: 'collection', entityId: id, userIds: [c.collectorId], branchId: c.branchId, fanoutBranchId: c.branchId }, session);
     await audit.record({ actor: user, action: 'collection.edited', entity: 'collection', entityId: id, branchId: c.branchId, before, after: next, meta, money: true }, session);
   });
@@ -502,7 +509,7 @@ export async function resolve(user: AuthUser, id: string, requestKey: string, in
       set['erp.key'] = key;
       set['erp.lastError'] = null;
       set.conflict = null;
-      await enqueue(OUTBOX, jobFor({ ...c, erpPlanId: planId }, collector?.erpEmployeeId ?? null, key) as unknown as Record<string, unknown>, session);
+      await enqueue(OUTBOX, jobFor({ ...c, erpPlanId: planId }, collector?.erpEmployeeId ?? null, key, collector ? collector.name.en || collector.name.bn : null) as unknown as Record<string, unknown>, session);
     }
     const r = await CollectionModel.updateOne(
       { _id: c._id, status: c.status },
@@ -585,12 +592,13 @@ export async function onDeferred(p: { collectionId: string }) {
 /** Record-only mode ended (or outbox lost an item): re-enqueue `received` collections that have no live job. */
 export async function requeueStuck(): Promise<number> {
   const cutoff = new Date(ctx().clock.now().getTime() - 10 * 60_000);
-  const rows = (await CollectionModel.find({ status: 'received', receivedAt: { $lt: cutoff } }).limit(500).lean()) as Lean[];
+  // 1.35.0: only what a deposit handed in; a collection still in hand waits for its deposit.
+  const rows = (await CollectionModel.find({ status: 'received', receivedAt: { $lt: cutoff }, 'deposit.id': { $ne: null } }).limit(500).lean()) as Lean[];
   let n = 0;
   for (const c of rows) {
     if (await hasActive(OUTBOX, { collectionId: c._id.toHexString() })) continue;
     const u = await getUser(c.collectorId);
-    await enqueue(OUTBOX, jobFor(c, u?.erpEmployeeId ?? null, c.erp?.key ?? c.idempotencyKey) as unknown as Record<string, unknown>);
+    await enqueue(OUTBOX, jobFor(c, u?.erpEmployeeId ?? null, c.erp?.key ?? c.idempotencyKey, u ? u.name.en || u.name.bn : null) as unknown as Record<string, unknown>);
     await CollectionModel.updateOne({ _id: c._id }, { $set: { 'erp.deferred': false } });
     n++;
   }
@@ -632,6 +640,60 @@ export async function cashSums(userIds: string[], today: string) {
   );
 }
 
+/**
+ * 1.35.0 (FR-CASH-010): collections of mobile banking, bank or card that the collector has not handed in yet. They wait
+ * on the phone like cash and go to the ERP with the next deposit. Oldest first.
+ */
+export async function heldNonCash(userId: string) {
+  const rows = (await CollectionModel.find({ collectorId: userId, method: { $ne: 'cash' }, status: 'received', 'deposit.id': null }).sort({ recordedAt: 1, _id: 1 }).select({ _id: 1, amountPoisha: 1 }).lean()) as Lean[];
+  return rows.map((r) => ({ collectionId: r._id.toHexString() as string, amountPoisha: r.amountPoisha as number }));
+}
+
+/**
+ * 1.35.0 (FR-CASH-010, ADR-049): a deposit hands these collections in. Each is marked with the deposit and, if the
+ * ERP does not have it yet, queued for posting under its own key, in the deposit's transaction. Answers how many were
+ * taken; fewer than asked means another deposit or a void got there first, and the caller rolls back.
+ */
+export async function submitForDeposit(collectorId: string, depositId: string, collectionIds: string[], at: Date, session: ClientSession): Promise<number> {
+  const collector = await getUser(collectorId);
+  const name = collector ? collector.name.en || collector.name.bn : null;
+  let taken = 0;
+  for (const id of collectionIds) {
+    if (!isOid(id)) continue;
+    const c = (await CollectionModel.findOneAndUpdate(
+      { _id: id, collectorId, 'deposit.id': null, status: { $in: CASH_COUNTED_STATUSES } },
+      { $set: { deposit: { id: depositId, at } }, $inc: { version: 1 } },
+      { session, new: true },
+    ).lean()) as Lean | null;
+    if (!c) continue;
+    taken++;
+    // Not posted before (still `received`): send it now. Older rows the ERP already has keep their state.
+    if (c.status === 'received' && !c.erp?.paymentId && !(await hasActive(OUTBOX, { collectionId: id })))
+      await enqueue(OUTBOX, jobFor(c, collector?.erpEmployeeId ?? null, c.erp?.key ?? c.idempotencyKey, name) as unknown as Record<string, unknown>, session);
+    await recordChange({ entity: 'collection', entityId: id, userIds: [collectorId], branchId: c.branchId, fanoutBranchId: c.branchId }, session);
+  }
+  return taken;
+}
+
+/** 1.35.0: the collections a deposit handed in, cash and the rest, with where each stands in the ERP. Oldest first. */
+export async function depositRows(depositId: string) {
+  const rows = (await CollectionModel.find({ 'deposit.id': depositId }).sort({ recordedAt: 1, _id: 1 }).lean()) as Lean[];
+  const refs = await getCustomerRefs(rows.map((r) => r.customerId));
+  return rows.map((c) => ({
+    collectionId: c._id.toHexString() as string,
+    receiptNo: c.receiptNo as string,
+    recordedAt: c.recordedAt as Date,
+    businessDate: c.businessDate as string,
+    customer: { id: c.customerId as string, name: refs.get(c.customerId)?.name ?? { bn: '', en: '' }, code: refs.get(c.customerId)?.code ?? '' },
+    erpPlanId: c.erpPlanId as string,
+    amountPoisha: c.amountPoisha as number,
+    method: c.method as string,
+    status: c.status as Status,
+    erpReceiptNo: (c.erp?.receiptNo as string | undefined) ?? null,
+    branchId: c.branchId as string,
+  }));
+}
+
 /** Cash collections of a user ordered oldest first (for "oldest undeposited" after FIFO netting of deposits). */
 export async function cashCollectionsOf(userId: string): Promise<{ at: Date; amountPoisha: number }[]> {
   const rows = await CollectionModel.find({ collectorId: userId, method: 'cash', status: { $in: ['received', 'posting', 'posted', 'conflict', 'posting_failed', 'resolved_posted'] } }).select('recordedAt amountPoisha').sort({ recordedAt: 1 }).lean();
@@ -655,6 +717,8 @@ export async function cashCollectionRows(userId: string) {
     amountPoisha: c.amountPoisha as number,
     status: c.status as Status,
     branchId: c.branchId as string,
+    // 1.35.0: set once a deposit took it
+    depositId: (c.deposit?.id as string | undefined) ?? null,
   }));
 }
 
