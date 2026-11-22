@@ -27,6 +27,15 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 - None. New collection `storage_cloud_objects` is created on first write.
 ### Notes for the clients
 - staff-app: no change. admin-web: no change (health may show `storage: cloudinary`).
+
+## [1.39.0] — contract 1.39.0 (an office user's pin from the app applies at once)
+### Changed (owner request 2026-11-22, FR-CUS-020, ADR-052)
+- `POST /customers/{id}/location-proposals` (and sync mutation `location_proposal`): when the caller holds `customer.location.approve` for the customer's branch (super admin; branch manager by default; anyone granted the key), the pin applies at once, also when it moves an existing pin and whatever `customers.staffPinApproval` says. It is stored like the web's direct set (`direct: true`, `status: approved`, `decidedBy` = caller), audited `customer.location.set`, emits `customer.location.approved` with `direct: true, fromApp: true` (activity feed shows it as an applied pin) and reaches the branch on `/sync/pull`. No inbox item for the office.
+- The answer gains `direct` (boolean, additive): `{ id, status: "approved", direct: true }` for such a pin, `direct: false` otherwise (also on replay).
+- Mock location: a mock `gps` fix is still refused (`MOCK_LOCATION`); a `map` pin with a mock `deviceGeo` stays a pending proposal flagged `deviceMock`, even for an approver. Field staff behave exactly as before.
+### Notes for the clients
+- Additive; no migration. staff-app: after sending a pin, say "Pin updated" when `status` is `approved` (and "Sent for approval" only when `pending`); offline, the pulled `location_proposal` (`status`, `direct`) tells the fate. admin-web: nothing (the pin appears in the approved list as `direct`).
+
 ## [1.38.0] — contract 1.38.0 (map places)
 ### Added (owner request 2026-11-22, FR-PLC-001..006, ADR-051)
 - New module **`places`** (flag `module.places`, **off by default**: the owner turns it on in admin → Flags). A place is a text marker on the map: `name` (≤ 60), `icon` (`shop, market, mosque, school, bank, hospital, bus_stop, office, landmark, other`), optional `note` (≤ 200), `location {lat,lng}`, `branchId`, `version`, `status active|deleted`, `pendingMove`, `lastMoveDecision`, history `events`.
