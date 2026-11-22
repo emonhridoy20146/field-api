@@ -79,7 +79,7 @@ export class CloudinaryClient {
     return `${this.o.folder}/${key.replace(/\.[a-z0-9]+$/i, '')}`;
   }
 
-  /** `timeoutMs`: give up after this long (a phone is waiting on the upload, ADR-051); the caller falls back. */
+  /** `timeoutMs`: give up after this long (a phone is waiting on the upload, ADR-053); the caller falls back. */
   async upload(body: Uint8Array, contentType: string, publicId: string, timeoutMs?: number): Promise<CloudUpload> {
     const params = { public_id: publicId, timestamp: this.ts(), type: 'authenticated', overwrite: 'true' };
     const form = new FormData();

@@ -41,7 +41,7 @@ describe('files in the database when there is no S3 (ADR-039)', () => {
     expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1' }))).toBe('db');
     const keys = { S3_ACCESS_KEY_ID: 'a', S3_SECRET_ACCESS_KEY: 'b' };
     expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', S3_ENDPOINT: 'https://r2.example.test', ...keys }))).toBe('s3');
-    // An endpoint or a key id alone is not S3 (1.38.0): it used to send phone uploads to a store that was not set up.
+    // An endpoint or a key id alone is not S3 (1.40.0): it used to send phone uploads to a store that was not set up.
     expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', S3_ENDPOINT: 'https://r2.example.test' }))).toBe('db');
     expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', S3_ACCESS_KEY_ID: 'a' }))).toBe('db');
     expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', STORAGE_DRIVER: 's3' }))).toBe('db'); // leftover setting without keys

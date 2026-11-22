@@ -92,7 +92,7 @@ export class DbStorage implements ObjectStorage {
       .updateOne({ _id: key as never }, { $set: { contentType, sizeBytes: body.byteLength, body: Buffer.from(body), storedAt: this.opts.now() } }, { upsert: true });
   }
 
-  /** A client upload that passed the signed checks (PUT /storage/o). Here it is kept as is; ADR-051 overrides it. */
+  /** A client upload that passed the signed checks (PUT /storage/o). Here it is kept as is; ADR-053 overrides it. */
   async receive(key: string, body: Uint8Array, contentType: string): Promise<void> {
     await this.put(key, body, contentType);
   }

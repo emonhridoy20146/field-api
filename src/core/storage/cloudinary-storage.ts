@@ -6,7 +6,7 @@ import { DbStorage, type DbStorageOptions } from './db-storage.js';
 import type { ObjectStorage } from './types.js';
 
 /**
- * Driver `cloudinary` (ADR-051): the phone's upload goes to Cloudinary at once, through the API.
+ * Driver `cloudinary` (ADR-053): the phone's upload goes to Cloudinary at once, through the API.
  *
  * The phone protocol does not change: `presignPut` hands out the same signed `/api/v1/storage/o` link as the
  * MongoDB store (5 minutes; type, size and sha256 checked by the route). When the bytes arrive, a photo is

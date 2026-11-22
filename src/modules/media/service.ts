@@ -54,7 +54,7 @@ export async function confirm(user: AuthUser, id: string) {
   if (!m) throw notFound('media');
   if (m.status === 'uploaded') return { id, status: 'uploaded' };
   if (m.status === 'deleted') throw new AppError('INVALID_STATE', { reason: 'MEDIA_DELETED' });
-  // ADR-051: with the Cloudinary-first store the upload may already be in Cloudinary; the row then owns it.
+  // ADR-053: with the Cloudinary-first store the upload may already be in Cloudinary; the row then owns it.
   const direct = (await storage().cloudUpload?.(m.key)) ?? null;
   if (!direct && !(await storage().exists(m.key))) throw new AppError('INVALID_STATE', { reason: 'NOT_UPLOADED' });
   const at = ctx().clock.now();

@@ -75,9 +75,10 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Visit suggestion from dwell | FR-VIS-005 | ☐ |
 | Retention TTL + daily summaries | FR-LOC-009, 012 | ✅ |
 | Photos in Cloudinary (copied after upload, base store as fallback, signed 5-minute links); delete previous months' photos with a typed confirmation; delete one staff member's attendance photos of a day with a log (added 2026-11-22, contract 1.37.0) | FR-MED-002..004 | ✅ API (ADR-050; admin-web screens in admin-web) |
-| Photos go to Cloudinary first: phone uploads pass through the API straight to Cloudinary, MongoDB as fallback, old S3 photos still readable (driver `cloudinary`, added 2026-11-22, contract 1.38.0) | FR-MED-005 | ✅ API (ADR-051; not yet tried against the real Cloudinary account) |
+| Photos go to Cloudinary first: phone uploads pass through the API straight to Cloudinary, MongoDB as fallback, old S3 photos still readable (driver `cloudinary`, added 2026-11-22, contract 1.40.0) | FR-MED-005 | ✅ API (ADR-053; not yet tried against the real Cloudinary account) |
 | Attendance survives a reinstall (today's events from `/attendance/me/today`); no photo at breaks by default; default shift 09:00–21:00 (added 2026-11-22, contract 1.36.0) | FR-ATT-001, FR-SET-003 | ✅ API |
 | A collection goes to the ERP when it is deposited; one Deposit for everything in hand; deposits final (no verify, reject, delete); unlinked collectors posted by name (added 2026-11-22, contract 1.35.0) | FR-CASH-010 | ✅ API (ADR-049) |
+| Map places: text markers with an icon and note that any staff member adds at once; own places edited; move requests approved by the office; office list, move, delete; offline sync (module `places`, flag off by default, added 2026-11-22, contract 1.38.0) | FR-PLC-001..006 | ✅ API (ADR-051); admin-web and staff-app screens follow |
 | Co-work: invitees are told when a request is cancelled (`cowork.cancelled`, added 2026-11-22, contract 1.37.1) | FR-CW-007 | ✅ API |
 | Co-work: a request is cancelled when the asker leaves and nobody is working; the office ends a session with a reason (added 2026-11-22, contract 1.34.0) | FR-CW-006 | ✅ API (ADR-048) |
 | Co-work: requests, joint visits, manager view, single / co-work statistics with credit weight (added 2026-11-16) | FR-CW-001..005 | ✅ API (ADR-029); screens in staff-app and admin-web |

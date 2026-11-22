@@ -12,7 +12,7 @@ export interface ObjectStorage {
   get(key: string): Promise<{ body: Uint8Array; contentType: string } | null>;
   /** Removes the object; a missing object is not an error, so a delete can be repeated. */
   delete(key: string): Promise<void>;
-  /** Cloudinary-first store only (ADR-051): the Cloudinary copy the client's upload went to, or null. */
+  /** Cloudinary-first store only (ADR-053): the Cloudinary copy the client's upload went to, or null. */
   cloudUpload?(key: string): Promise<CloudUpload | null>;
   /** Cloudinary-first store only: forgets that record once the media row holds it (the row then owns the file). */
   forgetCloudUpload?(key: string): Promise<void>;

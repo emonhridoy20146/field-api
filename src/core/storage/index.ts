@@ -97,7 +97,7 @@ export function setStorage(s: ObjectStorage) {
 }
 /**
  * Which store files go to. `STORAGE_DRIVER` wins; otherwise Cloudinary first on Vercel when its three settings
- * are present (ADR-051, owner request: photos go to Cloudinary at once), S3 when it is configured, the database
+ * are present (ADR-053, owner request: photos go to Cloudinary at once), S3 when it is configured, the database
  * on Vercel (no S3 there means every instance would have its own in-memory files, ADR-039), S3 in production
  * (fails loudly without credentials), and memory for local development and tests.
  */

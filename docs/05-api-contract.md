@@ -91,6 +91,7 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 | `POST /media/upload-url` · `POST /media/{id}/confirm` · `GET /media/{id}/url` | auth + entity permission | FR-MED-001/002 |
 | `GET /media/purge/preview` · `POST /media/purge` (photos of previous months, 1.37.0) | `media.delete` | FR-MED-003 |
 | `POST /attendance/photos/delete` (one staff member's attendance photos of a day, 1.37.0) | `media.delete` | FR-MED-004 |
+| `GET/POST /places` · `GET/PATCH/DELETE /places/{id}` · `POST /places/{id}/move-request` · `GET /places/move-requests` · `POST /places/{id}/move-request/decision` (map places, 1.38.0) | `place.view` / `place.create` (own places) / `place.manage` | FR-PLC-001..006 |
 | `GET/POST /customers/{id}/notes` | `note.view` / `note.create` | FR-NOTE-001 |
 | `GET /promises` · `POST /promises` · `POST /promises/{id}/cancel` | `promise.view` / `promise.create` | FR-PRM-001 |
 | `POST /attendance/events` · `GET /attendance/me/today` | `attendance.record` | FR-ATT-001 |
@@ -318,6 +319,29 @@ POST /api/v1/attendance/photos/delete { "userId": "6740…", "date": "2026-11-21
 - A wrong `confirmText` → `422 BUSINESS_RULE` `details.rule = CONFIRM_TEXT_MISMATCH` (`details.expected` names the text); a month after the current one → `422` `NOT_A_PAST_MONTH`. Deposit slips and refund proofs only with `includeMoneyProofs: true`.
 - `GET /media/{id}/url` of a deleted photo → `404 NOT_FOUND` `details { reason: "MEDIA_DELETED", deletedAt, deletedByName }`; `POST /media/upload-url` with the same file → `409 INVALID_STATE` `MEDIA_DELETED`.
 - With Cloudinary configured, `GET /media/{id}/url` of a copied photo returns `https://api.cloudinary.com/v1_1/<cloud>/image/download?public_id=…&format=jpg&type=authenticated&timestamp=…&expires_at=…&api_key=…&signature=…` (5 minutes). Before the copy, the link points at the server's store as before.
+
+### 3.9g Map places (1.38.0, FR-PLC-001..006, ADR-051)
+```http
+POST /api/v1/places   (place.create)
+{ "clientId": "2f0c…", "name": "Karim Store", "icon": "shop", "note": "Blue gate, next to the tea stall", "location": { "lat": 22.7012, "lng": 90.3711 } }
+→ 201 { "id": "6752…", "clientId": "2f0c…", "branchId": "6731…", "name": "Karim Store", "icon": "shop", "note": "Blue gate, next to the tea stall",
+        "location": { "lat": 22.7012, "lng": 90.3711 }, "status": "active", "version": 1, "pendingMove": null, "lastMoveDecision": null,
+        "createdBy": { "id": "6740…", "name": "Rakib Hasan" }, "updatedBy": { "id": "6740…", "name": "Rakib Hasan" },
+        "createdAt": "2026-11-22T04:00:00.000Z", "updatedAt": "2026-11-22T04:00:00.000Z", "deletedAt": null, "deleteReason": null,
+        "events": [{ "type": "created", "by": { "id": "6740…", "name": "Rakib Hasan" }, "at": "2026-11-22T04:00:00.000Z", "note": null, "from": null, "to": { "lat": 22.7012, "lng": 90.3711 } }] }
+GET   /api/v1/places?bbox=90.36,22.69,90.38,22.71&q=karim&icon=shop            (place.view; branch scope)
+PATCH /api/v1/places/6752…   If-Match: W/"1"   { "name": "Karim General Store" }  (creator, or place.manage; `location` only with place.manage)
+POST  /api/v1/places/6752…/move-request   { "clientId": "91ab…", "location": { "lat": 22.7022, "lng": 90.3711 }, "reason": "The shop is across the road" }
+→ 201 { …, "location": { "lat": 22.7012, "lng": 90.3711 }, "pendingMove": { "location": { "lat": 22.7022, "lng": 90.3711 }, "requestedBy": { "id": "6741…", "name": "Sumon Mia" },
+        "requestedAt": "…", "reason": "The shop is across the road", "distanceM": 111 } }
+GET   /api/v1/places/move-requests          (place.manage) → { "items": [ Place, … ] } oldest request first
+POST  /api/v1/places/6752…/move-request/decision { "decision": "reject", "reason": "The gate is on this side" }   (place.manage)
+DELETE /api/v1/places/6752…?reason=Shop%20closed%20down                                                        (place.manage)
+```
+- A repeat of the same `clientId` (create or move request) answers `200` with the place as it is; a field staff member editing someone else's place or sending `location` → `403 FORBIDDEN` `details { permission: "place.manage", reason: NOT_OWNER | MOVE_NEEDS_MANAGE }`.
+- `409 INVALID_STATE` `details.reason`: `MOVE_PENDING` (another open request), `NO_PENDING_MOVE`, `PLACE_DELETED` (office only; staff get 404), `PLACE_CHANGED` (lost a race, read again). `412` stale `If-Match`. `422 BUSINESS_RULE`: `OUTSIDE_BANGLADESH`, `PLACE_INVALID_BRANCH`, `MOVE_TOO_SHORT` (< 5 m), `REASON_REQUIRED` (reject under 5 characters).
+- Offline: sync mutations `place` (PlaceCreate), `place_edit` `{ placeId | placeClientId, name?, icon?, note? }`, `place_move_request` `{ placeId | placeClientId, clientId, location, reason? }`; results carry `entityId` (the server id) and `version`. Sync entity `place` goes to every device of the branch; a deleted place arrives as `op: delete`, `reason: deleted`.
+- Notifications: `place.move_request` (to everyone with `place.manage` in the branch, `data.placeId`), `place.move_decided` (to the requester, `data { placeId, decision }`). Inbox item type `place.move_request`, link `/places/move-requests`.
 
 ### 3.10a Pin colours and invoice viewer (1.14.0)
 Yellow and orange pins of credit customers in view:

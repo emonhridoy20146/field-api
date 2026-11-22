@@ -164,7 +164,7 @@ export async function buildApp(opts: BuildOptions): Promise<Built> {
   // Signed upload/download URLs when files live in the database (ADR-039).
   const store = storage();
   if (store instanceof DbStorage) {
-    // Resolved per request, so a store swapped later (tests) is the one used; CloudinaryStorage is a DbStorage (ADR-051).
+    // Resolved per request, so a store swapped later (tests) is the one used; CloudinaryStorage is a DbStorage (ADR-053).
     const current = () => {
       const s = storage();
       return s instanceof DbStorage ? s : store;

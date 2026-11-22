@@ -215,6 +215,12 @@ Generated from 02-requirements.md (Module = owning field-api module; Test = requ
 | FR-SYNC-004 | sync | active | P1 | A M | U |
 | FR-SYNC-005 | sync | active | P1 | M W A | D E |
 | FR-SYNC-006 | sync | active | P1 | A M | D |
+| FR-PLC-001 | places | active [ADDED 2026-11-22] | P2 | A W M | U I |
+| FR-PLC-002 | places | active [ADDED 2026-11-22] | P2 | A W M | U I D |
+| FR-PLC-003 | places | active [ADDED 2026-11-22] | P2 | A W M | U I |
+| FR-PLC-004 | places | active [ADDED 2026-11-22] | P2 | A W M | U I |
+| FR-PLC-005 | places | active [ADDED 2026-11-22] | P2 | A W M | I E |
+| FR-PLC-006 | places | active [ADDED 2026-11-22] | P2 | A W M | I |
 | FR-MF-001 | microfinance | active | P0 | A W M | U |
 | FR-MF-002 | microfinance | active | P0 | A | — |
 

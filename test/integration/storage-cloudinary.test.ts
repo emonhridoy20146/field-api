@@ -9,7 +9,7 @@ import { CLOUD_RECORDS, CloudinaryClient, CloudinaryStorage, MemoryStorage, clou
 import { storageSecret } from '../../src/core/storage/db-storage.js';
 import { MediaModel } from '../../src/modules/media/models/media.model.js';
 
-// ADR-051: STORAGE_DRIVER=cloudinary. The phone PUTs to the API's signed link as with the MongoDB store; the API puts the
+// ADR-053: STORAGE_DRIVER=cloudinary. The phone PUTs to the API's signed link as with the MongoDB store; the API puts the
 // photo in Cloudinary at once (mocked fetch, no network), falls back to MongoDB when Cloudinary fails, and old photos in
 // the previous store (S3; a memory store stands in for it here) stay readable and deletable.
 let t: TestApp;
@@ -67,7 +67,7 @@ afterAll(async () => {
   await t.close();
 });
 
-describe('driver choice (ADR-051)', () => {
+describe('driver choice (ADR-053)', () => {
   const cl = { CLOUDINARY_CLOUD_NAME: 'demo', CLOUDINARY_API_KEY: 'k', CLOUDINARY_API_SECRET: 's' };
   it('on Vercel with Cloudinary configured it is Cloudinary first; S3 only with both keys', () => {
     expect(storageDriver(loadConfig({ NODE_ENV: 'test', STORAGE_DRIVER: 'cloudinary' }))).toBe('cloudinary');

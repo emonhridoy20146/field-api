@@ -68,7 +68,7 @@ describe('Cloudinary (ADR-050)', () => {
     expect(String(err)).not.toContain('topsecret');
   });
 
-  it('an upload with a time limit carries an abort signal; without one it does not (ADR-051)', async () => {
+  it('an upload with a time limit carries an abort signal; without one it does not (ADR-053)', async () => {
     const seen: (AbortSignal | undefined)[] = [];
     const fetch: FetchLike = async (_url, init) => {
       seen.push(init?.signal);
