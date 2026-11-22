@@ -204,6 +204,28 @@ const RULES: Rule[] = [
     data: (p) => ({ sessionId: str(p.sessionId), reason: str(p.reason) }),
   },
   {
+    // 1.38.0 (FR-PLC-004): the office learns that a staff member wants a map place moved.
+    event: 'place.move_requested',
+    type: 'place.move_request',
+    to: managers('place.manage'),
+    title: () => t('জায়গা সরানোর অনুরোধ', 'Place move request'),
+    body: (p) => t(`${str(p.requestedByName)} "${str(p.name)}" ম্যাপে সরাতে চান। অনুমোদন বা প্রত্যাখ্যান করুন।`, `${str(p.requestedByName)} wants to move "${str(p.name)}" on the map. Approve or reject it.`),
+    data: (p) => ({ placeId: str(p.placeId) }),
+  },
+  {
+    // FR-PLC-005: the requester learns the decision (and the reason of a rejection).
+    event: 'place.move_decided',
+    type: 'place.move_decided',
+    to: (p) => [str(p.requestedBy)],
+    keepActor: true,
+    title: (p) => (p.decision === 'approve' ? t('জায়গা সরানো হয়েছে', 'Place moved') : t('জায়গা সরানো হয়নি', 'Place not moved')),
+    body: (p) =>
+      p.decision === 'approve'
+        ? t(`"${str(p.name)}" আপনার দেওয়া জায়গায় সরানো হয়েছে।`, `"${str(p.name)}" was moved where you asked.`)
+        : t(`"${str(p.name)}" সরানো হয়নি। কারণ: ${str(p.reason)}`, `"${str(p.name)}" was not moved. Reason: ${str(p.reason)}`),
+    data: (p) => ({ placeId: str(p.placeId), decision: str(p.decision) }),
+  },
+  {
     event: 'task.assigned',
     type: 'task.assigned',
     to: (p) => [str(p.assigneeId)],

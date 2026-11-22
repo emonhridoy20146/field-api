@@ -94,6 +94,9 @@ Defaults: SA = super_admin, BM = branch_manager, FS = field_staff, VW = viewer. 
 | `task.work` **[ADDED]** | See own tasks and ask for them to be resolved | ○ | ○ | ● | ○ | tasks |
 | `inbox.view` **[ADDED]** | "Needs attention" exceptions inbox | ● | ● | ○ | ○ | inbox |
 | `activity.view` **[ADDED 2026-11-21]** | See the staff activity feed in scope (collections, visits, promises, pins as they happen) | ● | ● | ○ | ● | activity |
+| `place.view` **[ADDED 2026-11-22]** | See map places (text markers) of own branches; super admin all (1.38.0) | ● | ● | ● | ● | places |
+| `place.create` **[ADDED 2026-11-22]** | Put a place on the map, change the name, icon and note of own places, ask for a place to be moved (1.38.0) | ● | ● | ● | ○ | places |
+| `place.manage` **[ADDED 2026-11-22]** | Change, move or delete any place in scope; approve or reject move requests (1.38.0) | ● | ● | ○ | ○ | places |
 | `leave.request` **[ADDED]** | Request leave | ○ | ○ | ● | ○ | attendance |
 | `microfinance.view` | **RESERVED** — not grantable until MF-001 unblocked | — | — | — | — | microfinance |
 | `microfinance.manage` | **RESERVED** | — | — | — | — | microfinance |
@@ -297,6 +300,16 @@ Rules:
 | FR-TASK-004 | Managers list tasks in scope by status, assignee, branch, overdue and title words, with counts per status; each task shows its history (who did what, when, note). Out-of-scope tasks are 404. | active | P4 | A W | I E |
 | FR-TASK-005 | Tasks are additive: nothing existing changes. Module flag `module.tasks` (default off); hidden in both apps when off. | active | P4 | A W M | I |
 
+### 4.9c Map places **[ADDED 2026-11-22, owner request]** (module `places`, ADR-051)
+| ID | Requirement | Status | Phase | Repos | Test |
+|---|---|---|---|---|---|
+| FR-PLC-001 | OpenStreetMap has few names in the branches' areas, so staff and the office put **places** on the map: a marker with a **name** (one text, required, ≤ 60 characters) shown next to it, one **icon** from a fixed list (`shop, market, mosque, school, bank, hospital, bus_stop, office, landmark, other`) and an optional **note** (≤ 200). A place belongs to one branch (the creator's first branch unless another of the caller's branches is chosen). Everyone sees the places of their own branches (`place.view`); super admin all; out of scope is 404. A place is not customer data and not a tracking point: no device location is stored with it. Contract 1.38.0. | active | P2 | A W M | U I |
+| FR-PLC-002 | Any staff member with `place.create` (field staff, branch manager, super admin) adds a place; it is visible at once, no approval. Works offline (sync mutation `place`, idempotent by `clientId`; the server id comes back on sync and every device of the branch receives the place as sync entity `place`). | active | P2 | A W M | U I D |
+| FR-PLC-003 | The creator changes the name, icon and note of their own places (offline too: `place_edit`, by `placeId` or by the `placeClientId` of a place not synced yet). The office (`place.manage`: super admin, branch manager) changes any place in scope and moves a marker directly. Every change bumps `version` (optional `If-Match`) and is kept in the place's history and the audit log. | active | P2 | A W M | U I |
+| FR-PLC-004 | A staff member who wants a marker moved (any place in scope, not only own) sends a **move request** with the new point and an optional reason (offline: `place_move_request`). The marker stays until the office approves. One open request per place (`MOVE_PENDING`); under 5 m is `MOVE_TOO_SHORT`. The request lands in the office inbox (`place.move_request`) and notifies everyone with `place.manage` in the branch. Same pattern as staff pin proposals for customers (FR-CUS-008/011). | active | P2 | A W M | U I |
+| FR-PLC-005 | The office approves (the marker moves to the requested point) or rejects with a reason of at least 5 characters (it stays). The requester is notified (`place.move_decided`) and sees the decision on the place (`lastMoveDecision`). A direct move or a delete by the office closes an open request as rejected. Office queue: `GET /places/move-requests`. | active | P2 | A W M | I E |
+| FR-PLC-006 | The office deletes a place with an optional reason: soft delete (status `deleted`), history kept, devices drop it on the next pull; listed for the office with `status=deleted`. Module flag `module.places` (default off); hidden in both apps when off. | active | P2 | A W M | I |
+
 ### 4.10 Attendance (module `attendance`)
 
 | ID | Requirement | Status | Phase | Repos | Test |
@@ -366,7 +379,7 @@ Rules:
 
 | ID | Requirement | Status | Phase | Repos | Test |
 |---|---|---|---|---|---|
-| FR-AUD-001 | Append-only audit log for: money (collections, voids, resolutions, deposits), location edits (pin corrections, attendance corrections), handovers, tags, permission and role changes, settings and flag changes (incl. branch map points, `branch.location_set`), customer phone numbers added or removed in FOS (`customer.phone.added` / `customer.phone.removed`), photo deletions (`media.purged`, `attendance.photos_deleted`, 1.37.0), logins/failed logins, exports, device unbinds. | active | P0 | A | U I |
+| FR-AUD-001 | Append-only audit log for: money (collections, voids, resolutions, deposits), location edits (pin corrections, attendance corrections), handovers, tags, permission and role changes, settings and flag changes (incl. branch map points, `branch.location_set`), customer phone numbers added or removed in FOS (`customer.phone.added` / `customer.phone.removed`), photo deletions (`media.purged`, `attendance.photos_deleted`, 1.37.0), map places (`place.created/edited/moved/move_requested/move_approved/move_rejected/deleted`, 1.38.0), logins/failed logins, exports, device unbinds. | active | P0 | A | U I |
 | FR-AUD-002 | Entry: `actorId`, `actorRole`, `action`, `entity`, `entityId`, `branchId`, `before`, `after`, `reason`, `ip`, `userAgent`/`deviceId`, `at`, `requestId`, hash chain (`prevHash`) for tamper evidence. | active | P0 | A | U |
 | FR-AUD-003 | Audit viewer with filters (actor, action, entity, date) and diff view. | active | P1 | A W | E |
 | FR-AUD-004 | Audit log cannot be modified or deleted through the API; retention 8 years for money, 3 years other (OD-09). | active | P0 | A | I |

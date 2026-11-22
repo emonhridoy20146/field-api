@@ -4,6 +4,17 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.38.0] — contract 1.38.0 (map places)
+### Added (owner request 2026-11-22, FR-PLC-001..006, ADR-051)
+- New module **`places`** (flag `module.places`, **off by default**: the owner turns it on in admin → Flags). A place is a text marker on the map: `name` (≤ 60), `icon` (`shop, market, mosque, school, bank, hospital, bus_stop, office, landmark, other`), optional `note` (≤ 200), `location {lat,lng}`, `branchId`, `version`, `status active|deleted`, `pendingMove`, `lastMoveDecision`, history `events`.
+- `GET /places` (branch scope; `q`, `icon`, `bbox`, `pendingMove`, `status=deleted` for the office, `limit` up to 1000, `cursor`), `POST /places` (idempotent by `clientId`), `GET /places/{id}`, `PATCH /places/{id}` (creator: name/icon/note; office: anything incl. `location`; optional `If-Match`), `DELETE /places/{id}?reason=` (soft), `POST /places/{id}/move-request`, `GET /places/move-requests`, `POST /places/{id}/move-request/decision`.
+- Permissions `place.view` (all roles), `place.create` (SA, BM, FS), `place.manage` (SA, BM).
+- Sync: entity `place` (fan-out to the branch, bootstrap snapshot), mutations `place`, `place_edit`, `place_move_request`.
+- Inbox type `place.move_request`; notification types `place.move_request` (office) and `place.move_decided` (requester). Events `place.created/updated/moved/move_requested/move_decided/deleted`. Audit `place.created/edited/moved/move_requested/move_approved/move_rejected/deleted`.
+- Collection `map_places` with migration `places/20261122-0001-places-indexes` (forward-only, idempotent).
+### Notes for the clients
+- Additive. staff-app: local table + outbox kinds `place`, `place_edit`, `place_move_request`; markers with their name always visible. admin-web: `pnpm gen:api`, Places page, map layer, move-request queue. Deploy field-api first.
+
 ## [1.37.1] — contract 1.37.1 (invitees are told when a co-work request is cancelled)
 ### Added (owner request 2026-11-22, FR-CW-007)
 - When the person who asked leaves a co-work (or ends their day) and the session ends with invitations still unanswered, those invitees get notification `cowork.cancelled` ("`<name>` cancelled the co-work request. It can no longer be accepted."), with `data.sessionId`. Before, they kept an invitation until their next sync and got `SESSION_ENDED` on accept. Event `cowork.cancelled` (`sessionId`, `branchId`, `byUserId`, `byName`, `toUserIds`). Nobody is told when nobody was waiting (a rejection that ends a pair, a second `leave`), and the person who cancelled is not told.
