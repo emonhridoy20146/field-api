@@ -109,7 +109,7 @@ export const customerRoutes = defineRoutes((r) => {
   r.post('/customers/:id/location-proposals', { access: perm('customer.location.propose') }, async (req, reply) => {
     const res = await s.proposeLocation(requireUser(req), idOf(req), parse(proposalBody, req.body), requestMeta(req));
     reply.code(res.replayed ? 200 : 201);
-    return { id: res.id, status: res.status };
+    return { id: res.id, status: res.status, direct: res.direct };
   });
   r.post('/customers/:id/location', { access: perm('customer.location.approve') }, async (req, reply) => {
     const res = await s.setLocation(requireUser(req), idOf(req), parse(setLocationBody, req.body), requestMeta(req));

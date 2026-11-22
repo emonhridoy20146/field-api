@@ -54,7 +54,7 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 | `GET /customers/{id}` | `customer.view` | FR-CUS-003 |
 | `GET /customers/{id}/timeline` | `customer.view` | FR-CUS-007 |
 | `POST /customers/{id}/refresh` | `customer.view` | FR-ERP-003 |
-| `POST /customers/{id}/location-proposals` | `customer.location.propose` | FR-CUS-008 |
+| `POST /customers/{id}/location-proposals` | `customer.location.propose` (applies at once if the caller also holds `customer.location.approve` for the branch, 1.39.0) | FR-CUS-008, FR-CUS-020 |
 | `GET /location-proposals` · `POST /location-proposals/{id}/decision` | `customer.location.approve` | FR-CUS-008 |
 | `GET /attendance/events` (raw events of a staff member's day, with photo ids) | `attendance.view` | FR-ATT-001/004 |
 | `GET /location-proposals/mine` (own proposals and their status; also sync entity `location_proposal`) | `customer.location.propose` | FR-CUS-008 |
@@ -265,6 +265,9 @@ POST /api/v1/customers/6731…/location-proposals
   "deviceGeo": { "lat": 22.7128, "lng": 90.3712, "accuracyM": 14 }, "note": "Blue gate behind the mosque" }
 ```
 → `201 { "id": "6742…", "status": "approved" }` when the customer had no usable pin and `customers.staffPinApproval` is `when_missing` (default); otherwise `"status": "pending"` until a manager decides. The same body goes through `/sync/push` as mutation `location_proposal` (+ `customerId`).
+
+1.39.0 (FR-CUS-020, ADR-052): the same call by a super admin or branch manager (anyone holding `customer.location.approve` for the customer's branch) moves the pin at once, even when the customer already had one:
+→ `201 { "id": "6743…", "status": "approved", "direct": true }`. Field staff get `"direct": false`. On `/sync/pull` the `location_proposal` item carries `status: approved`, `direct: true` and `decider` = the caller.
 
 ### 3.9b Paid this month (1.29.0, FR-CUS-019)
 Customers of one branch who have not paid anything this Dhaka month, longest overdue first, with the count:
