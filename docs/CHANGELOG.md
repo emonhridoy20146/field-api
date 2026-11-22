@@ -4,6 +4,14 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.41.0] — contract 1.41.0 (visit outcome "Runaway")
+### Added (owner request 2026-11-22, FR-VIS-006)
+- Visit outcome `runaway` (bn **পলাতক**, en **Runaway**): the customer has absconded and cannot be found. Added to `VisitOutcome` (`POST /visits`, `PATCH /visits/{id}/checkout`, sync mutations `visit` / `visit_checkout`) and to the `GET /visits?outcome=` filter.
+- Customer timeline shows `ভিজিট: পলাতক` / `Visit: runaway`; the activity feed and `visit.recorded` carry the code as before.
+- Outcomes are not a setting (no default list to change). No report, export or notification switches on outcome, so nothing else needed a case; the bn label falls back to the raw code for any unknown value.
+### Notes for the clients
+- Additive; no migration. staff-app: add `runaway` to the outcome picker (bn পলাতক, en Runaway) and send it as is. admin-web: label `runaway` in visit lists, filters and the activity feed; show an unknown outcome as its raw code.
+
 ## [1.40.0] — contract 1.40.0 (photos go to Cloudinary first)
 ### Fixed / Changed (owner request 2026-11-22, FR-MED-005, ADR-053)
 - **Why photos did not upload:** with S3 settings present the server picked `storage: s3`, so the phone PUT the photo to S3 first and Cloudinary only got a copy after the confirm (and after `/api/cron`). With S3 misconfigured the PUT failed and nothing reached Cloudinary.

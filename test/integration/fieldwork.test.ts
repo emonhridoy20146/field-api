@@ -194,11 +194,29 @@ describe('admin list refs and range filters (contract 1.4.0)', () => {
     expect(v.body.items.every((x: { outcome: string }) => x.outcome === 'not_home')).toBe(true);
     expect((await bm.get('/visits?from=2026-11-16')).body.items).toEqual([]);
     expect((await bm.get('/visits?outcome=nope')).status).toBe(400);
+    expect((await bm.get('/visits?outcome=runaway')).status).toBe(200);
     const p = await bm.get('/promises?from=2026-01-01&to=2030-01-01');
     expectConforms('GET', '/promises', 200, p.body);
     expect(p.body.items.length).toBeGreaterThan(0);
     expect(p.body.items[0].customer.name).toBeTruthy();
     expect(p.body.items[0].owner.name).toBeTruthy();
     expect((await bm.get('/promises?to=2020-01-01')).body.items).toEqual([]);
+  });
+});
+
+describe('visit outcome runaway (FR-VIS-006)', () => {
+  it('records a runaway visit, filters by it and labels it in the timeline', async () => {
+    const fs2 = await as(t, '01700000004');
+    const body = { clientId: randomUUID(), customerId: ids['100248'], checkInAt: '2026-11-15T06:30:00Z', outcome: 'runaway', geo: { lat: 22.7106, lng: 90.3703, accuracyM: 9 } };
+    const r = await fs2.post('/visits', body);
+    expect(r.status).toBe(201);
+    expectConforms('POST', '/visits', 201, r.body);
+    expect(r.body.outcome).toBe('runaway');
+    const list = await (await as(t, '01700000002')).get('/visits?outcome=runaway');
+    expect(list.status).toBe(200);
+    expect(list.body.items.map((v: { id: string }) => v.id)).toContain(r.body.id);
+    expect(list.body.items.every((v: { outcome: string }) => v.outcome === 'runaway')).toBe(true);
+    const tl = await fs2.get(`/customers/${ids['100248']}/timeline`);
+    expect(JSON.stringify(tl.body)).toContain('পলাতক');
   });
 });
