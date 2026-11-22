@@ -323,7 +323,7 @@ POST /api/v1/attendance/photos/delete { "userId": "6740…", "date": "2026-11-21
 - `GET /media/{id}/url` of a deleted photo → `404 NOT_FOUND` `details { reason: "MEDIA_DELETED", deletedAt, deletedByName }`; `POST /media/upload-url` with the same file → `409 INVALID_STATE` `MEDIA_DELETED`.
 - With Cloudinary configured, `GET /media/{id}/url` of a copied photo returns `https://api.cloudinary.com/v1_1/<cloud>/image/download?public_id=…&format=jpg&type=authenticated&timestamp=…&expires_at=…&api_key=…&signature=…` (5 minutes). Before the copy, the link points at the server's store as before.
 
-### 3.9g Map places (1.38.0, FR-PLC-001..006, ADR-051)
+### 3.9g Map places (1.38.0, FR-PLC-001..006, ADR-051; all branches since 1.42.0, ADR-054)
 ```http
 POST /api/v1/places   (place.create)
 { "clientId": "2f0c…", "name": "Karim Store", "icon": "shop", "note": "Blue gate, next to the tea stall", "location": { "lat": 22.7012, "lng": 90.3711 } }
@@ -332,7 +332,7 @@ POST /api/v1/places   (place.create)
         "createdBy": { "id": "6740…", "name": "Rakib Hasan" }, "updatedBy": { "id": "6740…", "name": "Rakib Hasan" },
         "createdAt": "2026-11-22T04:00:00.000Z", "updatedAt": "2026-11-22T04:00:00.000Z", "deletedAt": null, "deleteReason": null,
         "events": [{ "type": "created", "by": { "id": "6740…", "name": "Rakib Hasan" }, "at": "2026-11-22T04:00:00.000Z", "note": null, "from": null, "to": { "lat": 22.7012, "lng": 90.3711 } }] }
-GET   /api/v1/places?bbox=90.36,22.69,90.38,22.71&q=karim&icon=shop            (place.view; branch scope)
+GET   /api/v1/places?bbox=90.36,22.69,90.38,22.71&q=karim&icon=shop            (place.view; every branch's places since 1.42.0; `branchId` only narrows)
 PATCH /api/v1/places/6752…   If-Match: W/"1"   { "name": "Karim General Store" }  (creator, or place.manage; `location` only with place.manage)
 POST  /api/v1/places/6752…/move-request   { "clientId": "91ab…", "location": { "lat": 22.7022, "lng": 90.3711 }, "reason": "The shop is across the road" }
 → 201 { …, "location": { "lat": 22.7012, "lng": 90.3711 }, "pendingMove": { "location": { "lat": 22.7022, "lng": 90.3711 }, "requestedBy": { "id": "6741…", "name": "Sumon Mia" },
@@ -342,9 +342,10 @@ POST  /api/v1/places/6752…/move-request/decision { "decision": "reject", "reas
 DELETE /api/v1/places/6752…?reason=Shop%20closed%20down                                                        (place.manage)
 ```
 - A repeat of the same `clientId` (create or move request) answers `200` with the place as it is; a field staff member editing someone else's place or sending `location` → `403 FORBIDDEN` `details { permission: "place.manage", reason: NOT_OWNER | MOVE_NEEDS_MANAGE }`.
-- `409 INVALID_STATE` `details.reason`: `MOVE_PENDING` (another open request), `NO_PENDING_MOVE`, `PLACE_DELETED` (office only; staff get 404), `PLACE_CHANGED` (lost a race, read again). `412` stale `If-Match`. `422 BUSINESS_RULE`: `OUTSIDE_BANGLADESH`, `PLACE_INVALID_BRANCH`, `MOVE_TOO_SHORT` (< 5 m), `REASON_REQUIRED` (reject under 5 characters).
-- Offline: sync mutations `place` (PlaceCreate), `place_edit` `{ placeId | placeClientId, name?, icon?, note? }`, `place_move_request` `{ placeId | placeClientId, clientId, location, reason? }`; results carry `entityId` (the server id) and `version`. Sync entity `place` goes to every device of the branch; a deleted place arrives as `op: delete`, `reason: deleted`.
-- Notifications: `place.move_request` (to everyone with `place.manage` in the branch, `data.placeId`), `place.move_decided` (to the requester, `data { placeId, decision }`). Inbox item type `place.move_request`, link `/places/move-requests`.
+- `409 INVALID_STATE` `details.reason`: `MOVE_PENDING` (another open request), `NO_PENDING_MOVE`, `PLACE_DELETED` (office only; staff get 404), `PLACE_CHANGED` (lost a race, read again). `412` stale `If-Match`. `422 BUSINESS_RULE`: `OUTSIDE_BANGLADESH`, `MOVE_TOO_SHORT` (< 5 m), `REASON_REQUIRED` (reject under 5 characters).
+- Offline: sync mutations `place` (PlaceCreate), `place_edit` `{ placeId | placeClientId, name?, icon?, note? }`, `place_move_request` `{ placeId | placeClientId, clientId, location, reason? }`; results carry `entityId` (the server id) and `version`. Sync entity `place` goes to every device of every branch (1.42.0); a deleted place arrives as `op: delete`, `reason: deleted`.
+- Notifications: `place.move_request` (to everyone with `place.manage` in any branch since 1.42.0, `data.placeId`), `place.move_decided` (to the requester, `data { placeId, decision }`). Inbox item type `place.move_request`, link `/places/move-requests`, shown to every `place.manage` holder in any branch (1.42.0).
+- 1.42.0 (ADR-054): a place needs no branch. `branchId` in the create body is ignored (no more `PLACE_INVALID_BRANCH`); `Place.branchId` is the adder's first branch for information (`''` when none). Office actions with `place.manage` work on any branch's place; staff edit rules are unchanged.
 
 ### 3.10a Pin colours and invoice viewer (1.14.0)
 Yellow and orange pins of credit customers in view:

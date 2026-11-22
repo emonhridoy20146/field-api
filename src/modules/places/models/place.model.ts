@@ -43,7 +43,8 @@ const decisionSchema = new Schema(
 const placeSchema = new Schema(
   {
     clientId: { type: String, default: null },
-    branchId: { type: String, required: true },
+    /** The creator's first branch, for the record only; null when they have none. Not a scope (ADR-054). */
+    branchId: { type: String, default: null },
     name: { type: String, required: true },
     note: { type: String, default: null },
     icon: { type: String, required: true },

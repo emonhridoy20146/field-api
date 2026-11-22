@@ -16,6 +16,8 @@ interface Raise {
   summary: (p: P) => I18n;
   link: (p: P) => string;
   delayMs?: number;
+  /** 1.42.0 (ADR-054): shown to every holder of this permission in any branch (shared records such as map places). */
+  permission?: string;
 }
 
 /** FR-INB-001: events that open a "needs attention" item. Types and severities are declared by the owning modules. */
@@ -42,7 +44,8 @@ const RAISE: Raise[] = [
   { event: 'location.tracking_lost', type: 'location.tracking_lost', id: (p) => `${str(p.userId)}:${str(p.businessDate)}`, entity: 'user', summary: () => t('ডিউটিতে থাকা অবস্থায় ট্র্যাকিং বন্ধ', 'Tracking stopped while on duty'), link: (p) => `/location/latest?userId=${str(p.userId)}` },
   { event: 'leave.requested', type: 'leave.requested', id: (p) => str(p.leaveId), entity: 'leave_request', summary: () => t('ছুটির আবেদন অপেক্ষমাণ', 'Leave request pending'), link: () => '/leave-requests?status=pending' },
   // 1.38.0 (FR-PLC-004): a staff member asked to move a map place; one item per request, closed by the decision.
-  { event: 'place.move_requested', type: 'place.move_request', id: (p) => `${str(p.placeId)}:${str(p.requestClientId)}`, entity: 'place', summary: (p) => t(`জায়গা সরানোর অনুরোধ: ${str(p.name)}`, `Place move request: ${str(p.name)}`), link: () => '/places/move-requests' },
+  // 1.42.0 (ADR-054): places belong to no branch, so the item goes to every `place.manage` holder.
+  { event: 'place.move_requested', type: 'place.move_request', permission: 'place.manage', id: (p) => `${str(p.placeId)}:${str(p.requestClientId)}`, entity: 'place', summary: (p) => t(`জায়গা সরানোর অনুরোধ: ${str(p.name)}`, `Place move request: ${str(p.name)}`), link: () => '/places/move-requests' },
   { event: 'task.resolve_requested', type: 'task.resolve_requested', id: (p) => str(p.taskId), entity: 'task', summary: (p) => t(`কাজ যাচাইয়ের অপেক্ষায়: ${str(p.title)}`, `Task waiting for verification: ${str(p.title)}`), link: () => '/tasks?status=resolve_requested' },
 ];
 
@@ -84,7 +87,7 @@ export function subscribe(): void {
       if (r.when && !r.when(p)) return;
       const id = r.id(p);
       if (!id) return;
-      await raise({ key: `${r.type}:${id}`, type: r.type, branchId: str(p.branchId) || null, entity: r.entity, entityId: id, summary: r.summary(p), link: r.link(p), ...(r.delayMs ? { delayMs: r.delayMs } : {}) });
+      await raise({ key: `${r.type}:${id}`, type: r.type, branchId: str(p.branchId) || null, entity: r.entity, entityId: id, summary: r.summary(p), link: r.link(p), ...(r.delayMs ? { delayMs: r.delayMs } : {}), ...(r.permission ? { permission: r.permission } : {}) });
     });
   for (const [event, type, id] of RESOLVE) bus.on(event, async (payload) => autoResolve(`${type}:${id(payload as P)}`));
 }
