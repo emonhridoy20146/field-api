@@ -13,6 +13,7 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 - Admin deletes (FR-MED-003/004) remove the file from Cloudinary, MongoDB and old S3; the store is no longer asked for a file whose base copy is already gone.
 - **S3 is chosen only with real keys:** both `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`. Before, `S3_ENDPOINT` or a key id alone selected S3, which is how live health showed `storage: s3` without S3 being set up. On Vercel a leftover `STORAGE_DRIVER=s3` without both keys is ignored (warning in the log).
 - Automatic choice: on Vercel, when `STORAGE_DRIVER` is empty and the three `CLOUDINARY_*` settings are set, the driver is `cloudinary` (before S3). Elsewhere unchanged. `/system/health` `storage` can be `cloudinary`. Voice notes and exports stay in MongoDB under this driver.
+- **Vercel: reconnect to MongoDB.** A reused function instance that lost its Mongo connection never connected again (live health showed `mongo: down`), so every write, photos included, failed until a new instance started. Every request and cron call now reconnects first (`ensureMongo`); a failure is only logged and health still says `down`.
 ### Environment variables (Vercel → field-api project → Settings → Environment Variables, then Redeploy)
 | Name | Value |
 |---|---|

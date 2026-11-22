@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cronAuthorized, drainOutbox } from '../serverless.js';
+import { cronAuthorized, drainOutbox, ensureMongo } from '../serverless.js';
 import type { DispatchStats } from '../../core/events/outbox.js';
 
 describe('cronAuthorized (ADR-034)', () => {
@@ -58,5 +58,30 @@ describe('drainOutbox (ADR-034 time budget)', () => {
     const s = await drainOutbox(40_000, f.dispatch, f.now);
     expect(f.calls).toHaveLength(0);
     expect(s).toEqual({ done: 0, retried: 0, failed: 0 });
+  });
+});
+
+describe('ensureMongo (a reused Vercel instance that lost its connection)', () => {
+  const fake = (readyState: number) => {
+    const calls: string[] = [];
+    return { calls, conn: { readyState, asPromise: async () => void calls.push('wait') }, connect: async () => void calls.push('connect'), warn: (m: string) => void calls.push(`warn:${m}`) };
+  };
+  it('does nothing when connected', async () => {
+    const f = fake(1);
+    await ensureMongo(f.conn, f.connect, f.warn);
+    expect(f.calls).toEqual([]);
+  });
+  it('connects again when disconnected, waits when connecting', async () => {
+    const d = fake(0);
+    await ensureMongo(d.conn, d.connect, d.warn);
+    expect(d.calls).toEqual(['connect']);
+    const c = fake(2);
+    await ensureMongo(c.conn, c.connect, c.warn);
+    expect(c.calls).toEqual(['wait']);
+  });
+  it('never throws: a failed reconnect is only logged', async () => {
+    const warned: string[] = [];
+    await ensureMongo({ readyState: 0, asPromise: async () => undefined }, async () => Promise.reject(new Error('timed out')), (m) => void warned.push(m));
+    expect(warned).toEqual(['mongo reconnect failed: timed out']);
   });
 });
