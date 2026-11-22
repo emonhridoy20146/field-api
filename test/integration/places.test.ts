@@ -226,7 +226,8 @@ describe('offline (sync mutations and entity `place`)', () => {
     const [a, b, c] = push.body.results;
     expect(a).toMatchObject({ result: 'applied' });
     expect(b).toMatchObject({ result: 'applied', entityId: a.entityId });
-    expect(c.result).toBe('rejected'); // a direct move is not an offline staff action
+    expect(c.result).toBe('rejected'); // a direct move is not a staff action, offline either (1.43.0: FORBIDDEN)
+    expect(c.error).toMatchObject({ code: 'FORBIDDEN', details: { reason: 'MOVE_NEEDS_MANAGE' } });
     const moveId = randomUUID();
     const fs2 = await as(t, FS2);
     const req = await fs2.post('/sync/push', { deviceId: `dev-${FS2}`, mutations: [mut('place_move_request', { placeId: a.entityId, clientId: moveId, location: { lat: 22.705, lng: 90.375 } })] });
@@ -310,6 +311,82 @@ describe('the office of any branch (ADR-054)', () => {
     const gone = await bmb.delete(`/places/${id}`);
     expect(gone.body.status).toBe('deleted');
     expect((await fs1.get(`/places/${id}`)).status).toBe(404);
+  });
+});
+
+describe('offline direct move by the office (1.43.0, ADR-055)', () => {
+  const push = async (phone: string, mutations: unknown[]) => (await as(t, phone)).post('/sync/push', { deviceId: `dev-${phone}`, mutations });
+  let id = '';
+  let requestClientId = '';
+  const ghat = { lat: 22.72, lng: 90.39 };
+  const there = { lat: 22.721, lng: 90.39 }; // ~111 m north
+
+  it('setup: a place with an open move request from field staff', async () => {
+    id = (await (await as(t, FS1)).post('/places', newPlace({ name: 'Ferry Ghat', icon: 'landmark', location: ghat }))).body.id;
+    requestClientId = randomUUID();
+    expect((await (await as(t, FS2)).post(`/places/${id}/move-request`, { clientId: requestClientId, location: { lat: 22.7205, lng: 90.39 } })).status).toBe(201);
+  });
+
+  it('field staff sending a location are refused per mutation; their word edits still apply', async () => {
+    const r = await push(FS1, [mut('place_edit', { placeId: id, location: there }), mut('place_edit', { placeId: id, name: 'Ferry Ghat (old)' })]);
+    expect(r.status).toBe(200);
+    expectConforms('POST', '/sync/push', 200, r.body);
+    expect(r.body.results[0]).toMatchObject({ result: 'rejected', error: { code: 'FORBIDDEN', details: { reason: 'MOVE_NEEDS_MANAGE' } } });
+    expect(r.body.results[1]).toMatchObject({ result: 'applied', entityId: id });
+    const p = (await (await as(t, BM)).get(`/places/${id}`)).body;
+    expect(p).toMatchObject({ name: 'Ferry Ghat (old)', location: ghat, pendingMove: { requestedBy: { id: s.fs2.id } } });
+    // A staff member's name and location together are refused as a whole: nothing half-applied.
+    const both = await push(FS1, [mut('place_edit', { placeId: id, name: 'Moved', location: there })]);
+    expect(both.body.results[0].result).toBe('rejected');
+    expect((await (await as(t, BM)).get(`/places/${id}`)).body.name).toBe('Ferry Ghat (old)');
+  });
+
+  it('outside Bangladesh is refused (OUTSIDE_BANGLADESH); unknown fields are 400', async () => {
+    const r = await push(BM, [mut('place_edit', { placeId: id, location: { lat: 40, lng: 90 } }), mut('place_edit', { placeId: id, location: there, capturedAt: 'x' })]);
+    expect(r.body.results[0]).toMatchObject({ result: 'rejected', error: { code: 'BUSINESS_RULE', details: { rule: 'OUTSIDE_BANGLADESH' } } });
+    expect(r.body.results[1]).toMatchObject({ result: 'rejected', error: { code: 'VALIDATION_FAILED' } });
+  });
+
+  it('the office moves a place through sync; the open request is closed as rejected; a replay changes nothing', async () => {
+    const before = (await (await as(t, BM)).get(`/places/${id}`)).body.version as number;
+    const m = mut('place_edit', { placeId: id, location: there });
+    const r = await push(BM, [m]);
+    expectConforms('POST', '/sync/push', 200, r.body);
+    expect(r.body.results[0]).toMatchObject({ result: 'applied', entityId: id, version: before + 1 });
+    const p = (await (await as(t, BM)).get(`/places/${id}`)).body;
+    expect(p).toMatchObject({ location: there, pendingMove: null, lastMoveDecision: { decision: 'reject', reason: 'Moved by the office', by: { id: s.bm.id }, requestedBy: { id: s.fs2.id } } });
+    expect(p.events.at(-1)).toMatchObject({ type: 'moved', by: { id: s.bm.id }, from: ghat, to: there });
+    // The office inbox item closes and the requester is told.
+    expect((await (await as(t, BM)).get('/inbox')).body.items.map((i: { entityId: string }) => i.entityId)).not.toContain(`${id}:${requestClientId}`);
+    const told = (await (await as(t, FS2)).get('/notifications')).body.items.filter((n: { type: string; data?: { placeId?: string } }) => n.type === 'place.move_decided' && n.data?.placeId === id);
+    expect(told).toHaveLength(1);
+
+    // The same mutation again (lost response): replayed, no second move, no second audit line.
+    const again = await push(BM, [m]);
+    expect(again.body.results[0]).toMatchObject({ result: 'replayed', entityId: id, version: before + 1 });
+    // The same point under a new mutationId (typed twice) is a no-op as on PATCH.
+    const same = await push(BM, [mut('place_edit', { placeId: id, location: there })]);
+    expect(same.body.results[0]).toMatchObject({ result: 'applied', version: before + 1 });
+    const actions = (await AuditLogModel.find({ entity: 'place', entityId: id }).sort({ _id: 1 }).lean()).map((a) => a.action);
+    expect(actions.filter((a) => a === 'place.moved')).toHaveLength(1);
+    expect(actions.at(-1)).toBe('place.moved');
+
+    // Every branch pulls the new point.
+    const pull = await (await as(t, FSB)).get('/sync/pull?cursor=s_0');
+    expect(pull.body.changes.find((x: { entity: string; id: string }) => x.entity === 'place' && x.id === id)?.data).toMatchObject({ location: there, pendingMove: null });
+  });
+
+  it('a super admin moves by placeClientId too; a deleted place is PLACE_DELETED for the office', async () => {
+    const created = newPlace({ name: 'Tea Stall', icon: 'shop', location: ghat });
+    const sa = await push(SA, [mut('place', created), mut('place_edit', { placeClientId: created.clientId, location: there })]);
+    expect(sa.body.results.map((x: { result: string }) => x.result)).toEqual(['applied', 'applied']);
+    expect((await (await as(t, SA)).get(`/places/${sa.body.results[0].entityId}`)).body.location).toEqual(there);
+
+    expect((await (await as(t, BM)).delete(`/places/${id}`)).status).toBe(200);
+    const r = await push(BM, [mut('place_edit', { placeId: id, location: ghat })]);
+    expect(r.body.results[0]).toMatchObject({ result: 'rejected', error: { code: 'INVALID_STATE', details: { reason: 'PLACE_DELETED' } } });
+    // Field staff no longer see it at all.
+    expect((await push(FS1, [mut('place_edit', { placeId: id, location: ghat })])).body.results[0].error.code).toBe('NOT_FOUND');
   });
 });
 

@@ -4,6 +4,14 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.43.0] — contract 1.43.0 (the office moves a place offline)
+### Added (owner decision 2026-11-22, FR-PLC-003, ADR-055)
+- Sync mutation `place_edit` accepts an optional `location` `{ lat, lng }`: a direct move by a `place.manage` holder (super admin, branch manager) from the staff app, also offline. It runs the same code as `PATCH /places/{id}` with `location`: Bangladesh bounds (`BUSINESS_RULE OUTSIDE_BANGLADESH`), deleted place (`INVALID_STATE PLACE_DELETED`; 404 for staff), an open move request is closed as rejected ("Moved by the office", requester told, inbox item closed), audit `place.moved`, events `place.moved` / `place.move_decided`.
+- Without `place.manage` an item with `location` is rejected with `FORBIDDEN` (`details.reason: MOVE_NEEDS_MANAGE`) as a whole (it was `VALIDATION_FAILED` before); word edits in their own item work as before. Idempotent by `mutationId`; the same point again is a no-op.
+- No capture time was added: no sync payload carries one; the mutation's `createdAt` already exists in the envelope and is not used for places. No `If-Match` offline: the last write wins, as for the other word edits.
+### Notes for the clients
+- staff-app: for a user whose `permissions.keys` include `place.manage`, let "move marker" queue `place_edit` with `location` instead of `place_move_request`; everyone else keeps sending move requests. Older apps are unaffected. admin-web: nothing to do. Deploy field-api first.
+
 ## [1.42.0] — contract 1.42.0 (map places are shared by every branch)
 ### Changed (owner decision 2026-11-22, FR-PLC-001..005, ADR-054)
 - **Places are shared landmarks for the whole area, not per branch.** Everyone with `place.view` sees every place of every branch: `GET /places`, `GET /places/{id}`, the sync entity `place` (pull and bootstrap). `?branchId=` on `GET /places` and `GET /places/move-requests` is now only a filter (places added from that branch), not a scope.

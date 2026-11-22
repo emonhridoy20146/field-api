@@ -13,12 +13,13 @@ export const syncMutations: SyncMutationDef[] = [
     },
   },
   {
-    // Words and icon only; a direct move is an office action online (PATCH with location).
+    // Same body and rules as PATCH /places/{id} (1.43.0, ADR-055): `location` is a direct move, applied only for
+    // place.manage (else FORBIDDEN MOVE_NEEDS_MANAGE for the whole item). No If-Match offline: the last write wins.
     entity: 'place_edit',
     permission: 'place.create',
     apply: async (user, payload, { meta }) => {
       const ref = parse(s.placeRef, payload);
-      const input = parse(s.editSchema.innerType().omit({ location: true }).strict().refine((v) => Object.keys(v).length > 0, { message: 'nothing to change' }), stripRef(payload));
+      const input = parse(s.syncEditSchema, stripRef(payload));
       const p = await s.edit(user, await s.resolveRef(user, ref), input, null, meta);
       return { entityId: p.id, extra: { version: p.version } };
     },

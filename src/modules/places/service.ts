@@ -37,9 +37,11 @@ export const createSchema = z.object({
   /** Accepted for older clients and ignored (1.42.0, ADR-054): a place belongs to no branch. */
   branchId: z.string().max(64).optional(),
 });
-export const editSchema = z
-  .object({ name: name.optional(), icon: icon.optional(), note: note.nullable().optional(), location: latLng.optional() })
-  .refine((v) => Object.keys(v).length > 0, { message: 'nothing to change' });
+const editFields = z.object({ name: name.optional(), icon: icon.optional(), note: note.nullable().optional(), location: latLng.optional() });
+const somethingToChange = (v: object) => Object.keys(v).length > 0;
+export const editSchema = editFields.refine(somethingToChange, { message: 'nothing to change' });
+/** The sync mutation `place_edit` (without placeId/placeClientId): the PATCH body, strict so a typo is not silently dropped. */
+export const syncEditSchema = editFields.strict().refine(somethingToChange, { message: 'nothing to change' });
 export const moveRequestSchema = z.object({ clientId: z.string().uuid(), location: latLng, reason: z.string().trim().max(NOTE_MAX).optional() });
 export const decisionSchema = z.object({ decision: z.enum(['approve', 'reject']), reason: z.string().trim().max(500).optional() });
 export const listQuery = z.object({
@@ -233,7 +235,10 @@ export async function get(user: AuthUser, id: string) {
 
 // ---------------- edit / delete ----------------
 
-/** FR-PLC-003: the creator changes the words and icon; the office changes anything, including a direct move. */
+/**
+ * FR-PLC-003: the creator changes the words and icon; the office changes anything, including a direct move.
+ * One path for REST PATCH and the sync mutation `place_edit` (1.43.0, ADR-055), so both apply the same rules.
+ */
 export async function edit(user: AuthUser, id: string, input: z.infer<typeof editSchema>, ifMatch: number | null, meta: RequestMeta) {
   const manage = await can(user, MANAGE);
   const p = await load(id, { deleted: manage });
