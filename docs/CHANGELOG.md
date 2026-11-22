@@ -4,6 +4,12 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.37.1] — contract 1.37.1 (invitees are told when a co-work request is cancelled)
+### Added (owner request 2026-11-22, FR-CW-007)
+- When the person who asked leaves a co-work (or ends their day) and the session ends with invitations still unanswered, those invitees get notification `cowork.cancelled` ("`<name>` cancelled the co-work request. It can no longer be accepted."), with `data.sessionId`. Before, they kept an invitation until their next sync and got `SESSION_ENDED` on accept. Event `cowork.cancelled` (`sessionId`, `branchId`, `byUserId`, `byName`, `toUserIds`). Nobody is told when nobody was waiting (a rejection that ends a pair, a second `leave`), and the person who cancelled is not told.
+### Notes for the clients
+- Additive; no migration. staff-app: show it like other notifications; an open invitation card disappears on the next pull. admin-web: nothing.
+
 ## [1.37.0] — contract 1.37.0 (photos in Cloudinary; admins delete photos)
 ### Added (owner request 2026-11-22, FR-MED-002..004, ADR-050)
 - **Photos go to the company's Cloudinary account.** The phone still uploads to the server's store and confirms (no app change); after the confirm the server copies the photo to Cloudinary in the background (outbox `media.cloud_copy`, retried if Cloudinary is down), private (`type: authenticated`), then removes the server's copy to save hosting space. Media rows gain `cloud { provider, publicId, version, bytes, format, copiedAt }` and `baseRemovedAt`.
