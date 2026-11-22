@@ -4,6 +4,8 @@ import { as, createTestApp, seedBasics, type Seeded, type TestApp } from '../hel
 import { expectConforms } from '../helpers/openapi.js';
 import { autoClose, finalize, isOnDuty } from '../../src/modules/attendance/service.js';
 import { setSystem } from '../../src/modules/settings/index.js';
+import { manifest as settingsManifest } from '../../src/modules/settings/manifest.js';
+import { manifest as attendanceManifest } from '../../src/modules/attendance/manifest.js';
 import { storage, type MemoryStorage } from '../../src/core/storage/index.js';
 
 let t: TestApp;
@@ -12,8 +14,10 @@ const geo = { lat: 22.7, lng: 90.37, accuracyM: 8 };
 const ev = (type: string, at: string, extra: Record<string, unknown> = {}) => ({ clientId: randomUUID(), type, at, geo, ...extra });
 
 beforeAll(async () => {
-  t = await createTestApp(); // Sunday 2026-11-15 10:00 Dhaka; default shift 09:00–18:00, Friday off
+  t = await createTestApp(); // Sunday 2026-11-15 10:00 Dhaka; Friday off
   s = await seedBasics(t);
+  // These scenarios are written for a 09:00–18:00 shift; the default is 09:00–21:00 since 1.36.0 (checked below).
+  await setSystem('attendance.defaultShift', { start: '09:00', end: '18:00', weeklyOff: [5], lateGraceMin: 15, maxBreakMin: 60, breakWindows: [] });
 });
 afterAll(async () => t.close());
 
@@ -50,6 +54,24 @@ describe('attendance events (FR-ATT-001..003)', () => {
     expect(be.body.breaks).toHaveLength(1);
   });
 
+  it('1.36.0: today comes back with its events, so a reinstalled phone restores the work-in instead of asking again', async () => {
+    const fs = await as(t, '01700000003');
+    const r = await fs.get('/attendance/me/today');
+    expect(r.status).toBe(200);
+    expectConforms('GET', '/attendance/me/today', 200, r.body);
+    expect(r.body.status).toBe('on_duty');
+    const events = r.body.events as { clientId: string; type: string; at: string; source: string }[];
+    expect(events.map((e) => [e.type, e.at, e.source])).toEqual([
+      ['work_in', '2026-11-15T03:40:00.000Z', 'app'],
+      ['break_end', '2026-11-15T03:45:00.000Z', 'app'],
+      ['break_start', '2026-11-15T03:50:00.000Z', 'app'],
+      ['break_end', '2026-11-15T04:00:00.000Z', 'app'],
+    ]);
+    expect(events.every((e) => !!e.clientId)).toBe(true);
+    // only the caller's own day
+    expect(((await (await as(t, '01700000004')).get('/attendance/me/today')).body.events as unknown[]).length).toBe(0);
+  });
+
   it('validation, permissions and another user reusing a clientId', async () => {
     const fs = await as(t, '01700000003');
     expect((await fs.post('/attendance/events', { type: 'work_in' })).status).toBe(400);
@@ -68,11 +90,20 @@ describe('photo at every attendance event (FR-ATT-001, OD-12)', () => {
   const upload = async (c: Awaited<ReturnType<typeof as>>, n: number) =>
     (await c.post('/media/upload-url', { kind: 'selfie', contentType: 'image/jpeg', sizeBytes: 40_000 + n, sha256: String(n).padStart(64, 'a'), capturedAt: '2026-11-15T03:59:00Z' })).body.mediaId as string;
 
-  it('all four events expect a photo by default; a missing or foreign photo is flagged, never rejected', async () => {
+  it('1.36.0: by default a photo at work-in and work-out only, the shift is 09:00–21:00', () => {
+    const shift = settingsManifest.settings!.find((x) => x.key === 'attendance.defaultShift')!.default as { start: string; end: string };
+    expect([shift.start, shift.end]).toEqual(['09:00', '21:00']);
+    expect(attendanceManifest.settings!.find((x) => x.key === 'attendance.selfieEvents')!.default).toEqual(['work_in', 'work_out']);
+  });
+
+  it('every event chosen expects a photo; a missing or foreign photo is flagged, never rejected', async () => {
     t.clock.set('2026-11-16T04:00:00Z'); // Monday, a fresh day for this block
     const fsB = await as(t, '01700000005');
-    const cfg = await fsB.get('/sync/pull?cursor=s_0'); // app-facing settings travel with sync
+    let cfg = await fsB.get('/sync/pull?cursor=s_0'); // app-facing settings travel with sync
     expect(cfg.body.settings['attendance.selfieRequired']).toBe(true);
+    expect(cfg.body.settings['attendance.selfieEvents']).toEqual(['work_in', 'work_out']); // no photo at breaks by default
+    await setSystem('attendance.selfieEvents', ['work_in', 'break_start', 'break_end', 'work_out'], s.branchB);
+    cfg = await fsB.get('/sync/pull?cursor=s_0');
     expect(cfg.body.settings['attendance.selfieEvents']).toEqual(['work_in', 'break_start', 'break_end', 'work_out']);
 
     const photo = await upload(fsB, 1);

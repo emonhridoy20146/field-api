@@ -13,6 +13,8 @@ const eventSchema = new Schema(
     geo: { type: { lat: Number, lng: Number, accuracyM: Number, mock: Boolean, _id: false }, default: null },
     geoUnavailableReason: { type: String, default: null },
     selfieMediaId: { type: String, default: null },
+    // FR-MED-004 (1.37.0): an admin deleted the photo; the log replaces it ("Deleted by admin <byName> · <at>").
+    selfieDeleted: { type: { at: Date, by: String, byName: String, mediaId: String, _id: false }, default: null },
     source: { type: String, enum: ['app', 'correction', 'system'], default: 'app' },
     correction: { type: { by: String, reason: String, replacesEventId: String, _id: false }, default: null },
     replacedBy: { type: String, default: null }, // original stays; only excluded from the derived day (FR-ATT-006)

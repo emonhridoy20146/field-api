@@ -6,5 +6,9 @@ export interface ObjectStorage {
   exists(key: string): Promise<boolean>;
   /** Server-side write (generated exports). Client uploads always go through presignPut. */
   put(key: string, body: Uint8Array, contentType: string): Promise<void>;
+  /** Server-side read (copying a photo to Cloudinary, ADR-050); null when the object does not exist. */
+  get(key: string): Promise<{ body: Uint8Array; contentType: string } | null>;
+  /** Removes the object; a missing object is not an error, so a delete can be repeated. */
+  delete(key: string): Promise<void>;
 }
 export const URL_TTL_SEC = 300;

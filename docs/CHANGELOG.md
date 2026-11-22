@@ -4,6 +4,56 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.37.1] — contract 1.37.1 (invitees are told when a co-work request is cancelled)
+### Added (owner request 2026-11-22, FR-CW-007)
+- When the person who asked leaves a co-work (or ends their day) and the session ends with invitations still unanswered, those invitees get notification `cowork.cancelled` ("`<name>` cancelled the co-work request. It can no longer be accepted."), with `data.sessionId`. Before, they kept an invitation until their next sync and got `SESSION_ENDED` on accept. Event `cowork.cancelled` (`sessionId`, `branchId`, `byUserId`, `byName`, `toUserIds`). Nobody is told when nobody was waiting (a rejection that ends a pair, a second `leave`), and the person who cancelled is not told.
+### Notes for the clients
+- Additive; no migration. staff-app: show it like other notifications; an open invitation card disappears on the next pull. admin-web: nothing.
+
+## [1.37.0] — contract 1.37.0 (photos in Cloudinary; admins delete photos)
+### Added (owner request 2026-11-22, FR-MED-002..004, ADR-050)
+- **Photos go to the company's Cloudinary account.** The phone still uploads to the server's store and confirms (no app change); after the confirm the server copies the photo to Cloudinary in the background (outbox `media.cloud_copy`, retried if Cloudinary is down), private (`type: authenticated`), then removes the server's copy to save hosting space. Media rows gain `cloud { provider, publicId, version, bytes, format, copiedAt }` and `baseRemovedAt`.
+- `GET /media/{id}/url` returns a signed Cloudinary download link valid 5 minutes for a copied photo; otherwise (not copied yet, or Cloudinary not configured) the server's store link as before. A deleted photo answers 404 with `details.reason = MEDIA_DELETED`, `deletedAt`, `deletedByName`.
+- `GET /media/purge/preview?before=YYYY-MM&includeMoneyProofs=` and `POST /media/purge { before, includeMoneyProofs?, confirmText }` (confirmText exactly `DELETE <before>`, else 422 `CONFIRM_TEXT_MISMATCH`): count and size per month, `suggest` from the 5th; deletes 200 per call and returns `{ deleted, bytes, remaining }`. Selfies, visit and location photos; deposit slips and refund proofs only with `includeMoneyProofs`. Audit `media.purged` per call.
+- `POST /attendance/photos/delete { userId, date, reason? }`: deletes that staff member's attendance photos of the day; each event gets `selfieDeleted { at, by, byName }` and `selfieMediaId: null` (also in `GET /attendance/events`). Branch scope (404). Audit `attendance.photos_deleted`.
+- Deleted photos are removed from Cloudinary (Admin API bulk delete, CDN invalidated) and from the server's store at once; a failure is retried by the outbox (`media.remote_delete`). The media row stays as the log (`status: deleted`, `deleted {…}`). `POST /media/upload-url` of the same file again → 409 `MEDIA_DELETED`.
+- New permission `media.delete` (super admin; not branch managers by default).
+- `ObjectStorage` gains `get` and `delete` (S3, MongoDB `db` and memory drivers). `/system/health` gains `cloudStorage: cloudinary | none`.
+### Environment variables (field-api: `.env` locally, Vercel → Project → Settings → Environment Variables)
+| Name | Required | Value |
+|---|---|---|
+| `CLOUDINARY_CLOUD_NAME` | yes, to turn Cloudinary on | the cloud name from the Cloudinary dashboard (Settings → API Keys / Product environment) |
+| `CLOUDINARY_API_KEY` | yes | the API key |
+| `CLOUDINARY_API_SECRET` | yes (secret) | the API secret; keep it only in the host's settings, never in git |
+| `CLOUDINARY_FOLDER` | no | folder / public id prefix, default `fos` |
+
+All three of name, key and secret must be set; otherwise photos stay in the server's store (S3 or MongoDB) exactly as before. Redeploy after setting them and check `GET /api/v1/system/health` → `"cloudStorage": "cloudinary"`. On Vercel the copy runs on the next `/api/cron` call.
+### Migration
+- `media/20261122-0001-media-purge-index` (`media { kind: 1, status: 1, createdAt: 1 }`). No data migration; photos stored before Cloudinary is configured stay in the server's store.
+### Notes for the clients
+- admin-web: a "Photo storage" section with the preview, the alert from the 5th and the typed confirmation; "Delete photos of this day" in the attendance day view and "Deleted by admin <name> · <date time>" where a photo was. staff-app: no change needed; a deleted photo's upload answers 409 `MEDIA_DELETED` and may be dropped from the queue.
+
+## [1.36.0] — contract 1.36.0 (attendance survives a reinstall; no photo at breaks; 09:00–21:00 by default)
+### Changed (owner request 2026-11-22)
+- `GET /attendance/me/today` also returns `events` (`id`, `clientId`, `type`, `at`, `source`, oldest first), so a phone that lost its local data (app reinstalled, data cleared) restores today's work-in, breaks and work-out instead of asking for attendance again. Additive.
+- Setting default `attendance.selfieEvents` is now `['work_in', 'work_out']`: no photo at break start or end unless an admin turns it on. A value already saved in the database is kept.
+- Setting default `attendance.defaultShift` ends at `21:00` (was `18:00`): someone with no named shift is on 09:00–21:00. A value already saved (org-wide or per branch) is kept.
+### Notes for the clients
+- staff-app: after login (and on start when today's local attendance is empty), read `/attendance/me/today` and store the events under their `clientId`; fall back to 09:00–21:00 when no shift arrives.
+
+## [1.35.0] — contract 1.35.0 (a collection goes to the ERP when it is deposited; deposits are final)
+### Changed (owner request 2026-11-22, FR-CASH-010, ADR-049)
+- **Recording a collection no longer sends it to the ERP.** It stays in the collector's hand (any method) and may be edited or withdrawn (`PATCH /collections/{id}`, `POST /collections/{id}/withdraw`; `NOT_CASH` is no longer returned) until it is deposited.
+- **`POST /cash/deposits` hands in everything at once and sends it.** `amountPoisha` must equal all the cash in hand (422 `BUSINESS_RULE` `DEPOSIT_MUST_BE_ALL`, `details.onHandPoisha`; more is still `DEPOSIT_EXCEEDS_ON_HAND`); every mobile banking, bank or card collection not handed in goes with it; `amountPoisha` may be 0 when only those are handed in; nothing at all is `NOTHING_TO_DEPOSIT`. The deposit is `submitted` (new status) with `collectionCount`, `nonCashPoisha`, `nonCashCount`. Each collection gets `depositId` and `depositedAt` (new on `Collection`) and is posted to the ERP under its own key; while ERP posting is off they wait and go once it is on. 409 `INVALID_STATE` `STATUS_CHANGED` if another deposit or a void took one meanwhile (nothing saved).
+- **A deposit is final.** `POST /cash/deposits/{id}/verify`, `/reject` and `/delete` answer 409 `INVALID_STATE` reason `DEPOSIT_FINAL` (404 out of scope). A deposited collection answers `COVERED_BY_DEPOSIT` to edit and withdraw. No `cash.deposit.pending` inbox item is raised for new deposits.
+- `GET /cash/deposits/{id}/collections` for a `submitted` deposit lists every collection it took, whole, with `method`, `status` and `erpReceiptNo`. Older deposits keep the oldest-first view.
+- `GET /cash/deposits?status=submitted`.
+- **A collector with no ERP employee is posted by name.** The ERP post always carries `collector_name`; without an ERP employee id the ERP (field API change of 2026-11-22) leaves the referrer empty instead of refusing. Deploy that ERP change first.
+### Migration
+- `cash/20261122-0001-collection-deposit-index` (`collections { 'deposit.id': 1 }`), `cash/20261122-0002-link-legacy-deposits`: old pending/verified deposits take the cash collections they covered in full (those then go to the ERP). Cash in hand totals do not change.
+### Notes for the clients
+- staff-app: one Deposit button for everything in hand, a confirm that says it goes to the ERP and cannot be changed; lock a collection once `depositId` is set; send the whole cash in hand. admin-web: deposits are read-only (no verify, reject, delete); show the collections per deposit with their ERP state.
+
 ## [1.34.0] — contract 1.34.0 (cancel a co-work request; the office ends a co-work)
 ### Added (owner request 2026-11-22, FR-CW-006, ADR-048)
 - **A co-work with nobody working ends at once.** `shouldEnd` now also ends a session when no accepted member is left, even with invitations unanswered. Before, the person who asked could leave but the session stayed open for the invitees, so the request could not be cancelled. One person working with an invitation pending stays open, as at creation. A later `respond` answers 409 `SESSION_ENDED` as before.

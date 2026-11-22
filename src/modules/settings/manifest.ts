@@ -31,7 +31,7 @@ export const manifest: ModuleManifest = {
     // The paid plugin's licence key is bound to the app id and ships in the app build, never in this DB.
     { key: 'location.trackingProvider', type: 'enum', enum: ['free', 'paid'], default: 'free', exposeToApp: true, description: 'Which background-location plugin the staff app uses' },
     { key: 'location.providerConfig', type: 'json', default: {}, exposeToApp: true, description: 'Non-secret provider tuning (distanceFilterM, intervalSec, …) passed to the app' },
-    { key: 'attendance.defaultShift', type: 'json', default: { start: '09:00', end: '18:00', weeklyOff: [5], lateGraceMin: 15, maxBreakMin: 60, breakWindows: [] }, schema: defaultShiftSchema, branchOverridable: true, exposeToApp: true, description: 'FR-SET-003 duty hours of everyone without a named shift, org-wide or per branch: start, end, weekly off days (may be empty), late grace, break limit and weekly break windows (FR-ATT-010)' },
+    { key: 'attendance.defaultShift', type: 'json', default: { start: '09:00', end: '21:00', weeklyOff: [5], lateGraceMin: 15, maxBreakMin: 60, breakWindows: [] }, schema: defaultShiftSchema, branchOverridable: true, exposeToApp: true, description: 'FR-SET-003 duty hours of everyone without a named shift, org-wide or per branch: start, end, weekly off days (may be empty), late grace, break limit and weekly break windows (FR-ATT-010)' },
     { key: 'locale.default', type: 'enum', enum: ['bn', 'en'], default: 'bn', exposeToApp: true },
   ],
   migrations: [

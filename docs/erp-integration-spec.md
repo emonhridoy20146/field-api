@@ -165,8 +165,8 @@ Body:
 | `method_type` | enum | yes | `cash`, `mobile_banking`, `bank`, `card_terminal` |
 | `payment_method_id` | int | no | Pin one ERP method; otherwise the first method of that type at the invoice branch |
 | `mobile_provider` | enum | no | `bkash`, `nagad`, `rocket`. With `mobile_banking`, only a method whose `mobile_provider` (or name) contains this word is used, so a bKash payment never lands in a Nagad wallet |
-| `collector_employee_id` | int | yes | `employees.id` of the field officer (active) |
-| `collector_name` | string ≤ 100 | no | Stored in `reference_no` like the office does; defaults to the employee name |
+| `collector_employee_id` | int | no (1.35.0) | `employees.id` of the field officer (active). Since ERP field API change 2026-11-22 (ADR-049) it may be left out: the payment's referrer then stays empty |
+| `collector_name` | string ≤ 100 | yes without `collector_employee_id` | Stored in `reference_no` like the office does; defaults to the employee name. field-api always sends it |
 | `transaction_ref` | string ≤ 100 | no | bKash/Nagad TrxID |
 | `field_receipt_no` | string ≤ 40 | yes | FOS receipt number |
 | `field_collection_id` | string ≤ 64 | no | FOS collection id |

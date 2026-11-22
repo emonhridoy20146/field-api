@@ -280,7 +280,8 @@ export class MockErpClient implements ErpClient {
     if (this.maxBackdateDays !== null && diffDays(date, today) > this.maxBackdateDays)
       return this.reject('PERIOD_LOCKED', 'Collection date is older than the allowed back-date window.');
     const employee = i.employeeId ? this.employees.get(i.employeeId) : undefined;
-    if (!i.employeeId || (this.employees.size > 0 && !employee?.active))
+    // 1.35.0: no employee is allowed when the name is given (the ERP leaves the referrer empty); a given one must be active.
+    if ((!i.employeeId && !i.collectorName?.trim()) || (i.employeeId && this.employees.size > 0 && !employee?.active))
       return this.reject('COLLECTOR_NOT_LINKED', 'Collector is not an active ERP employee.', {
         collector_employee_id: i.employeeId,
       });

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { as, createTestApp, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
+import { as, createTestApp, handIn, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
 import { expectConforms } from '../helpers/openapi.js';
 import { deltaSync } from '../../src/modules/erp-gateway/index.js';
 import { applyAssignments, getByErpId } from '../../src/modules/customers/index.js';
@@ -77,7 +77,7 @@ describe('edited marker (edited.count / previousAmountPoisha)', () => {
 });
 
 describe('the admin activity feed has lines for the new actions (FR-ACT-001)', () => {
-  it('a withdrawal, each edit and a deleted deposit appear, with the staff member, customer and amount', async () => {
+  it('a withdrawal and each edit appear, with the staff member, customer and amount (deposits are final since 1.35.0)', async () => {
     const fs = await as(t, '01700000003');
     const bm = await as(t, '01700000002');
     const sa = await as(t, '01700000001');
@@ -85,10 +85,9 @@ describe('the admin activity feed has lines for the new actions (FR-ACT-001)', (
     await fs.patch(`/collections/${c}`, { amountPoisha: 280_000 });
     await fs.patch(`/collections/${c}`, { amountPoisha: 270_000 });
     await fs.post(`/collections/${c}/withdraw`, {});
-    const dep = (await fs.post('/cash/deposits', { clientId: randomUUID(), amountPoisha: 100_000, destination: 'branch_cashier', depositedAt: '2026-11-15T09:00:00Z' }, { 'idempotency-key': randomUUID() })).body;
-    // a deposit needs cash in hand to cover it
-    expect(dep.id).toBeTruthy();
-    expect((await bm.post(`/cash/deposits/${dep.id}/delete`, { reason: 'entered by mistake' })).status).toBe(200);
+    const dep = await handIn(fs);
+    expect(dep.status).toBe(201);
+    expect((await bm.post(`/cash/deposits/${dep.body.id}/delete`, { reason: 'entered by mistake' })).status).toBe(409);
 
     const edits = (await feed(sa, 'collection_edited')).filter((l) => l.entityId === c);
     expect(edits).toHaveLength(2);
@@ -99,11 +98,10 @@ describe('the admin activity feed has lines for the new actions (FR-ACT-001)', (
     const withdrawn = (await feed(sa, 'collection_withdrawn')).find((l) => l.entityId === c);
     expect(withdrawn).toMatchObject({ actor: { id: s.fs1.id }, customer: { id: cust }, data: { amountPoisha: 270_000, method: 'cash' } });
 
-    const deleted = (await feed(sa, 'deposit_deleted')).find((l) => l.entityId === dep.id);
-    expect(deleted).toMatchObject({ actor: { id: s.fs1.id }, by: { id: s.bm.id }, customer: null, entity: 'deposit', data: { amountPoisha: 100_000 } });
+    expect((await feed(sa, 'deposit_deleted')).find((l) => l.entityId === dep.body.id)).toBeUndefined();
 
     const all = await sa.get('/activity');
     expectConforms('GET', '/activity', 200, all.body);
-    expect((all.body.items as Line[]).map((l) => l.type)).toEqual(expect.arrayContaining(['collection_edited', 'collection_withdrawn', 'deposit_deleted']));
+    expect((all.body.items as Line[]).map((l) => l.type)).toEqual(expect.arrayContaining(['collection_edited', 'collection_withdrawn']));
   });
 });

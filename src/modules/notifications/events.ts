@@ -186,6 +186,15 @@ const RULES: Rule[] = [
     data: (p) => ({ sessionId: str(p.sessionId), decision: str(p.decision) }),
   },
   {
+    // FR-CW-007: the person who asked withdrew the request (or ended their day) before these people answered.
+    event: 'cowork.cancelled',
+    type: 'cowork.cancelled',
+    to: (p) => (Array.isArray(p.toUserIds) ? p.toUserIds.map(str) : []),
+    title: () => t('যৌথ কাজের অনুরোধ বাতিল', 'Co-work request cancelled'),
+    body: (p) => t(`${str(p.byName)} যৌথ কাজের অনুরোধটি বাতিল করেছেন। আর গ্রহণ করা যাবে না।`, `${str(p.byName)} cancelled the co-work request. It can no longer be accepted.`),
+    data: (p) => ({ sessionId: str(p.sessionId) }),
+  },
+  {
     // FR-CW-006: the office ended the group; everyone who was in it or still invited is told.
     event: 'cowork.ended',
     type: 'cowork.ended',

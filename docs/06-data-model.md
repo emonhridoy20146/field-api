@@ -126,6 +126,7 @@ Materialized: `assignment_scopes { _id: userId, customerIds: [...], recomputedAt
   "conflict": null, "flags": ["late_sync"], "voided": null, "resolution": null }
 ```
 `voided`: `{ by, at, reason }` (an office void, or the collector's own withdraw, FR-COL-016, 1.32.0: same shape, the audit action tells them apart). A cash collection edited before the ERP got it keeps its row, `version` rises, and the change is in the audit log (`collection.edited`). `conflict`: `{ code, message, erpResponse, raisedAt }`. `resolution`: `{ action, by, at, reason, proofMediaId, targetPlanId }`.
+> 1.35.0: `deposit: { id, at } | null`, set when a deposit hands the collection in; only then is it posted to the ERP, and from then on it cannot be edited or withdrawn.
 Indexes: `{ idempotencyKey:1 } unique`, `{ receiptNo:1 } unique`, `{ collectorId:1, businessDate:-1 }`, `{ branchId:1, businessDate:-1, status:1 }`, `{ customerId:1, recordedAt:-1 }`, `{ status:1, 'erp.attempts':1 }`, `{ method:1, transactionRef:1 } sparse`.
 Retention: permanent (≥ 8 years, OD-09).
 
@@ -136,6 +137,7 @@ Retention: permanent (≥ 8 years, OD-09).
 `{ _id: key, scope: 'collection'|'sync', payloadHash, response, entityId, createdAt }` · TTL 400 days on `createdAt` (collections themselves keep the key permanently).
 
 ### cash_deposits
+> 1.35.0 (FR-CASH-010, ADR-049): new deposits are `status: 'submitted'` (final) with `collectionIds[]` (cash and the rest), `nonCashPoisha`, `nonCashCount` and, when it took a collection an older deposit had partly paid, `legacyAbsorbedPoisha`. Deposits from before have no `collectionIds`. Migration `cash/20261122-0002-link-legacy-deposits` links old pending/verified deposits to the cash collections they covered in full. Index `collections { 'deposit.id':1 }`.
 `{ clientId, branchId, userId, amountPoisha, destination: 'branch_cashier'|'bank'|'manager', reference, slipMediaId, depositedAt, geo, status: 'pending'|'verified'|'rejected'|'deleted', verifiedBy, verifiedAt, rejectReason, deletedBy, deletedAt, deleteReason }` · `{ clientId:1 } unique`, `{ userId:1, status:1 }`, `{ branchId:1, status:1, depositedAt:-1 }`.
 
 ### cash_closings [ADDED]
@@ -166,8 +168,10 @@ Retention: permanent (≥ 8 years, OD-09).
 ### media
 `{ _id, ownerId, kind: 'visit_photo'|'deposit_slip'|'selfie'|'location_proof'|'refund_proof'|'voice_note'|'export', bucketKey: 'media/2026/11/15/<uuid>.jpg', contentType, sizeBytes, sha256, width, height, capturedAt, geo, status: 'pending'|'confirmed', thumbKey }` · `{ sha256:1 }`, TTL on pending: `{ createdAt:1 } partial(status=pending) 1 day` (implemented by job since TTL partial filters on status are allowed).
 
+- **As built (1.37.0, ADR-050):** `{ ownerId, branchId, kind, contentType, sizeBytes, sha256, key, status: 'pending'|'uploaded'|'deleted', capturedAt, geo, createdAt, confirmedAt, cloud: { provider: 'cloudinary', publicId, version, bytes, format, copiedAt } | null, baseRemovedAt | null, deleted: { at, by, byName, reason, scope: 'purge'|'attendance_day', filesRemovedAt } | null }` · `{ ownerId:1, sha256:1, kind:1 } unique`, `{ status:1, createdAt:1 }`, `{ kind:1, status:1, createdAt:1 }` (purge, migration `media/20261122-0001-media-purge-index`). `cloud` is set once the photo is in Cloudinary; the base-store copy is then removed (`baseRemovedAt`). A deleted row is kept as the log; `deleted.filesRemovedAt` once Cloudinary and the base store are clean. No data migration: old rows have neither field.
+
 ### attendance_events
-`{ clientId, userId, branchId, businessDate, type: 'work_in'|'break_start'|'break_end'|'work_out', at, deviceTime, receivedAt, geo|null, geoUnavailableReason, selfieMediaId?, source: 'app'|'correction'|'system', correction?: { by, reason, replacesEventId }, replacedBy?, flags[] }` · `{ clientId:1 } unique`, `{ userId:1, businessDate:1, at:1 }`. Append-only: a correction adds an event and marks the replaced one with `replacedBy`; the auto work-out is a `system` event.
+`{ clientId, userId, branchId, businessDate, type: 'work_in'|'break_start'|'break_end'|'work_out', at, deviceTime, receivedAt, geo|null, geoUnavailableReason, selfieMediaId?, selfieDeleted?: { at, by, byName, mediaId } (1.37.0, FR-MED-004: the photo was deleted by an admin; selfieMediaId is then null), source: 'app'|'correction'|'system', correction?: { by, reason, replacesEventId }, replacedBy?, flags[] }` · `{ clientId:1 } unique`, `{ userId:1, businessDate:1, at:1 }`. Append-only: a correction adds an event and marks the replaced one with `replacedBy`; the auto work-out is a `system` event.
 
 ### attendance_days
 Derived, rebuildable from events. `{ userId, branchId, businessDate, status: 'not_started'|'on_duty'|'on_break'|'off_duty'|'present'|'late'|'absent'|'leave'|'holiday'|'weekly_off', state, firstIn, lastOut, lateMin, breakMin, overBreakMin, windowBreakMin (1.25.0), overtimeMin (1.25.0; absent on older days, which are derived again on read), breaks: [{start,end}], dutyMin, autoClosed, corrected, closed, flags[], shift: {start,end} }` · `{ userId:1, businessDate:1 } unique`, `{ branchId:1, businessDate:1 }`, `{ closed:1, state:1 }`.

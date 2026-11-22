@@ -611,6 +611,8 @@ export function toPaymentRequest(i: PostPaymentInput): Record<string, unknown> {
     method_type: METHOD_TO_ERP_TYPE[i.method] ?? 'cash',
     mobile_provider: MOBILE_PROVIDER[i.method] ?? null,
     collector_employee_id: i.employeeId ? asInt(i.employeeId) : null,
+    // 1.35.0: without an ERP employee the ERP needs the name (it becomes the payment reference; the referrer stays empty).
+    collector_name: i.collectorName ? i.collectorName.slice(0, 100) : null,
     transaction_ref: i.transactionRef,
     field_receipt_no: i.fieldReceiptNo,
     field_collection_id: i.fieldCollectionId,

@@ -307,6 +307,43 @@ describe('cancelling a request and the office ending a co-work (FR-CW-006)', () 
     expect(late.body.details.reason).toBe('SESSION_ENDED');
     // the invitee's own list shows it ended
     expect((await fs2.get('/cowork/sessions/mine')).body.find((x: { id: string }) => x.id === made.body.id).status).toBe('ended');
+
+    // FR-CW-007: both invitees are told at once (not the person who cancelled), by name, with the session id
+    const told = async (phone: string) => {
+      const who = await as(t, phone);
+      return (await who.get('/notifications')).body.items.filter((i: { type: string; data?: { sessionId?: string } }) => i.type === 'cowork.cancelled' && i.data?.sessionId === made.body.id);
+    };
+    for (const phone of ['01700000004', '01700000007']) {
+      const n = await told(phone);
+      expect(n).toHaveLength(1);
+      expect(n[0].body.en).toContain('Rakib Hasan');
+    }
+    expect(await told('01700000003')).toHaveLength(0);
+    // leaving again changes nothing and tells nobody twice
+    expect((await fs1.post(`/cowork/sessions/${made.body.id}/leave`)).status).toBe(200);
+    expect(await told('01700000004')).toHaveLength(1);
+  });
+
+  it('FR-CW-007: nobody is told when nobody was waiting; ending the day cancels a request nobody answered', async () => {
+    t.clock.set(new Date('2026-11-17T04:00:00Z')); // Tuesday 10:00 Dhaka, a new business day
+    const fs1 = await as(t, '01700000003');
+    const fs2 = await as(t, '01700000004');
+    const count = async (phone: string, type: string) => ((await (await as(t, phone)).get('/notifications')).body.items as { type: string }[]).filter((i) => i.type === type).length;
+
+    // one invited, who rejects: the group ends there, with nobody left to tell
+    const a = await fs1.post('/cowork/requests', { clientId: randomUUID(), toUserIds: [s.fs2.id] });
+    const before = await count('01700000003', 'cowork.cancelled');
+    expect((await fs2.post(`/cowork/sessions/${a.body.id}/respond`, { decision: 'reject' })).body.status).toBe('ended');
+    expect(await count('01700000003', 'cowork.cancelled')).toBe(before);
+    expect(await count('01700000004', 'cowork.cancelled')).toBe(1); // the one from the first test of this block, none new
+
+    // the requester works out with an invitation unanswered: that withdraws it too
+    expect((await fs1.post('/attendance/events', { clientId: randomUUID(), type: 'work_in', at: '2026-11-17T03:00:00Z', geo: { lat: 22.7, lng: 90.37, accuracyM: 8 } })).status).toBe(201);
+    const b = await fs1.post('/cowork/requests', { clientId: randomUUID(), toUserIds: [fs3.id] });
+    expect((await fs1.post('/attendance/events', { clientId: randomUUID(), type: 'work_out', at: '2026-11-17T04:30:00Z', geo: { lat: 22.7, lng: 90.37, accuracyM: 8 } })).status).toBe(201);
+    const three = await as(t, '01700000007');
+    expect((await three.get('/cowork/sessions/mine')).body.find((x: { id: string }) => x.id === b.body.id).status).toBe('ended');
+    expect(await count('01700000007', 'cowork.cancelled')).toBe(2); // this one and the one from the first test
   });
 
   it('after others accepted the asker can leave: two left keep working, one left ends it', async () => {

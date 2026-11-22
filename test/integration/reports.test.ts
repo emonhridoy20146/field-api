@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { as, createTestApp, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
+import { as, createTestApp, handIn, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
 import { expectConforms } from '../helpers/openapi.js';
 import { deltaSync } from '../../src/modules/erp-gateway/index.js';
 import { applyAssignments, getByErpId } from '../../src/modules/customers/index.js';
@@ -35,8 +35,9 @@ beforeAll(async () => {
   await fs.post('/visits', { clientId: randomUUID(), customerId: ids['100245'], checkInAt: '2026-11-15T03:30:00Z', outcome: 'partial_paid', geo });
   expect((await collect(fs, 1, 150000, 'cash')).status).toBe(201);
   expect((await collect(fs, 2, 50000, 'bkash', { transactionRef: 'BKX1234567' })).status).toBe(201);
+  await handIn(fs); // 1.35.0: a collection goes to the ERP once deposited
   await dispatchOutbox(); // both posted to the mock ERP
-  expect((await collect(fs, 3, 20000, 'cash')).status).toBe(201); // still waiting for the worker
+  expect((await collect(fs, 3, 20000, 'cash')).status).toBe(201); // still in hand, not deposited
   await fs.post('/promises', { clientId: randomUUID(), customerId: ids['100245'], promisedDate: '2026-11-15', promisedAmountPoisha: 100000 });
   await fs.post('/location/points', {
     deviceId: `dev-${FS1}`,
@@ -157,6 +158,7 @@ describe('reconciliation (FR-COL-014)', () => {
   });
 
   it('is balanced once the worker has posted everything', async () => {
+    await handIn(await as(t, FS1));
     await dispatchOutbox();
     const r = await (await as(t, BM)).get('/reports/reconciliation?date=2026-11-15');
     expect(r.body).toMatchObject({ balanced: true, mismatches: [] });
@@ -221,7 +223,8 @@ describe('exports (FR-REP-003/004)', () => {
     expect(o).toContain('ERP থেকে আনা হয়েছে'); // cached ERP figures carry their age
     expect(docs.get(over)!.rows).toBeGreaterThan(0);
     const c = text(docs.get(cash)!.storageKey!).slice(1).trim().split('\r\n');
-    expect(c.find((l) => l.startsWith('Rakib Hasan,'))).toMatch(/^Rakib Hasan,1700,/); // cash on hand in taka
+    // 1.35.0: everything was deposited for the ERP, so nothing is in hand; today's cash 1700 taka, mobile 500
+    expect(c.find((l) => l.startsWith('Rakib Hasan,'))).toMatch(/^Rakib Hasan,0,50000,ok,,0,1700,500$/);
   });
 
   it('refuses bad params, other branches and missing permission', async () => {

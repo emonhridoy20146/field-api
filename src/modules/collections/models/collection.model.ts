@@ -52,6 +52,8 @@ const collectionSchema = new Schema(
     voided: { type: { by: String, at: Date, reason: String, kind: String, _id: false }, default: null },
     // 1.33.0: set by PATCH /collections/{id}; previousAmountPoisha is the amount before the FIRST edit.
     edited: { type: { count: Number, at: Date, by: String, previousAmountPoisha: Number, _id: false }, default: null },
+    // 1.35.0 (FR-CASH-010): the deposit that handed this collection in. Only then is it posted to the ERP; after it, no edit or withdraw.
+    deposit: { type: { id: String, at: Date, _id: false }, default: null },
     flags: { type: [String], default: [] },
     version: { type: Number, default: 1 },
   },

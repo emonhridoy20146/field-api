@@ -18,13 +18,13 @@ export const manifest: ModuleManifest = {
     { key: 'cowork.manage', description: { en: 'End a co-work session with a reason', bn: 'কারণসহ যৌথ কাজ বন্ধ করা' }, defaults: { super_admin: true, branch_manager: true } },
   ],
   routes: coworkRoutes,
-  events: { emits: ['cowork.requested', 'cowork.responded', 'cowork.ended'], consumes: ['attendance.event', 'attendance.auto_closed'] },
+  events: { emits: ['cowork.requested', 'cowork.responded', 'cowork.ended', 'cowork.cancelled'], consumes: ['attendance.event', 'attendance.auto_closed'] },
   settings: [
     { key: 'cowork.visitCredit', type: 'number', default: 1, branchOverridable: true, exposeToApp: true, description: 'FR-CW-005 how much a joint visit counts for each participant in visit targets (0 to 1). Money is never shared.' },
     { key: 'cowork.maxMembers', type: 'int', default: 5, branchOverridable: true, exposeToApp: true, description: 'FR-CW-001 largest group that can work together' },
   ],
   jobs: [{ name: 'cowork.end-day', schedule: '5 0 * * *', handler: async () => void (await s.endPastSessions()) }],
-  notificationTypes: [{ type: 'cowork.requested' }, { type: 'cowork.responded' }, { type: 'cowork.ended' }],
+  notificationTypes: [{ type: 'cowork.requested' }, { type: 'cowork.responded' }, { type: 'cowork.ended' }, { type: 'cowork.cancelled' }],
   syncEntities: [{ entity: 'cowork_session', load: s.syncLoad, snapshot: async (user) => ({ items: await s.mine(user), nextCursor: null }) }],
   migrations: [
     indexMigration('20261116-0001-cowork-indexes', [

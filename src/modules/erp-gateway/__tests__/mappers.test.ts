@@ -372,6 +372,7 @@ describe('ERP field API v1 mappers (contract fixtures)', () => {
       method_type: 'mobile_banking',
       mobile_provider: 'bkash',
       collector_employee_id: 7,
+      collector_name: null,
       transaction_ref: 'BK12345678',
       field_receipt_no: 'BRL01-FS014-261115-0007',
       field_collection_id: 'abc',
@@ -395,6 +396,27 @@ describe('ERP field API v1 mappers (contract fixtures)', () => {
         geo: null,
       }),
     ).toMatchObject({ method_type: 'bank', mobile_provider: null, collector_employee_id: null, note: null });
+  });
+
+  it('1.35.0: a collector with no ERP employee is sent by name (the ERP leaves the referrer empty)', () => {
+    const body = toPaymentRequest({
+      idempotencyKey: 'k',
+      erpCustomerId: '1',
+      erpPlanId: '2',
+      erpBranchId: '3',
+      amountPoisha: 100,
+      method: 'cash',
+      transactionRef: null,
+      collectedAt: new Date('2026-11-15T05:12:44Z'),
+      employeeId: null,
+      collectorName: 'Rahim Uddin',
+      fieldReceiptNo: 'R-1',
+      physicalReceiptNo: null,
+      note: null,
+      fieldCollectionId: 'c',
+      geo: null,
+    });
+    expect(body).toMatchObject({ collector_employee_id: null, collector_name: 'Rahim Uddin' });
   });
 
   it('maps posted responses and error codes (spec §6)', () => {

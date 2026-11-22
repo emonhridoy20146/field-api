@@ -2,9 +2,11 @@ import { z } from 'zod';
 import { ctx } from '../../core/context/index.js';
 import { AppError, notFound } from '../../core/errors/index.js';
 import { isOid } from '../../core/db/index.js';
-import { storage, URL_TTL_SEC } from '../../core/storage/index.js';
+import { cloudinary, storage, URL_TTL_SEC } from '../../core/storage/index.js';
+import { withTransaction } from '../../core/db/index.js';
 import { canSeeBranch, type AuthUser } from '../../core/security/types.js';
 import { MediaModel } from './models/media.model.js';
+import { deletedError, enqueueCopy } from './cloud.js';
 
 export const uploadSchema = z.object({
   kind: z.enum(['visit_photo', 'deposit_slip', 'selfie', 'location_proof', 'refund_proof', 'voice_note']),
@@ -25,6 +27,8 @@ export async function uploadUrl(user: AuthUser, input: z.infer<typeof uploadSche
   if (!kindOk) throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'contentType', message: `not allowed for ${input.kind}` }] });
   const now = ctx().clock.now();
   const existing = await MediaModel.findOne({ ownerId: user.id, sha256: sha, kind: input.kind }).lean();
+  // The same file again after an admin deleted it: refused, the deletion stands (FR-MED-003/004).
+  if (existing?.status === 'deleted') throw new AppError('INVALID_STATE', { reason: 'MEDIA_DELETED' });
   if (existing?.status === 'uploaded') return { mediaId: existing._id.toHexString(), uploadUrl: '', headers: {}, expiresAt: now.toISOString(), alreadyExists: true };
   const doc =
     existing ??
@@ -49,8 +53,13 @@ export async function confirm(user: AuthUser, id: string) {
   const m = await MediaModel.findOne({ _id: id, ownerId: user.id }).lean();
   if (!m) throw notFound('media');
   if (m.status === 'uploaded') return { id, status: 'uploaded' };
+  if (m.status === 'deleted') throw new AppError('INVALID_STATE', { reason: 'MEDIA_DELETED' });
   if (!(await storage().exists(m.key))) throw new AppError('INVALID_STATE', { reason: 'NOT_UPLOADED' });
-  await MediaModel.updateOne({ _id: id }, { $set: { status: 'uploaded', confirmedAt: ctx().clock.now() } });
+  // ADR-050: the copy to Cloudinary runs in the outbox, so a Cloudinary outage never fails the confirm.
+  await withTransaction(async (session) => {
+    const r = await MediaModel.updateOne({ _id: id, status: 'pending' }, { $set: { status: 'uploaded', confirmedAt: ctx().clock.now() } }, { session });
+    if (r.modifiedCount === 1) await enqueueCopy(id, m.contentType, session);
+  });
   return { id, status: 'uploaded' };
 }
 
@@ -59,10 +68,19 @@ export async function signedUrl(user: AuthUser, id: string, origin?: string) {
   if (!isOid(id)) throw notFound('media');
   const m = await MediaModel.findById(id).lean();
   const visible = m && (m.ownerId === user.id || (user.role !== 'field_staff' && canSeeBranch(user, m.branchId)));
-  if (!m || !visible || m.status !== 'uploaded') throw notFound('media');
+  if (!m || !visible) throw notFound('media');
+  if (m.status === 'deleted') throw deletedError(m);
+  if (m.status !== 'uploaded') throw notFound('media');
+  if (m.cloud?.publicId) {
+    const c = cloudinary();
+    // Copied to Cloudinary and the base copy may be gone: without the Cloudinary settings it cannot be read.
+    if (!c) throw new AppError('INVALID_STATE', { reason: 'CLOUD_STORAGE_NOT_CONFIGURED' });
+    const link = c.downloadUrl(m.cloud.publicId, m.cloud.format ?? 'jpg');
+    return { url: link.url, expiresAt: link.expiresAt.toISOString() };
+  }
   return { url: await storage().presignGet(m.key, origin), expiresAt: new Date(ctx().clock.now().getTime() + URL_TTL_SEC * 1000).toISOString() };
 }
 
 export async function isUploadedBy(id: string, ownerId: string): Promise<boolean> {
-  return isOid(id) && !!(await MediaModel.exists({ _id: id, ownerId }));
+  return isOid(id) && !!(await MediaModel.exists({ _id: id, ownerId, status: { $ne: 'deleted' } }));
 }

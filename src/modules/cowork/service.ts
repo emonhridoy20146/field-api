@@ -134,7 +134,15 @@ async function leaveAt(s: Lean, userId: string, at: Date): Promise<Lean> {
   if (me.status === 'accepted') Object.assign(me, { status: 'left', leftAt: at });
   else if (me.status === 'invited') Object.assign(me, { status: 'rejected', respondedAt: at });
   else return s;
-  return save(s, members, at);
+  const next = await save(s, members, at);
+  // FR-CW-007: the request is withdrawn (nobody working is left) while some invitees have not answered: tell them,
+  // so they do not keep an invitation that can no longer be accepted. The session reaches them on the next pull too.
+  const waiting = membersOf(next).filter((m) => m.status === 'invited').map((m) => m.userId);
+  if (next.status === 'ended' && waiting.length) {
+    const who = (await getUsers([userId])).get(userId);
+    await ctx().bus.emit('cowork.cancelled', { sessionId: idOf(next), branchId: next.branchId, byUserId: userId, byName: who ? who.name.en || who.name.bn : '', toUserIds: waiting });
+  }
+  return next;
 }
 
 /** Idempotent: leaving twice, or leaving an ended session, returns the session as it is. */

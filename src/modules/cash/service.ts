@@ -11,13 +11,15 @@ import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { getSetting } from '../settings/index.js';
 import { getUser, getUsers, listByRole, type UserView } from '../users/index.js';
-import { cashCollectionRows, cashCollectionsOf, cashSums } from '../collections/index.js';
+import { cashCollectionRows, cashSums, depositRows, heldNonCash, submitForDeposit } from '../collections/index.js';
 import { promisesBehind } from '../promises/index.js';
-import { depositCoverage, inHandBreakdown, oldestUndeposited, onHand, stateOf } from './domain/position.js';
+import { depositCoverage, inHandBreakdown, stateOf } from './domain/position.js';
 import { ClosingModel, DepositModel } from './models/cash.model.js';
 
 type Lean = LeanDoc;
 const today = () => businessDate(ctx().clock.now());
+/** Deposits that count: `submitted` (1.35.0, final) and the `pending` / `verified` ones recorded before 1.35.0. */
+const COUNTED = ['pending', 'verified', 'submitted'];
 
 async function limitFor(u: UserView): Promise<number> {
   return u.cashLimitPoisha ?? (await getSetting<number>('cash.limitPoisha', u.branchIds[0] ?? null)) ?? 5_000_000;
@@ -25,13 +27,32 @@ async function limitFor(u: UserView): Promise<number> {
 
 async function depositTotals(userIds: string[]) {
   const rows = await DepositModel.aggregate([
-    { $match: { userId: { $in: userIds }, status: { $in: ['pending', 'verified'] } } },
+    { $match: { userId: { $in: userIds }, status: { $in: COUNTED } } },
     { $group: { _id: '$userId', total: { $sum: '$amountPoisha' }, pending: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, '$amountPoisha', 0] } } } },
   ]);
   return new Map<string, { total: number; pending: number }>(rows.map((r: { _id: string; total: number; pending: number }) => [r._id, r]));
 }
 
-/** FR-CASH-001: Σ cash collections (not voided/refunded) − Σ pending+verified deposits. */
+type CashRows = Awaited<ReturnType<typeof cashCollectionRows>>;
+
+/**
+ * The cash a person holds (FR-CASH-001/007, 1.35.0). A collection a deposit took (`depositId`) is out of hand. Deposits
+ * from before 1.35.0 carry no list: what they paid that is not linked to a collection is taken off the oldest unlinked
+ * cash, as before. So voiding a deposited collection never moves other cash in or out of hand.
+ */
+async function handState(userId: string, rows?: CashRows) {
+  const all = rows ?? (await cashCollectionRows(userId));
+  const deps = (await DepositModel.find({ userId, status: { $in: COUNTED } }).select({ amountPoisha: 1, collectionIds: 1, legacyAbsorbedPoisha: 1 }).lean()) as Lean[];
+  const legacy = new Set(deps.filter((d) => !d.collectionIds).map((d) => d._id.toHexString() as string));
+  const legacyTotal = deps.filter((d) => !d.collectionIds).reduce((n, d) => n + (d.amountPoisha as number), 0);
+  const linkedToLegacy = all.filter((r) => r.depositId && legacy.has(r.depositId)).reduce((n, r) => n + r.amountPoisha, 0);
+  // a 1.35.0 deposit that took a collection an older deposit had partly paid records that part, so it is not counted again
+  const absorbed = deps.reduce((n, d) => n + ((d.legacyAbsorbedPoisha as number | undefined) ?? 0), 0);
+  const inHand = inHandBreakdown(all.filter((r) => !r.depositId), Math.max(0, legacyTotal - linkedToLegacy - absorbed));
+  return { rows: all, inHand, onHandPoisha: inHand.reduce((n, c) => n + c.inHandPoisha, 0) };
+}
+
+/** FR-CASH-001: the cash collections (not voided/refunded) still in hand, see `handState`. */
 export async function positions(users: UserView[]) {
   const ids = users.map((u) => u.id);
   const [sums, deps] = [await cashSums(ids, today()), await depositTotals(ids)];
@@ -39,9 +60,10 @@ export async function positions(users: UserView[]) {
   for (const u of users) {
     const s = sums.get(u.id);
     const d = deps.get(u.id) ?? { total: 0, pending: 0 };
-    const hand = onHand(s?.cashPoisha ?? 0, d.total);
+    const st = (s?.cashPoisha ?? 0) > 0 ? await handState(u.id) : null;
+    const hand = st?.onHandPoisha ?? 0;
     const limit = await limitFor(u);
-    const oldest = hand > 0 ? oldestUndeposited(await cashCollectionsOf(u.id), d.total) : null;
+    const oldest = st?.inHand[0]?.recordedAt ?? null;
     out.push({
       userId: u.id,
       userName: u.name.en || u.name.bn,
@@ -86,7 +108,7 @@ export async function inHandOf(actor: AuthUser, userId: string) {
   const mayRead = !!u && (actor.id === u.id || (actor.role !== 'field_staff' && u.branchIds.some((b) => canSeeBranch(actor, b))));
   if (!u || !mayRead) throw notFound('user');
   const deps = (await depositTotals([u.id])).get(u.id) ?? { total: 0, pending: 0 };
-  const all = inHandBreakdown(await cashCollectionRows(u.id), deps.total);
+  const all = (await handState(u.id)).inHand;
   // newest first: what was collected last is what is most surely still in the pocket
   const items = all.reverse().slice(0, IN_HAND_LIMIT);
   return {
@@ -100,7 +122,8 @@ export async function inHandOf(actor: AuthUser, userId: string) {
   };
 }
 
-type CashRow = Awaited<ReturnType<typeof cashCollectionRows>>[number];
+/** One line of cash in hand or of a deposit (a deposit line also says its method and ERP receipt). */
+type CashRow = Omit<Awaited<ReturnType<typeof cashCollectionRows>>[number], 'depositId'>;
 
 /** FR-CASH-008: each line says which promise it was collected against and how that promise ended (or null). */
 async function withPromises<T extends CashRow>(rows: T[]) {
@@ -118,9 +141,21 @@ async function withPromises<T extends CashRow>(rows: T[]) {
  */
 export async function depositCollections(user: AuthUser, id: string) {
   const deposit = await getDeposit(user, id);
-  const deps = (await DepositModel.find({ userId: deposit.userId, status: { $in: ['pending', 'verified'] } }).sort({ depositedAt: 1, _id: 1 }).select({ amountPoisha: 1 }).lean()) as Lean[];
+  const deps = (await DepositModel.find({ userId: deposit.userId, status: { $in: COUNTED } }).sort({ depositedAt: 1, _id: 1 }).select({ amountPoisha: 1 }).lean()) as Lean[];
   const order = deps.map((d) => ({ id: d._id.toHexString() as string, amountPoisha: d.amountPoisha as number }));
   const rows = await cashCollectionRows(deposit.userId);
+  // 1.35.0: a deposit lists the collections it took (cash and the rest); older deposits are worked out oldest-first.
+  if (deposit.status === 'submitted') {
+    const linked = await depositRows(deposit.id);
+    const u0 = await getUser(deposit.userId);
+    return {
+      deposit: { ...deposit, userName: u0?.name.en || u0?.name.bn || '' },
+      coveredPoisha: linked.filter((c) => c.method === 'cash').reduce((n, c) => n + c.amountPoisha, 0),
+      unmatchedPoisha: 0,
+      items: await withPromises(linked.map((c) => ({ ...c, coveredPoisha: c.amountPoisha, inHandPoisha: 0 }))),
+      generatedAt: ctx().clock.now().toISOString(),
+    };
+  }
   const cov = deposit.status === 'rejected' || deposit.status === 'deleted' ? { items: [], coveredPoisha: 0, unmatchedPoisha: 0 } : depositCoverage(rows, order, deposit.id);
   if (!cov) throw notFound('deposit');
   // the same line also says what is still in hand of it after every deposit (0 for most covered lines)
@@ -140,7 +175,8 @@ export async function depositCollections(user: AuthUser, id: string) {
 
 export const depositSchema = z.object({
   clientId: z.string().uuid(),
-  amountPoisha: z.number().int().min(1),
+  // 1.35.0: the cash handed over, which must be all the cash in hand; 0 when only mobile/bank collections are handed in.
+  amountPoisha: z.number().int().min(0),
   destination: z.enum(['branch_cashier', 'bank', 'manager']),
   reference: z.string().max(100).optional(),
   slipMediaId: z.string().max(64).optional(),
@@ -160,29 +196,61 @@ function view(d: Lean, userName?: string) {
     ...(d.slipMediaId ? { slipMediaId: d.slipMediaId } : {}),
     depositedAt: (d.depositedAt as Date).toISOString(),
     status: d.status,
+    ...(d.collectionIds ? { collectionCount: (d.collectionIds as string[]).length, nonCashPoisha: (d.nonCashPoisha as number | undefined) ?? 0, nonCashCount: (d.nonCashCount as number | undefined) ?? 0 } : {}),
     ...(d.verifiedBy ? { verifiedBy: d.verifiedBy, verifiedAt: (d.verifiedAt as Date).toISOString() } : {}),
     ...(d.rejectReason ? { rejectReason: d.rejectReason } : {}),
     ...(d.status === 'deleted' ? { deletedBy: d.deletedBy, deletedAt: (d.deletedAt as Date).toISOString(), deleteReason: d.deleteReason } : {}),
   };
 }
 
+/**
+ * FR-CASH-003 / 1.35.0 FR-CASH-010 (ADR-049): the collector hands in everything in hand at once: all the cash (the
+ * amount must be exactly the cash in hand) and every mobile banking, bank or card collection not handed in yet. The
+ * deposit is final: it takes those collections, each goes to the ERP (now, or when the ERP is switched on), and none of
+ * them can be edited or withdrawn after it. No office confirmation.
+ */
 export async function createDeposit(user: AuthUser, key: string, input: z.infer<typeof depositSchema>, meta: RequestMeta) {
   return withIdempotency('deposit', `${user.id}:${key}`, payloadHash(input as unknown as Record<string, unknown>, ['clientId', 'amountPoisha', 'destination', 'depositedAt']), async () => {
     if (input.destination === 'bank' && !input.slipMediaId) throw businessRule('SLIP_REQUIRED');
     const pos = await positionOf(user.id);
     if (input.amountPoisha > pos.onHandPoisha) throw businessRule('DEPOSIT_EXCEEDS_ON_HAND', { onHandPoisha: pos.onHandPoisha });
+    if (input.amountPoisha < pos.onHandPoisha) throw businessRule('DEPOSIT_MUST_BE_ALL', { onHandPoisha: pos.onHandPoisha });
+    const cash = pos.onHandPoisha > 0 ? (await handState(user.id)).inHand : [];
+    const other = await heldNonCash(user.id);
+    if (!cash.length && !other.length) throw businessRule('NOTHING_TO_DEPOSIT');
+    const ids = [...cash.map((c) => c.collectionId), ...other.map((c) => c.collectionId)];
     const u = (await getUser(user.id))!;
     const branchId = u.branchIds[0]!;
+    const now = ctx().clock.now();
     const d = await withTransaction(async (session) => {
       const [doc] = await DepositModel.create(
-        [{ ...input, reference: input.reference ?? null, slipMediaId: input.slipMediaId ?? null, geo: input.geo ? { lat: input.geo.lat, lng: input.geo.lng, accuracyM: input.geo.accuracyM } : null, depositedAt: new Date(input.depositedAt), userId: user.id, branchId, createdAt: ctx().clock.now() }],
+        [
+          {
+            ...input,
+            reference: input.reference ?? null,
+            slipMediaId: input.slipMediaId ?? null,
+            geo: input.geo ? { lat: input.geo.lat, lng: input.geo.lng, accuracyM: input.geo.accuracyM } : null,
+            depositedAt: new Date(input.depositedAt),
+            userId: user.id,
+            branchId,
+            status: 'submitted',
+            collectionIds: ids,
+            nonCashPoisha: other.reduce((n, c) => n + c.amountPoisha, 0),
+            nonCashCount: other.length,
+            ...(cash.some((c) => c.inHandPoisha < c.amountPoisha) ? { legacyAbsorbedPoisha: cash.reduce((n, c) => n + c.amountPoisha - c.inHandPoisha, 0) } : {}),
+            createdAt: now,
+          },
+        ],
         { session },
       );
-      await recordChange({ entity: 'deposit', entityId: doc!._id.toHexString(), userIds: [user.id], branchId }, session);
-      await audit.record({ actor: user, action: 'cash.deposit.recorded', entity: 'deposit', entityId: doc!._id.toHexString(), branchId, after: { amountPoisha: input.amountPoisha, destination: input.destination }, meta, money: true }, session);
+      const id = doc!._id.toHexString();
+      // Another deposit or a void took one of them meanwhile: nothing is saved, the phone shows the error.
+      if ((await submitForDeposit(user.id, id, ids, now, session)) !== ids.length) throw new AppError('INVALID_STATE', { reason: 'STATUS_CHANGED' });
+      await recordChange({ entity: 'deposit', entityId: id, userIds: [user.id], branchId }, session);
+      await audit.record({ actor: user, action: 'cash.deposit.recorded', entity: 'deposit', entityId: id, branchId, after: { amountPoisha: input.amountPoisha, destination: input.destination, collections: ids.length, nonCashPoisha: other.reduce((n, c) => n + c.amountPoisha, 0) }, meta, money: true }, session);
       return doc!.toObject() as Lean;
     });
-    await ctx().bus.emit('cash.deposit.recorded', { depositId: d._id.toHexString(), branchId, userId: user.id, amountPoisha: d.amountPoisha });
+    await ctx().bus.emit('cash.deposit.submitted', { depositId: d._id.toHexString(), branchId, userId: user.id, amountPoisha: d.amountPoisha, collections: ids.length });
     return { statusCode: 201, body: view(d), entityId: d._id.toHexString() };
   });
 }
@@ -206,54 +274,55 @@ export async function getDeposit(user: AuthUser, id: string) {
   return view(d);
 }
 
-export async function decide(user: AuthUser, id: string, decision: 'verify' | 'reject', reason: string | null, meta: RequestMeta) {
+/**
+ * Verify, reject (FR-CASH-004) and delete (FR-CASH-009) are retired in 1.35.0 (ADR-049): a deposit is final, and what
+ * it handed in is in the ERP or on its way there. The routes stay (v1 is additive-only) and answer 409 DEPOSIT_FINAL.
+ */
+async function refuseFinal(user: AuthUser, id: string): Promise<never> {
   if (!isOid(id)) throw notFound('deposit');
   const d = (await DepositModel.findOne({ _id: id, ...branchQuery(user, undefined) }).lean()) as Lean | null;
   if (!d) throw notFound('deposit');
-  if (d.userId === user.id) throw businessRule('CANNOT_VERIFY_OWN_DEPOSIT');
-  const now = ctx().clock.now();
-  const set = decision === 'verify' ? { status: 'verified', verifiedBy: user.id, verifiedAt: now } : { status: 'rejected', verifiedBy: user.id, verifiedAt: now, rejectReason: reason };
-  await withTransaction(async (session) => {
-    const r = await DepositModel.updateOne({ _id: id, status: 'pending' }, { $set: set }, { session });
-    if (r.modifiedCount !== 1) throw new AppError('INVALID_STATE', { reason: 'ALREADY_DECIDED', status: d.status });
-    await recordChange({ entity: 'deposit', entityId: id, userIds: [d.userId], branchId: d.branchId }, session);
-    await audit.record({ actor: user, action: `cash.deposit.${decision === 'verify' ? 'verified' : 'rejected'}`, entity: 'deposit', entityId: id, branchId: d.branchId, before: { status: 'pending' }, after: { status: set.status }, reason, meta, money: true }, session);
-  });
-  await ctx().bus.emit(`cash.deposit.${decision === 'verify' ? 'verified' : 'rejected'}`, { depositId: id, userId: d.userId, branchId: d.branchId, reason });
-  return view((await DepositModel.findById(id).lean()) as Lean);
+  throw new AppError('INVALID_STATE', { reason: 'DEPOSIT_FINAL', status: d.status });
+}
+
+export async function decide(user: AuthUser, id: string, _decision: 'verify' | 'reject', _reason: string | null, _meta: RequestMeta): Promise<never> {
+  return refuseFinal(user, id);
+}
+
+export async function deleteDeposit(user: AuthUser, id: string, _reason: string, _meta: RequestMeta): Promise<never> {
+  return refuseFinal(user, id);
 }
 
 /**
- * FR-CASH-009 (1.32.0): an admin deletes a pending or verified deposit. The row stays with status `deleted` and
- * counts nowhere, so the money is back in the person's cash in hand. The depositor is told; the sync entity carries
- * the new status; the audit log keeps who, when and why.
+ * 1.35.0 migration (ADR-049): a deposit recorded before 1.35.0 (pending or verified, no collection list) takes the
+ * cash collections it covered in full, oldest-first as before, so they go to the ERP like any deposited collection.
+ * A collection it covered only in part stays in hand and goes with the next deposit. Safe to run again.
  */
-export async function deleteDeposit(user: AuthUser, id: string, reason: string, meta: RequestMeta) {
-  if (!isOid(id)) throw notFound('deposit');
-  const d = (await DepositModel.findOne({ _id: id, ...branchQuery(user, undefined) }).lean()) as Lean | null;
-  if (!d) throw notFound('deposit');
-  if (!['pending', 'verified'].includes(d.status)) throw new AppError('INVALID_STATE', { reason: 'NOT_DELETABLE', status: d.status });
-  const now = ctx().clock.now();
-  await withTransaction(async (session) => {
-    const r = await DepositModel.updateOne({ _id: id, status: { $in: ['pending', 'verified'] } }, { $set: { status: 'deleted', deletedBy: user.id, deletedAt: now, deleteReason: reason } }, { session });
-    if (r.modifiedCount !== 1) throw new AppError('INVALID_STATE', { reason: 'STATUS_CHANGED', status: d.status });
-    await recordChange({ entity: 'deposit', entityId: id, userIds: [d.userId], branchId: d.branchId }, session);
-    await audit.record({ actor: user, action: 'cash.deposit.deleted', entity: 'deposit', entityId: id, branchId: d.branchId, before: { status: d.status, amountPoisha: d.amountPoisha, destination: d.destination }, after: { status: 'deleted' }, reason, meta, money: true }, session);
-  });
-  await ctx().bus.emit('cash.deposit.deleted', { depositId: id, userId: d.userId, branchId: d.branchId, amountPoisha: d.amountPoisha, byUserId: user.id, reason, wasStatus: d.status });
-  const u = await getUser(d.userId);
-  return view((await DepositModel.findById(id).lean()) as Lean, u?.name.en || u?.name.bn || '');
+export async function linkLegacyDeposits(): Promise<number> {
+  const legacy = (await DepositModel.find({ status: { $in: ['pending', 'verified'] }, collectionIds: { $exists: false } }).sort({ depositedAt: 1, _id: 1 }).lean()) as Lean[];
+  let linked = 0;
+  for (const userId of new Set(legacy.map((d) => d.userId as string))) {
+    const deps = (await DepositModel.find({ userId, status: { $in: COUNTED } }).sort({ depositedAt: 1, _id: 1 }).select({ amountPoisha: 1, collectionIds: 1 }).lean()) as Lean[];
+    const order = deps.map((d) => ({ id: d._id.toHexString() as string, amountPoisha: d.amountPoisha as number }));
+    const rows = await cashCollectionRows(userId);
+    for (const d of deps) {
+      if (d.collectionIds) continue;
+      const cov = depositCoverage(rows, order, d._id.toHexString());
+      const full = (cov?.items ?? []).filter((c) => c.coveredPoisha === c.amountPoisha).map((c) => c.collectionId);
+      if (!full.length) continue;
+      linked += await withTransaction((session) => submitForDeposit(userId, d._id.toHexString(), full, d.depositedAt as Date, session));
+    }
+  }
+  return linked;
 }
 
-/** How much of a cash collection the person's pending and verified deposits cover (the same oldest-first rule as the cash in hand). */
+/** How much of a cash collection is no longer in hand: all of it once a deposit took it, else what older deposits covered. */
 export async function coveredOfCollection(collectorId: string, collectionId: string): Promise<number> {
-  const total = (await depositTotals([collectorId])).get(collectorId)?.total ?? 0;
-  if (total <= 0) return 0;
-  const rows = await cashCollectionRows(collectorId);
-  const row = rows.find((r) => r.collectionId === collectionId);
+  const st = await handState(collectorId);
+  const row = st.rows.find((r) => r.collectionId === collectionId);
   if (!row) return 0;
-  const left = inHandBreakdown(rows, total).find((r) => r.collectionId === collectionId)?.inHandPoisha ?? 0;
-  return row.amountPoisha - left;
+  if (row.depositId) return row.amountPoisha;
+  return row.amountPoisha - (st.inHand.find((r) => r.collectionId === collectionId)?.inHandPoisha ?? 0);
 }
 
 // ---------------- closing (FR-CASH-006) ----------------
@@ -261,7 +330,7 @@ export async function coveredOfCollection(collectorId: string, collectionId: str
 export async function close(user: AuthUser, input: { businessDate: string; note?: string | undefined }) {
   if (!isIsoDate(input.businessDate) || input.businessDate > today()) throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'businessDate', message: 'today or earlier' }] });
   const pos = await positionOf(user.id);
-  const deposited = await DepositModel.aggregate([{ $match: { userId: user.id, status: { $in: ['pending', 'verified'] }, depositedAt: { $gte: new Date(`${input.businessDate}T00:00:00+06:00`), $lte: new Date(`${input.businessDate}T23:59:59.999+06:00`) } } }, { $group: { _id: null, s: { $sum: '$amountPoisha' } } }]);
+  const deposited = await DepositModel.aggregate([{ $match: { userId: user.id, status: { $in: COUNTED }, depositedAt: { $gte: new Date(`${input.businessDate}T00:00:00+06:00`), $lte: new Date(`${input.businessDate}T23:59:59.999+06:00`) } } }, { $group: { _id: null, s: { $sum: '$amountPoisha' } } }]);
   const u = (await getUser(user.id))!;
   const doc = {
     userId: user.id,

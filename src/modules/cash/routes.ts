@@ -18,7 +18,7 @@ export const cashRoutes = defineRoutes((r) => {
   r.get('/cash/deposits/:id/collections', { access: perm('cash.view') }, async (req) => s.depositCollections(requireUser(req), idOf(req)));
   r.get('/cash/positions', { access: perm('cash.view') }, async (req) => s.branchPositions(requireUser(req), parse(z.object({ branchId: z.string().max(64).optional() }), req.query).branchId));
   r.get('/cash/deposits', { access: perm('cash.view') }, async (req) =>
-    s.listDeposits(requireUser(req), parse(z.object({ branchId: z.string().max(64).optional(), status: z.enum(['pending', 'verified', 'rejected', 'deleted']).optional(), limit: z.coerce.number().int().min(1).max(200).default(50), cursor: z.string().max(200).optional() }), req.query)),
+    s.listDeposits(requireUser(req), parse(z.object({ branchId: z.string().max(64).optional(), status: z.enum(['pending', 'verified', 'rejected', 'deleted', 'submitted']).optional(), limit: z.coerce.number().int().min(1).max(200).default(50), cursor: z.string().max(200).optional() }), req.query)),
   );
   r.post('/cash/deposits', { access: perm('cash.deposit.record') }, async (req, reply) => {
     const res = await s.createDeposit(requireUser(req), keyOf(req.headers), parse(s.depositSchema, req.body), requestMeta(req));

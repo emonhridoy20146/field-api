@@ -202,6 +202,8 @@ export interface PostPaymentInput {
   transactionRef: string | null;
   collectedAt: Date;
   employeeId: string | null;
+  /** 1.35.0: the staff member's name; the ERP writes it as the payment reference, and it identifies a collector with no ERP employee. */
+  collectorName?: string | null;
   fieldReceiptNo: string;
   physicalReceiptNo: string | null;
   note: string | null;
