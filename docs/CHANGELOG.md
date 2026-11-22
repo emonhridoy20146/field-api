@@ -4,6 +4,14 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.36.0] — contract 1.36.0 (attendance survives a reinstall; no photo at breaks; 09:00–21:00 by default)
+### Changed (owner request 2026-11-22)
+- `GET /attendance/me/today` also returns `events` (`id`, `clientId`, `type`, `at`, `source`, oldest first), so a phone that lost its local data (app reinstalled, data cleared) restores today's work-in, breaks and work-out instead of asking for attendance again. Additive.
+- Setting default `attendance.selfieEvents` is now `['work_in', 'work_out']`: no photo at break start or end unless an admin turns it on. A value already saved in the database is kept.
+- Setting default `attendance.defaultShift` ends at `21:00` (was `18:00`): someone with no named shift is on 09:00–21:00. A value already saved (org-wide or per branch) is kept.
+### Notes for the clients
+- staff-app: after login (and on start when today's local attendance is empty), read `/attendance/me/today` and store the events under their `clientId`; fall back to 09:00–21:00 when no shift arrives.
+
 ## [1.35.0] — contract 1.35.0 (a collection goes to the ERP when it is deposited; deposits are final)
 ### Changed (owner request 2026-11-22, FR-CASH-010, ADR-049)
 - **Recording a collection no longer sends it to the ERP.** It stays in the collector's hand (any method) and may be edited or withdrawn (`PATCH /collections/{id}`, `POST /collections/{id}/withdraw`; `NOT_CASH` is no longer returned) until it is deposited.

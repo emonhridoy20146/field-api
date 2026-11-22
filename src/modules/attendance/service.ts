@@ -18,6 +18,8 @@ type Lean = LeanDoc;
 const today = () => businessDate(ctx().clock.now());
 
 export const SELFIE_EVENT_TYPES = ['work_in', 'break_start', 'break_end', 'work_out'] as const;
+/** 1.36.0 (owner 2026-11-22): by default a photo only at work-in and work-out, not at breaks. */
+export const DEFAULT_SELFIE_EVENTS = ['work_in', 'work_out'] as const;
 
 export const eventSchema = z.object({
   clientId: z.string().uuid(),
@@ -199,7 +201,7 @@ export async function attachSelfie(user: AuthUser, input: z.infer<typeof attachS
 export async function photoEvents(branchId: string | null): Promise<Set<string>> {
   if (!(await getSetting<boolean>('attendance.selfieRequired', branchId))) return new Set();
   const v = await getSetting<unknown>('attendance.selfieEvents', branchId);
-  return new Set((Array.isArray(v) ? v : SELFIE_EVENT_TYPES).filter((t): t is string => (SELFIE_EVENT_TYPES as readonly unknown[]).includes(t)));
+  return new Set((Array.isArray(v) ? v : DEFAULT_SELFIE_EVENTS).filter((t): t is string => (SELFIE_EVENT_TYPES as readonly unknown[]).includes(t)));
 }
 
 /**
@@ -222,10 +224,16 @@ export async function eventsOfDay(user: AuthUser, q: { userId: string; date: str
   }));
 }
 
+/**
+ * 1.36.0: today's day with its events, so a phone that lost its local data (app reinstalled, data cleared) restores
+ * the work-in, breaks and work-out already recorded instead of asking for attendance again.
+ */
 export async function myToday(user: AuthUser) {
   const u = await getUser(user.id);
   if (!u) throw notFound('user');
-  return recompute(u, today());
+  const day = await recompute(u, today());
+  const rows = (await AttendanceEventModel.find({ userId: u.id, businessDate: today(), replacedBy: null }).sort({ at: 1, _id: 1 }).lean()) as Lean[];
+  return { ...day, events: rows.map((e) => ({ id: e._id.toHexString(), clientId: (e.clientId as string | null) ?? null, type: e.type as string, at: (e.at as Date).toISOString(), source: (e.source as string | undefined) ?? 'app' })) };
 }
 
 /** One of the caller's own days (sync pull). */
