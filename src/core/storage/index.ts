@@ -1,11 +1,14 @@
 import { createHmac } from 'node:crypto';
 import { DeleteObjectCommand, HeadObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import type { Config } from '../config/index.js';
+import { cloudinaryConfigured, type Config } from '../config/index.js';
+import { cloudinary } from './cloudinary.js';
+import { CloudinaryStorage } from './cloudinary-storage.js';
 import { DbStorage, storageSecret } from './db-storage.js';
 import { URL_TTL_SEC, type ObjectStorage } from './types.js';
 
 export { URL_TTL_SEC, type ObjectStorage } from './types.js';
+export { CloudinaryStorage, CLOUD_RECORDS, CLOUD_UPLOAD_TIMEOUT_MS } from './cloudinary-storage.js';
 export { CloudinaryClient, CloudinaryError, cloudinary, setCloudinary, cloudinaryFromConfig, signParams, CLOUD_DELETE_CHUNK, type CloudUpload, type FetchLike } from './cloudinary.js';
 
 export class S3Storage implements ObjectStorage {
@@ -93,20 +96,30 @@ export function setStorage(s: ObjectStorage) {
   current = s;
 }
 /**
- * Which store files go to. `STORAGE_DRIVER` wins; otherwise S3 when it is configured, the database on
- * Vercel (no S3 there means every instance would have its own in-memory files, ADR-039), S3 in
- * production (fails loudly without credentials), and memory for local development and tests.
+ * Which store files go to. `STORAGE_DRIVER` wins; otherwise Cloudinary first on Vercel when its three settings
+ * are present (ADR-051, owner request: photos go to Cloudinary at once), S3 when it is configured, the database
+ * on Vercel (no S3 there means every instance would have its own in-memory files, ADR-039), S3 in production
+ * (fails loudly without credentials), and memory for local development and tests.
  */
-export function storageDriver(config: Config): 's3' | 'db' | 'memory' {
+export type StorageDriver = 's3' | 'db' | 'memory' | 'cloudinary';
+export function storageDriver(config: Config): StorageDriver {
   if (config.STORAGE_DRIVER) return config.STORAGE_DRIVER;
-  if (config.S3_ENDPOINT || config.S3_ACCESS_KEY_ID) return 's3';
+  if (config.VERCEL && cloudinaryConfigured(config)) return 'cloudinary';
+  if (s3Configured(config)) return 's3';
   if (config.VERCEL) return 'db';
   return config.NODE_ENV === 'production' ? 's3' : 'memory';
 }
 
+const s3Configured = (config: Config) => !!(config.S3_ENDPOINT || config.S3_ACCESS_KEY_ID);
+const s3From = (config: Config) =>
+  new S3Storage(config.S3_BUCKET_MEDIA, { endpoint: config.S3_ENDPOINT, region: config.S3_REGION, accessKeyId: config.S3_ACCESS_KEY_ID, secretAccessKey: config.S3_SECRET_ACCESS_KEY });
+
 export function storageFromConfig(config: Config, now: () => Date): ObjectStorage {
   const driver = storageDriver(config);
   if (driver === 'memory') return new MemoryStorage();
-  if (driver === 'db') return new DbStorage({ baseUrl: config.PUBLIC_BASE_URL.replace(/\/+$/, ''), secret: storageSecret(config.JWT_PRIVATE_KEY), now });
-  return new S3Storage(config.S3_BUCKET_MEDIA, { endpoint: config.S3_ENDPOINT, region: config.S3_REGION, accessKeyId: config.S3_ACCESS_KEY_ID, secretAccessKey: config.S3_SECRET_ACCESS_KEY });
+  const db = { baseUrl: config.PUBLIC_BASE_URL.replace(/\/+$/, ''), secret: storageSecret(config.JWT_PRIVATE_KEY), now };
+  if (driver === 'db') return new DbStorage(db);
+  // Old photos uploaded to S3 before the switch are still read (and deleted) there while the S3 settings stay.
+  if (driver === 'cloudinary') return new CloudinaryStorage({ ...db, cloud: cloudinary, legacy: s3Configured(config) ? s3From(config) : null });
+  return s3From(config);
 }

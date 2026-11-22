@@ -11,7 +11,7 @@ import { AppError, toProblem } from '../core/errors/index.js';
 import { EventBus } from '../core/events/bus.js';
 import { createLogger, type Logger } from '../core/logger/index.js';
 import { initJwtKeys, verifyAccessToken } from '../core/security/jwt.js';
-import { cloudinaryFromConfig, setCloudinary, setStorage, storage, storageFromConfig } from '../core/storage/index.js';
+import { cloudinary, cloudinaryFromConfig, setCloudinary, setStorage, storage, storageDriver, storageFromConfig } from '../core/storage/index.js';
 import { DbStorage, storageRoutes } from '../core/storage/db-storage.js';
 import { systemClock, type Clock } from '../core/time/index.js';
 import { compareVersions, parseClientHeader } from '../core/http/index.js';
@@ -43,6 +43,7 @@ export async function bootModules(opts: BuildOptions): Promise<AppContext> {
   await initJwtKeys(opts.config);
   setStorage(storageFromConfig(opts.config, () => ctx.clock.now()));
   setCloudinary(cloudinaryFromConfig(opts.config, () => ctx.clock.now()));
+  if (storageDriver(opts.config) === 'cloudinary' && !cloudinary()) logger.warn('STORAGE_DRIVER=cloudinary but CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET are not all set: photos are kept in MongoDB');
   for (const m of manifests) await m.init?.();
   if (opts.migrate) await runMigrations(manifests.map((m) => ({ module: m.name, migrations: m.migrations ?? [] })), (msg) => logger.info(msg));
   return ctx;
@@ -161,7 +162,14 @@ export async function buildApp(opts: BuildOptions): Promise<Built> {
   );
   // Signed upload/download URLs when files live in the database (ADR-039).
   const store = storage();
-  if (store instanceof DbStorage) await app.register(storageRoutes(store), { prefix: '/api/v1' });
+  if (store instanceof DbStorage) {
+    // Resolved per request, so a store swapped later (tests) is the one used; CloudinaryStorage is a DbStorage (ADR-051).
+    const current = () => {
+      const s = storage();
+      return s instanceof DbStorage ? s : store;
+    };
+    await app.register(storageRoutes(current), { prefix: '/api/v1' });
+  }
 
   return { app, ctx };
 }

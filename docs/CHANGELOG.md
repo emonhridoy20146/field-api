@@ -4,6 +4,28 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.38.0] — contract 1.38.0 (photos go to Cloudinary first)
+### Fixed / Changed (owner request 2026-11-22, FR-MED-005, ADR-051)
+- **Why photos did not upload:** with S3 settings present the server picked `storage: s3`, so the phone PUT the photo to S3 first and Cloudinary only got a copy after the confirm (and after `/api/cron`). With S3 misconfigured the PUT failed and nothing reached Cloudinary.
+- **New storage driver `cloudinary`.** The phone still asks `POST /media/upload-url`, PUTs, and confirms (no staff-app change), but the upload link is now the API's signed `/api/v1/storage/o` link (5 min; type, size, sha256 checked). The API uploads the photo to Cloudinary right away (private, `authenticated`) and answers 200. If Cloudinary fails or takes longer than 15 s, the photo is kept in MongoDB and the answer is still 200; the copy job moves it on the next `/api/cron`.
+- Confirm of a photo already in Cloudinary writes `cloud` and `baseRemovedAt` on the media row and queues no copy. Links: signed Cloudinary download link (5 min) when it is there, else the MongoDB store's signed link.
+- Photos uploaded to S3 before the switch stay readable (and are copied to Cloudinary by the job, and deleted there by admin deletes) while the `S3_*` settings stay. New photos never touch S3.
+- Admin deletes (FR-MED-003/004) remove the file from Cloudinary, MongoDB and old S3; the store is no longer asked for a file whose base copy is already gone.
+- Automatic choice: on Vercel, when `STORAGE_DRIVER` is empty and the three `CLOUDINARY_*` settings are set, the driver is `cloudinary` (before S3). Elsewhere unchanged. `/system/health` `storage` can be `cloudinary`. Voice notes and exports stay in MongoDB under this driver.
+### Environment variables (Vercel → field-api project → Settings → Environment Variables, then Redeploy)
+| Name | Value |
+|---|---|
+| `STORAGE_DRIVER` | `cloudinary` (set it explicitly; it overrides any older `s3` value) |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | as set for 1.37.0 (all three needed) |
+| `CLOUDINARY_FOLDER` | optional, default `fos` |
+| `S3_*` | keep them only if photos were ever stored in S3 and are still wanted; remove them later once those are copied or deleted |
+
+`/api/cron` must still be called (Vercel cron, ADR-034): it moves photos that fell back to MongoDB into Cloudinary. Check: `GET /api/v1/system/health` → `"storage": "cloudinary"`, `"cloudStorage": "cloudinary"`, `"contract": "1.38.0"`; take an attendance photo; it appears in Cloudinary Media Library under the folder `fos/selfie/<userId>/`.
+### Migration
+- None. New collection `storage_cloud_objects` is created on first write.
+### Notes for the clients
+- staff-app: no change. admin-web: no change (health may show `storage: cloudinary`).
+
 ## [1.37.1] — contract 1.37.1 (invitees are told when a co-work request is cancelled)
 ### Added (owner request 2026-11-22, FR-CW-007)
 - When the person who asked leaves a co-work (or ends their day) and the session ends with invitations still unanswered, those invitees get notification `cowork.cancelled` ("`<name>` cancelled the co-work request. It can no longer be accepted."), with `data.sessionId`. Before, they kept an invitation until their next sync and got `SESSION_ENDED` on accept. Event `cowork.cancelled` (`sessionId`, `branchId`, `byUserId`, `byName`, `toUserIds`). Nobody is told when nobody was waiting (a rejection that ends a pair, a second `leave`), and the person who cancelled is not told.

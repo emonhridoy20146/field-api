@@ -75,6 +75,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Visit suggestion from dwell | FR-VIS-005 | ☐ |
 | Retention TTL + daily summaries | FR-LOC-009, 012 | ✅ |
 | Photos in Cloudinary (copied after upload, base store as fallback, signed 5-minute links); delete previous months' photos with a typed confirmation; delete one staff member's attendance photos of a day with a log (added 2026-11-22, contract 1.37.0) | FR-MED-002..004 | ✅ API (ADR-050; admin-web screens in admin-web) |
+| Photos go to Cloudinary first: phone uploads pass through the API straight to Cloudinary, MongoDB as fallback, old S3 photos still readable (driver `cloudinary`, added 2026-11-22, contract 1.38.0) | FR-MED-005 | ✅ API (ADR-051; not yet tried against the real Cloudinary account) |
 | Attendance survives a reinstall (today's events from `/attendance/me/today`); no photo at breaks by default; default shift 09:00–21:00 (added 2026-11-22, contract 1.36.0) | FR-ATT-001, FR-SET-003 | ✅ API |
 | A collection goes to the ERP when it is deposited; one Deposit for everything in hand; deposits final (no verify, reject, delete); unlinked collectors posted by name (added 2026-11-22, contract 1.35.0) | FR-CASH-010 | ✅ API (ADR-049) |
 | Co-work: invitees are told when a request is cancelled (`cowork.cancelled`, added 2026-11-22, contract 1.37.1) | FR-CW-007 | ✅ API |

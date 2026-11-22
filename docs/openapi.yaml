@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.37.1
+  version: 1.38.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -152,7 +152,7 @@ paths:
       security: []
       operationId: health
       responses:
-        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [ok, degraded] }, version: { type: string }, contract: { type: string, description: 'API contract version this build implements; use it to check a deploy (added in 1.20.1)' }, mongo: { type: string }, erp: { type: string }, storage: { type: string, enum: [s3, db, memory], description: 'Added in 1.21.0. Where photos and exports are kept (ADR-039); memory = this instance only, phone uploads fail.' }, cloudStorage: { type: string, enum: [cloudinary, none], description: 'Added in 1.37.0 (ADR-050). cloudinary = CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET are set and photos are copied there.' } } } } } }
+        '200': { description: OK, content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [ok, degraded] }, version: { type: string }, contract: { type: string, description: 'API contract version this build implements; use it to check a deploy (added in 1.20.1)' }, mongo: { type: string }, erp: { type: string }, storage: { type: string, enum: [s3, db, memory, cloudinary], description: 'Added in 1.21.0. Where photos and exports are kept (ADR-039); memory = this instance only, phone uploads fail. cloudinary (1.38.0, ADR-051) = the phone''s upload goes through the API straight to Cloudinary, MongoDB when Cloudinary fails; exports and voice notes in MongoDB.' }, cloudStorage: { type: string, enum: [cloudinary, none], description: 'Added in 1.37.0 (ADR-050). cloudinary = CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET are set and photos are copied there.' } } } } } }
   /system/erp-status:
     get:
       tags: [system]
@@ -1466,10 +1466,12 @@ paths:
       operationId: storagePut
       summary: Upload target of a presigned URL when the server keeps files itself (ADR-039)
       description: |
-        Only exists when the server has no S3 (`STORAGE_DRIVER=db`, the default on Vercel test deployments).
+        Only exists when the server keeps files itself (`STORAGE_DRIVER=db`, the default on Vercel test deployments
+        without Cloudinary) or sends them on to Cloudinary (`STORAGE_DRIVER=cloudinary`, 1.38.0, ADR-051).
         Clients never build this URL: they PUT to `uploadUrl` from `/media/upload-url` as for S3. No bearer
         token; the signature in the path is the permission and expires after 5 minutes. The body must match
-        the signed content type, size and sha256.
+        the signed content type, size and sha256. With `cloudinary` a photo is uploaded to Cloudinary before the
+        answer; if Cloudinary fails it is kept in MongoDB and still answers 200 (copied later by the outbox).
       security: []
       requestBody:
         required: true

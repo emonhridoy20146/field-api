@@ -38,7 +38,7 @@ const schema = z
     S3_ACCESS_KEY_ID: z.string().optional(),
     S3_SECRET_ACCESS_KEY: z.string().optional(),
     // s3 | db (files in MongoDB, for hosts without S3) | memory (development). Empty = chosen automatically.
-    STORAGE_DRIVER: z.preprocess((v) => (v === '' ? undefined : v), z.enum(['s3', 'db', 'memory']).optional()),
+    STORAGE_DRIVER: z.preprocess((v) => (v === '' ? undefined : v), z.enum(['s3', 'db', 'memory', 'cloudinary']).optional()),
     // Cloudinary (ADR-050): photos are copied there after upload when all three are set. The secret is never logged.
     CLOUDINARY_CLOUD_NAME: z.preprocess(blank, z.string().regex(/^[a-z0-9_-]+$/i, 'cloud name').optional()),
     CLOUDINARY_API_KEY: z.preprocess(blank, z.string().optional()),
