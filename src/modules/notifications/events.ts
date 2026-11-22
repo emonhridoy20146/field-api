@@ -186,6 +186,15 @@ const RULES: Rule[] = [
     data: (p) => ({ sessionId: str(p.sessionId), decision: str(p.decision) }),
   },
   {
+    // FR-CW-006: the office ended the group; everyone who was in it or still invited is told.
+    event: 'cowork.ended',
+    type: 'cowork.ended',
+    to: (p) => (Array.isArray(p.toUserIds) ? p.toUserIds.map(str) : []),
+    title: () => t('যৌথ কাজ বন্ধ করা হয়েছে', 'Co-work ended by the office'),
+    body: (p) => t(`অফিস আজকের যৌথ কাজ বন্ধ করেছে। কারণ: ${str(p.reason)}`, `The office ended today's co-work. Reason: ${str(p.reason)}`),
+    data: (p) => ({ sessionId: str(p.sessionId), reason: str(p.reason) }),
+  },
+  {
     event: 'task.assigned',
     type: 'task.assigned',
     to: (p) => [str(p.assigneeId)],

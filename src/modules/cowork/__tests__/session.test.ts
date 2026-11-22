@@ -40,6 +40,19 @@ describe('session life and credit', () => {
     expect(occupied([m('a', 'accepted', '03:00'), m('b', 'invited'), m('c', 'rejected', '03:05'), m('d', 'left', '03:05', '03:20')])).toBe(2);
   });
 
+  it('a co-work with nobody working is over, even with invitations unanswered (FR-CW-006)', () => {
+    // the person who asked leaves before anyone answered: the request is cancelled
+    expect(shouldEnd([m('a', 'left', '03:00', '03:10'), m('b', 'invited'), m('c', 'invited')])).toBe(true);
+    // A and B working, C still deciding, A leaves: B can still be joined by C
+    expect(shouldEnd([m('a', 'left', '03:00', '04:00'), m('b', 'accepted', '03:05'), m('c', 'invited')])).toBe(false);
+    // A and B working, A leaves: one person is not a group
+    expect(shouldEnd([m('a', 'left', '03:00', '04:00'), m('b', 'accepted', '03:05')])).toBe(true);
+    // three working, one leaves: two are still a group
+    expect(shouldEnd([m('a', 'left', '03:00', '04:00'), m('b', 'accepted', '03:05'), m('c', 'accepted', '03:06')])).toBe(false);
+    // everybody gone
+    expect(shouldEnd([m('a', 'left', '03:00', '04:00'), m('b', 'rejected', '03:05')])).toBe(true);
+  });
+
   it('visit credit weights co-work visits and clamps the weight', () => {
     expect(visitCredit(4, 2, 1)).toBe(6);
     expect(visitCredit(4, 3, 0.5)).toBe(5.5);

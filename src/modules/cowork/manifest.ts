@@ -11,19 +11,20 @@ export const manifest: ModuleManifest = {
   description: 'Staff working together: invite, accept, joint visits and their credit (FR-CW-001..005)',
   // New modules start OFF (CLAUDE.md §5).
   featureFlag: { key: 'module.cowork', default: false, description: 'Co-work sessions and joint visits', owner: 'field-api' },
-  dependsOn: ['settings', 'users', 'visits', 'attendance'],
+  dependsOn: ['audit', 'settings', 'users', 'visits', 'attendance'],
   permissions: [
     { key: 'cowork.use', description: { en: 'Ask colleagues to work together and answer such requests', bn: 'সহকর্মীর সাথে যৌথ কাজের অনুরোধ ও উত্তর' }, defaults: { field_staff: true } },
     { key: 'cowork.view', description: { en: 'View co-work sessions in scope', bn: 'যৌথ কাজের সেশন দেখা' }, defaults: { super_admin: true, branch_manager: true, viewer: true } },
+    { key: 'cowork.manage', description: { en: 'End a co-work session with a reason', bn: 'কারণসহ যৌথ কাজ বন্ধ করা' }, defaults: { super_admin: true, branch_manager: true } },
   ],
   routes: coworkRoutes,
-  events: { emits: ['cowork.requested', 'cowork.responded'], consumes: ['attendance.event', 'attendance.auto_closed'] },
+  events: { emits: ['cowork.requested', 'cowork.responded', 'cowork.ended'], consumes: ['attendance.event', 'attendance.auto_closed'] },
   settings: [
     { key: 'cowork.visitCredit', type: 'number', default: 1, branchOverridable: true, exposeToApp: true, description: 'FR-CW-005 how much a joint visit counts for each participant in visit targets (0 to 1). Money is never shared.' },
     { key: 'cowork.maxMembers', type: 'int', default: 5, branchOverridable: true, exposeToApp: true, description: 'FR-CW-001 largest group that can work together' },
   ],
   jobs: [{ name: 'cowork.end-day', schedule: '5 0 * * *', handler: async () => void (await s.endPastSessions()) }],
-  notificationTypes: [{ type: 'cowork.requested' }, { type: 'cowork.responded' }],
+  notificationTypes: [{ type: 'cowork.requested' }, { type: 'cowork.responded' }, { type: 'cowork.ended' }],
   syncEntities: [{ entity: 'cowork_session', load: s.syncLoad, snapshot: async (user) => ({ items: await s.mine(user), nextCursor: null }) }],
   migrations: [
     indexMigration('20261116-0001-cowork-indexes', [

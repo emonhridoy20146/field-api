@@ -63,6 +63,7 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 | `POST /system/erp-sync` ("Sync from ERP", 1.17.0; answer `{customers, branches, partial, durationMs, finishedAt}`; call again while `partial`; 429 `SYNC_RUNNING`, 503 `ERP_UNAVAILABLE`) | `erp.sync` | FR-ERP-007 |
 | `GET /cowork/colleagues` · `POST /cowork/requests` · `GET /cowork/sessions/mine` · `POST /cowork/sessions/{id}/respond` · `POST /cowork/sessions/{id}/leave` | `cowork.use` | FR-CW-001/002 |
 | `GET /cowork/sessions` · `GET /cowork/sessions/{id}` | `cowork.view` | FR-CW-004 |
+| `POST /cowork/sessions/{id}/end` `{ reason }` (1.34.0) | `cowork.manage` | FR-CW-006 |
 | `GET /tasks/mine` · `POST /tasks/{id}/resolve-request` (also sync mutation `task_resolve_request`, sync entity `task`) | `task.work` | FR-TASK-002 |
 | `GET /tasks` · `GET /tasks/{id}` | `task.view` | FR-TASK-004 |
 | `POST /tasks` · `PATCH /tasks/{id}` · `POST /tasks/{id}/verify` · `POST /tasks/{id}/reject` · `POST /tasks/{id}/cancel` | `task.manage` | FR-TASK-001/003 |

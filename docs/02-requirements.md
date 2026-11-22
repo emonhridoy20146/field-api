@@ -85,6 +85,7 @@ Defaults: SA = super_admin, BM = branch_manager, FS = field_staff, VW = viewer. 
 | `audit.view` | View audit log in scope | ● | ○ | ○ | ● | audit |
 | `cowork.use` **[ADDED]** | Ask colleagues to work together, accept, leave | ○ | ○ | ● | ○ | cowork |
 | `cowork.view` **[ADDED]** | See co-work sessions in scope | ● | ● | ○ | ● | cowork |
+| `cowork.manage` **[ADDED]** | End a co-work session with a reason (1.34.0; the row is kept as ended) | ● | ● | ○ | ○ | cowork |
 | `target.view` **[ADDED]** | See daily targets in scope | ● | ● | ○ | ● | targets |
 | `target.manage` **[ADDED]** | Set daily targets for staff and branch defaults | ● | ● | ○ | ○ | targets |
 | `task.view` **[ADDED]** | See staff tasks in scope | ● | ● | ○ | ● | tasks |
@@ -279,6 +280,7 @@ Rules:
 | FR-CW-003 | A visit sent with `coWorkSessionId` is stored as a co-work visit with the session members accepted at check-in time as participants. It stays one record by the recorder. A recorder who was not an accepted member then gets a single visit flagged `cowork_invalid`. | active | P2 | A M | U I D |
 | FR-CW-004 | Managers see co-work sessions (members, times, visits) and can filter visits by single / co-work. | active | P2 | A W | I |
 | FR-CW-005 | Staff statistics separate single visits from co-work visits. Every participant gets credit for a joint visit, weighted for targets by `cowork.visitCredit` (0–1, default 1). **Collections and cash are never shared:** they count only for the person who recorded them (cash accountability). | active | P2 | A W | U I |
+| FR-CW-006 **[ADDED 2026-11-22]** | A co-work does not exist with fewer than two people: when nobody accepted is left the session ends at once, even with invitations unanswered, so the person who asked cancels a request by leaving (before or after anyone accepts). An office user with `cowork.manage` ends an open session with a reason (`POST /cowork/sessions/{id}/end`); the members are told (`cowork.ended`), the action is audited (`cowork.ended_by_office`), and joint visits already recorded keep their credit. The session row is kept (ended), never deleted. | active | P2 | A W M | I |
 
 ### 4.9b Staff tasks **[ADDED 2026-11-18, owner request]** (module `tasks`)
 | ID | Requirement | Status | Phase | Repos | Test |

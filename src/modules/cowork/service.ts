@@ -8,6 +8,7 @@ import { businessDate, endOfBusinessDay } from '../../core/time/index.js';
 import { branchQuery, type AuthUser } from '../../core/security/types.js';
 import { getSetting } from '../settings/index.js';
 import { getUsers, listStaff } from '../users/index.js';
+import * as audit from '../audit/index.js';
 import { dutyStateAt, dutyWindows } from '../attendance/index.js';
 import { coWorkVisitCounts } from '../visits/index.js';
 import { occupied, participantsAt, shouldEnd, visitCredit, type Member } from './domain/session.js';
@@ -17,6 +18,7 @@ type Lean = LeanDoc;
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export const requestSchema = z.object({ clientId: z.string().uuid(), toUserIds: z.array(z.string().max(64)).min(1).max(10), note: z.string().trim().max(300).optional() });
 export const respondSchema = z.object({ decision: z.enum(['accept', 'reject']) });
+export const endSchema = z.object({ reason: z.string().trim().min(5).max(500) });
 export const listQuery = z.object({ branchId: z.string().max(64).optional(), userId: z.string().max(64).optional(), from: day.optional(), to: day.optional(), limit: z.coerce.number().int().min(1).max(200).default(50), cursor: z.string().max(200).optional() });
 
 const iso = (d: unknown) => (d ? (d as Date).toISOString() : null);
@@ -25,7 +27,7 @@ const idOf = (s: Lean): string => s._id.toHexString();
 const nameOf = (u: AuthUser) => u.name.en || u.name.bn || '';
 
 async function views(rows: Lean[], withVisits = false) {
-  const users = await getUsers(rows.flatMap((s) => membersOf(s).map((m) => m.userId)));
+  const users = await getUsers(rows.flatMap((s) => [...membersOf(s).map((m) => m.userId), ...(s.endedBy ? [s.endedBy as string] : [])]));
   const counts = withVisits ? await coWorkVisitCounts(rows.map(idOf)) : null;
   return rows.map((s) => ({
     id: idOf(s),
@@ -40,6 +42,8 @@ async function views(rows: Lean[], withVisits = false) {
     }),
     createdAt: iso(s.createdAt)!,
     endedAt: iso(s.endedAt),
+    // Only when the office ended it (FR-CW-006).
+    ...(s.endedBy ? { endedBy: { id: s.endedBy as string, name: users.get(s.endedBy as string)?.name.en || users.get(s.endedBy as string)?.name.bn || '' }, endReason: (s.endReason as string | null) ?? null } : {}),
     ...(counts ? { visitsCount: counts.get(idOf(s)) ?? 0 } : {}),
   }));
 }
@@ -136,6 +140,42 @@ async function leaveAt(s: Lean, userId: string, at: Date): Promise<Lean> {
 /** Idempotent: leaving twice, or leaving an ended session, returns the session as it is. */
 export async function leave(user: AuthUser, id: string) {
   return view(await leaveAt(await ownSession(user, id), user.id, ctx().clock.now()));
+}
+
+/**
+ * FR-CW-006: an office user ends a session with a reason. Branch scope; another branch's session does not
+ * exist for the caller. Idempotent on a session that is already over. The joint visits already recorded keep
+ * their credit: members keep their accept and leave times, and the session's end time closes the window.
+ */
+export async function endByOffice(user: AuthUser, id: string, input: z.infer<typeof endSchema>) {
+  if (!isOid(id)) throw notFound('cowork_session');
+  const s = (await CoworkSessionModel.findOne({ _id: id, ...branchQuery(user, undefined) }).lean()) as Lean | null;
+  if (!s) throw notFound('cowork_session');
+  if (s.status !== 'open') return view(s, true);
+  const now = ctx().clock.now();
+  const next = (await CoworkSessionModel.findOneAndUpdate({ _id: s._id, status: 'open' }, { $set: { status: 'ended', endedAt: now, endedBy: user.id, endReason: input.reason } }, { new: true }).lean()) as Lean | null;
+  if (!next) return view((await CoworkSessionModel.findById(s._id).lean()) as Lean, true); // ended meanwhile
+  const members = membersOf(next);
+  await audit.record({
+    actor: user,
+    action: 'cowork.ended_by_office',
+    entity: 'cowork_session',
+    entityId: id,
+    branchId: s.branchId as string,
+    before: { status: 'open' },
+    after: { status: 'ended', members: members.filter((m) => m.status === 'accepted' || m.status === 'invited').map((m) => m.userId) },
+    reason: input.reason,
+  });
+  await changed(next);
+  await ctx().bus.emit('cowork.ended', {
+    sessionId: id,
+    branchId: s.branchId,
+    byUserId: user.id,
+    byName: nameOf(user),
+    reason: input.reason,
+    toUserIds: members.filter((m) => m.status === 'accepted' || m.status === 'invited').map((m) => m.userId),
+  });
+  return view(next, true);
 }
 
 /** FR-CW-002: the working day is over for this person, so they are no longer part of any group. */

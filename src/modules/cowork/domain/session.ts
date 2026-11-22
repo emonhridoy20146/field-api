@@ -31,11 +31,15 @@ export function participantsAt(members: Member[], recorderId: string, at: Date, 
   return members.filter((m) => m.userId !== recorderId && activeAt(m, at)).map((m) => m.userId);
 }
 
-/** A session is over once fewer than two people are working and nobody is still deciding (FR-CW-002). */
+/**
+ * A session is over once fewer than two people are working and nobody is still deciding (FR-CW-002),
+ * and also once nobody is working at all (FR-CW-006): the person who asked has left, so an invitation
+ * still unanswered has nothing left to join. One person working with an invitation pending stays open.
+ */
 export function shouldEnd(members: Member[]): boolean {
   const accepted = members.filter((m) => m.status === 'accepted').length;
   const pending = members.filter((m) => m.status === 'invited').length;
-  return accepted < 2 && pending === 0;
+  return accepted === 0 || (accepted < 2 && pending === 0);
 }
 
 /** People who count towards the size limit: everyone still in or still invited. */

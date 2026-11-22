@@ -15,5 +15,6 @@ export const coworkRoutes = defineRoutes((r) => {
   r.post('/cowork/sessions/:id/respond', { access: perm('cowork.use') }, async (req) => s.respond(requireUser(req), idOf(req), parse(s.respondSchema, req.body)));
   r.post('/cowork/sessions/:id/leave', { access: perm('cowork.use') }, async (req) => s.leave(requireUser(req), idOf(req)));
   r.get('/cowork/sessions', { access: perm('cowork.view') }, async (req) => s.list(requireUser(req), parse(s.listQuery, req.query)));
+  r.post('/cowork/sessions/:id/end', { access: perm('cowork.manage') }, async (req) => s.endByOffice(requireUser(req), idOf(req), parse(s.endSchema, req.body)));
   r.get('/cowork/sessions/:id', { access: perm('cowork.view') }, async (req) => s.get(requireUser(req), idOf(req)));
 });

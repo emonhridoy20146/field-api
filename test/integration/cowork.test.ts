@@ -287,3 +287,95 @@ describe('leaving and ending (FR-CW-002)', () => {
     expect(late.status).toBe(409);
   });
 });
+
+describe('cancelling a request and the office ending a co-work (FR-CW-006)', () => {
+  it('the person who asked cancels by leaving before anyone answered; the invitee can no longer accept', async () => {
+    t.clock.set(new Date('2026-11-16T04:00:00Z')); // Monday 10:00 Dhaka, a new business day
+    const fs1 = await as(t, '01700000003');
+    const fs2 = await as(t, '01700000004');
+    const made = await fs1.post('/cowork/requests', { clientId: randomUUID(), toUserIds: [s.fs2.id, fs3.id] });
+    expect(made.status).toBe(201);
+    const left = await fs1.post(`/cowork/sessions/${made.body.id}/leave`);
+    expect(left.status).toBe(200);
+    expectConforms('POST', '/cowork/sessions/{id}/leave', 200, left.body);
+    expect(left.body.status).toBe('ended');
+    expect(statusOf(left.body, s.fs1.id)).toBe('left');
+    expect(statusOf(left.body, s.fs2.id)).toBe('invited'); // they did not reject; the session is simply over
+    expect(left.body.endedBy).toBeUndefined();
+    const late = await fs2.post(`/cowork/sessions/${made.body.id}/respond`, { decision: 'accept' });
+    expect(late.status).toBe(409);
+    expect(late.body.details.reason).toBe('SESSION_ENDED');
+    // the invitee's own list shows it ended
+    expect((await fs2.get('/cowork/sessions/mine')).body.find((x: { id: string }) => x.id === made.body.id).status).toBe('ended');
+  });
+
+  it('after others accepted the asker can leave: two left keep working, one left ends it', async () => {
+    const fs1 = await as(t, '01700000003');
+    const fs2 = await as(t, '01700000004');
+    const three = await as(t, '01700000007');
+    const made = await fs1.post('/cowork/requests', { clientId: randomUUID(), toUserIds: [s.fs2.id, fs3.id] });
+    const id = made.body.id as string;
+    expect((await fs2.post(`/cowork/sessions/${id}/respond`, { decision: 'accept' })).status).toBe(200);
+    expect((await three.post(`/cowork/sessions/${id}/respond`, { decision: 'accept' })).status).toBe(200);
+    const left = await fs1.post(`/cowork/sessions/${id}/leave`);
+    expect(left.body.status).toBe('open'); // fs2 and fs3 go on
+    const last = await fs2.post(`/cowork/sessions/${id}/leave`);
+    expect(last.body.status).toBe('ended'); // fs3 alone is not a co-work
+  });
+
+  it('a manager ends an open session with a reason; members are told, it is audited, visits keep their credit', async () => {
+    t.clock.set(new Date('2026-11-16T05:00:00Z'));
+    const fs1 = await as(t, '01700000003');
+    const fs2 = await as(t, '01700000004');
+    const bm = await as(t, '01700000002');
+    const made = await fs1.post('/cowork/requests', { clientId: randomUUID(), toUserIds: [s.fs2.id, fs3.id] });
+    const id = made.body.id as string;
+    expect((await fs2.post(`/cowork/sessions/${id}/respond`, { decision: 'accept' })).status).toBe(200);
+    t.clock.set(new Date('2026-11-16T05:02:00Z'));
+    const joint = await fs1.post('/visits', visit('100245', '2026-11-16T05:01:00Z', id));
+    expect(joint.body.coWork.participantIds).toEqual([s.fs2.id]);
+
+    // who may: not field staff, not a short reason, not another branch
+    expect((await fs1.post(`/cowork/sessions/${id}/end`, { reason: 'wrong group today' })).status).toBe(403);
+    expect((await bm.post(`/cowork/sessions/${id}/end`, { reason: 'no' })).status).toBe(400);
+    expect((await (await as(t, '01700000006')).post(`/cowork/sessions/${id}/end`, { reason: 'wrong group today' })).status).toBe(403); // a viewer may look only
+    const otherBranch = await (await as(t, '01700000005')).post('/cowork/requests', { clientId: randomUUID(), toUserIds: [fsB2.id] });
+    expect((await bm.post(`/cowork/sessions/${otherBranch.body.id}/end`, { reason: 'wrong group today' })).status).toBe(404); // another branch's session does not exist
+    expect((await bm.post('/cowork/sessions/not-an-id/end', { reason: 'wrong group today' })).status).toBe(404);
+
+    t.clock.set(new Date('2026-11-16T05:05:00Z'));
+    const ended = await bm.post(`/cowork/sessions/${id}/end`, { reason: 'wrong group today' });
+    expect(ended.status).toBe(200);
+    expectConforms('POST', '/cowork/sessions/{id}/end', 200, ended.body);
+    expect(ended.body.status).toBe('ended');
+    expect(ended.body.endedAt).toBe('2026-11-16T05:05:00.000Z');
+    expect(ended.body.endedBy.id).toBe(s.bm.id);
+    expect(ended.body.endReason).toBe('wrong group today');
+    expect(ended.body.visitsCount).toBe(1);
+    // idempotent: the first reason stands
+    const again = await bm.post(`/cowork/sessions/${id}/end`, { reason: 'another reason here' });
+    expect(again.status).toBe(200);
+    expect(again.body.endReason).toBe('wrong group today');
+
+    // accepted (fs1, fs2) and still invited (fs3) are told; the session reaches them
+    for (const phone of ['01700000003', '01700000004', '01700000007']) {
+      const who = await as(t, phone);
+      const n = (await who.get('/notifications')).body.items.filter((i: { type: string }) => i.type === 'cowork.ended');
+      expect(n).toHaveLength(1);
+      const mine = (await who.get('/cowork/sessions/mine')).body.find((x: { id: string }) => x.id === id);
+      expect(mine.status).toBe('ended');
+      expect(mine.endedBy.id).toBe(s.bm.id);
+    }
+    const log = await (await as(t, '01700000001')).get('/audit?action=cowork.ended_by_office');
+    expect(log.status).toBe(200);
+    expect(log.body.items.some((a: { entityId: string; reason: string }) => a.entityId === id && a.reason === 'wrong group today')).toBe(true);
+
+    // a joint visit made before the end still counts when it syncs late; one made after does not
+    const before = await fs1.post('/visits', visit('100246', '2026-11-16T05:03:00Z', id));
+    expect(before.body.coWork.participantIds).toEqual([s.fs2.id]);
+    const after = await fs1.post('/visits', visit('100246', '2026-11-16T05:06:00Z', id));
+    expect(after.body.coWork).toBeNull();
+    expect(after.body.flags).toContain('cowork_invalid');
+    expect((await fs2.post(`/cowork/sessions/${id}/respond`, { decision: 'reject' })).status).toBe(409);
+  });
+});

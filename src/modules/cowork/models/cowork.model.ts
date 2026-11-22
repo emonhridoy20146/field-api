@@ -25,6 +25,9 @@ const sessionSchema = new Schema(
     clientIds: { type: [String], default: [] },
     createdAt: { type: Date, required: true },
     endedAt: { type: Date, default: null },
+    // 1.34.0 (FR-CW-006): set only when an office user ended the session.
+    endedBy: { type: String, default: null },
+    endReason: { type: String, default: null },
   },
   { collection: 'cowork_sessions', versionKey: false },
 );

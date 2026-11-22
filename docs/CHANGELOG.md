@@ -4,6 +4,15 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.34.0] — contract 1.34.0 (cancel a co-work request; the office ends a co-work)
+### Added (owner request 2026-11-22, FR-CW-006, ADR-048)
+- **A co-work with nobody working ends at once.** `shouldEnd` now also ends a session when no accepted member is left, even with invitations unanswered. Before, the person who asked could leave but the session stayed open for the invitees, so the request could not be cancelled. One person working with an invitation pending stays open, as at creation. A later `respond` answers 409 `SESSION_ENDED` as before.
+- `POST /cowork/sessions/{id}/end` `{ reason }` (new permission `cowork.manage`: super admin, branch manager; branch scope, out of scope 404; idempotent on an ended session). Sets `status: ended`, `endedAt`, `endedBy`, `endReason`; audit `cowork.ended_by_office`; event `cowork.ended`; notification `cowork.ended` to everyone accepted or still invited; the session reaches every member on the next pull. Joint visits already recorded keep their credit.
+- `CoworkSession` gains optional `endedBy { id, name }` and `endReason` (list, detail and sync).
+### Notes for the clients
+- Additive; no migration. staff-app: an ended session may carry `endedBy` / `endReason`; leaving as the requester before anyone accepts now returns the session `ended`. admin-web: an "End co-work" action.
+
+
 ## [1.33.0] — contract 1.33.0 (the office sees who voided or edited a collection; activity lines)
 ### Added (owner request 2026-11-22, FR-COL-017, FR-ACT-001)
 - `Collection.voided` is now documented and complete: `{ by, byName, at, reason, kind }`, `kind` = `withdrawn` (the collector deleted their own cash collection, FR-COL-016) or `admin` (an office user voided it). Rows voided before 1.33.0 have no stored kind: the collector voiding their own counts as `withdrawn`.

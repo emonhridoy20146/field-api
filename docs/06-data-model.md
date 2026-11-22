@@ -146,6 +146,7 @@ Retention: permanent (≥ 8 years, OD-09).
 - `coWork` is set only when at least one colleague was an accepted member of the session at `checkInAt`; `participantIds` never contains the recorder (`userId`) (FR-CW-003).
 
 ### cowork_sessions
+> 1.34.0 (FR-CW-006): optional `endedBy` (user id) and `endReason`, set only when an office user ended the session. No migration: additive and optional.
 `{ branchId, businessDate, status: 'open'|'ended', createdBy, note, members: [{ userId, status: 'invited'|'accepted'|'rejected'|'left', invitedBy, invitedAt, respondedAt, leftAt }], clientIds[], createdAt, endedAt }` · `{ 'members.userId':1, businessDate:-1 }`, `{ branchId:1, businessDate:-1 }`, `{ status:1, businessDate:1 }`, `{ clientIds:1 }`.
 - One document per group and business day. Members keep their accept and leave times, so the participants of any visit can be worked out later from `checkInAt` alone. `clientIds` holds the request ids that built the session (idempotent retries).
 
