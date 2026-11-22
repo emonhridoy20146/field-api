@@ -13,8 +13,8 @@ import { getCustomerRef, getCustomerRefs, type TimelineItem } from '../customers
 import { VisitModel } from './models/visit.model.js';
 
 type Lean = LeanDoc;
-export const OUTCOMES = ['paid', 'partial_paid', 'promised', 'not_home', 'refused', 'shifted_address', 'customer_dead', 'product_returned_request', 'other'] as const;
-const OUTCOME_BN: Record<string, string> = { paid: 'পরিশোধ', partial_paid: 'আংশিক পরিশোধ', promised: 'প্রতিশ্রুতি', not_home: 'বাড়িতে নেই', refused: 'অস্বীকার', shifted_address: 'ঠিকানা পরিবর্তন', customer_dead: 'মৃত', product_returned_request: 'পণ্য ফেরতের অনুরোধ', other: 'অন্যান্য' };
+export const OUTCOMES = ['paid', 'partial_paid', 'promised', 'not_home', 'refused', 'shifted_address', 'customer_dead', 'product_returned_request', 'runaway', 'other'] as const;
+const OUTCOME_BN: Record<string, string> = { paid: 'পরিশোধ', partial_paid: 'আংশিক পরিশোধ', promised: 'প্রতিশ্রুতি', not_home: 'বাড়িতে নেই', refused: 'অস্বীকার', shifted_address: 'ঠিকানা পরিবর্তন', customer_dead: 'মৃত', product_returned_request: 'পণ্য ফেরতের অনুরোধ', runaway: 'পলাতক', other: 'অন্যান্য' };
 
 const geoFix = z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), accuracyM: z.number().min(0), mock: z.boolean().default(false), fixAt: z.string().optional() });
 export const createSchema = z.object({

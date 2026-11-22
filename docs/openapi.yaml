@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.40.0
+  version: 1.41.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -2811,7 +2811,7 @@ components:
             createdAt: { type: string }
             expiresAt: { type: string }
             summary: { type: object, properties: { customers: { type: integer }, outstandingPoisha: { type: integer }, overdue: { type: integer }, openPromises: { type: integer }, openConflicts: { type: integer } } }
-    VisitOutcome: { type: string, enum: [paid, partial_paid, promised, not_home, refused, shifted_address, customer_dead, product_returned_request, other] }
+    VisitOutcome: { type: string, enum: [paid, partial_paid, promised, not_home, refused, shifted_address, customer_dead, product_returned_request, runaway, other], description: 'runaway (1.41.0, FR-VIS-006) = the customer has absconded and cannot be found (bn পলাতক). Clients must show an unknown value as its raw code, never fail.' }
     VisitCreate:
       type: object
       required: [clientId, customerId, checkInAt, geo, outcome]
