@@ -67,4 +67,17 @@ describe('Cloudinary (ADR-050)', () => {
     expect(String(err)).toContain('HTTP 500');
     expect(String(err)).not.toContain('topsecret');
   });
+
+  it('an upload with a time limit carries an abort signal; without one it does not (ADR-053)', async () => {
+    const seen: (AbortSignal | undefined)[] = [];
+    const fetch: FetchLike = async (_url, init) => {
+      seen.push(init?.signal);
+      return { ok: true, status: 200, json: async () => ({ public_id: 'fos/a', version: 1, bytes: 1, format: 'jpg' }) };
+    };
+    const c = new CloudinaryClient({ cloudName: 'demo', apiKey: 'k', apiSecret: 's', folder: 'fos', now, fetch });
+    await c.upload(new Uint8Array([1]), 'image/jpeg', 'fos/a', 15_000);
+    await c.upload(new Uint8Array([1]), 'image/jpeg', 'fos/a');
+    expect(seen[0]).toBeInstanceOf(AbortSignal);
+    expect(seen[1]).toBeUndefined();
+  });
 });

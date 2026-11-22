@@ -39,7 +39,12 @@ describe('files in the database when there is no S3 (ADR-039)', () => {
   it('picks the driver: explicit setting, S3 when configured, database on Vercel, memory in development', () => {
     expect(storageDriver(loadConfig({ NODE_ENV: 'test', STORAGE_DRIVER: 'db' }))).toBe('db');
     expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1' }))).toBe('db');
-    expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', S3_ENDPOINT: 'https://r2.example.test' }))).toBe('s3');
+    const keys = { S3_ACCESS_KEY_ID: 'a', S3_SECRET_ACCESS_KEY: 'b' };
+    expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', S3_ENDPOINT: 'https://r2.example.test', ...keys }))).toBe('s3');
+    // An endpoint or a key id alone is not S3 (1.40.0): it used to send phone uploads to a store that was not set up.
+    expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', S3_ENDPOINT: 'https://r2.example.test' }))).toBe('db');
+    expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', S3_ACCESS_KEY_ID: 'a' }))).toBe('db');
+    expect(storageDriver(loadConfig({ NODE_ENV: 'staging', VERCEL: '1', STORAGE_DRIVER: 's3' }))).toBe('db'); // leftover setting without keys
     expect(storageDriver(loadConfig({ NODE_ENV: 'development' }))).toBe('memory');
     expect(storageDriver(loadConfig({ NODE_ENV: 'development', STORAGE_DRIVER: '' }))).toBe('memory');
   });

@@ -54,12 +54,18 @@ export async function confirm(user: AuthUser, id: string) {
   if (!m) throw notFound('media');
   if (m.status === 'uploaded') return { id, status: 'uploaded' };
   if (m.status === 'deleted') throw new AppError('INVALID_STATE', { reason: 'MEDIA_DELETED' });
-  if (!(await storage().exists(m.key))) throw new AppError('INVALID_STATE', { reason: 'NOT_UPLOADED' });
-  // ADR-050: the copy to Cloudinary runs in the outbox, so a Cloudinary outage never fails the confirm.
+  // ADR-053: with the Cloudinary-first store the upload may already be in Cloudinary; the row then owns it.
+  const direct = (await storage().cloudUpload?.(m.key)) ?? null;
+  if (!direct && !(await storage().exists(m.key))) throw new AppError('INVALID_STATE', { reason: 'NOT_UPLOADED' });
+  const at = ctx().clock.now();
+  // ADR-050: otherwise the copy to Cloudinary runs in the outbox, so a Cloudinary outage never fails the confirm.
+  const set = direct ? { status: 'uploaded', confirmedAt: at, cloud: { provider: 'cloudinary', ...direct, copiedAt: at }, baseRemovedAt: at } : { status: 'uploaded', confirmedAt: at };
   await withTransaction(async (session) => {
-    const r = await MediaModel.updateOne({ _id: id, status: 'pending' }, { $set: { status: 'uploaded', confirmedAt: ctx().clock.now() } }, { session });
-    if (r.modifiedCount === 1) await enqueueCopy(id, m.contentType, session);
+    const r = await MediaModel.updateOne({ _id: id, status: 'pending' }, { $set: set }, { session });
+    if (r.modifiedCount === 1 && !direct) await enqueueCopy(id, m.contentType, session);
   });
+  // Best effort: a record left behind only means a repeated (harmless) Cloudinary delete if the row is deleted later.
+  if (direct) await storage().forgetCloudUpload?.(m.key).catch(() => undefined);
   return { id, status: 'uploaded' };
 }
 

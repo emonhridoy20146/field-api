@@ -4,6 +4,30 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.40.0] — contract 1.40.0 (photos go to Cloudinary first)
+### Fixed / Changed (owner request 2026-11-22, FR-MED-005, ADR-053)
+- **Why photos did not upload:** with S3 settings present the server picked `storage: s3`, so the phone PUT the photo to S3 first and Cloudinary only got a copy after the confirm (and after `/api/cron`). With S3 misconfigured the PUT failed and nothing reached Cloudinary.
+- **New storage driver `cloudinary`.** The phone still asks `POST /media/upload-url`, PUTs, and confirms (no staff-app change), but the upload link is now the API's signed `/api/v1/storage/o` link (5 min; type, size, sha256 checked). The API uploads the photo to Cloudinary right away (private, `authenticated`) and answers 200. If Cloudinary fails or takes longer than 15 s, the photo is kept in MongoDB and the answer is still 200; the copy job moves it on the next `/api/cron`.
+- Confirm of a photo already in Cloudinary writes `cloud` and `baseRemovedAt` on the media row and queues no copy. Links: signed Cloudinary download link (5 min) when it is there, else the MongoDB store's signed link.
+- Photos uploaded to S3 before the switch stay readable (and are copied to Cloudinary by the job, and deleted there by admin deletes) while the `S3_*` settings stay. New photos never touch S3.
+- Admin deletes (FR-MED-003/004) remove the file from Cloudinary, MongoDB and old S3; the store is no longer asked for a file whose base copy is already gone.
+- **S3 is chosen only with real keys:** both `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`. Before, `S3_ENDPOINT` or a key id alone selected S3, which is how live health showed `storage: s3` without S3 being set up. On Vercel a leftover `STORAGE_DRIVER=s3` without both keys is ignored (warning in the log).
+- Automatic choice: on Vercel, when `STORAGE_DRIVER` is empty and the three `CLOUDINARY_*` settings are set, the driver is `cloudinary` (before S3). Elsewhere unchanged. `/system/health` `storage` can be `cloudinary`. Voice notes and exports stay in MongoDB under this driver.
+- **Vercel: reconnect to MongoDB.** A reused function instance that lost its Mongo connection never connected again (live health showed `mongo: down`), so every write, photos included, failed until a new instance started. Every request and cron call now reconnects first (`ensureMongo`); a failure is only logged and health still says `down`.
+### Environment variables (Vercel → field-api project → Settings → Environment Variables, then Redeploy)
+| Name | Value |
+|---|---|
+| `STORAGE_DRIVER` | `cloudinary` (set it explicitly; it overrides any older `s3` value) |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | as set for 1.37.0 (all three needed) |
+| `CLOUDINARY_FOLDER` | optional, default `fos` |
+| **delete** `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`, `S3_BUCKET_MEDIA`, `S3_BUCKET_EXPORTS` | S3 is not used (owner 2026-11-22); one of these is what made health say `storage: s3`. Also delete `STORAGE_DRIVER=s3` if present (replace it with `cloudinary`). |
+
+`/api/cron` must still be called (Vercel cron, ADR-034): it moves photos that fell back to MongoDB into Cloudinary. Check: `GET /api/v1/system/health` → `"storage": "cloudinary"`, `"cloudStorage": "cloudinary"`, `"contract": "1.40.0"`; take an attendance photo; it appears in Cloudinary Media Library under the folder `fos/selfie/<userId>/`.
+### Migration
+- None. New collection `storage_cloud_objects` is created on first write.
+### Notes for the clients
+- staff-app: no change. admin-web: no change (health may show `storage: cloudinary`).
+
 ## [1.39.0] — contract 1.39.0 (an office user's pin from the app applies at once)
 ### Changed (owner request 2026-11-22, FR-CUS-020, ADR-052)
 - `POST /customers/{id}/location-proposals` (and sync mutation `location_proposal`): when the caller holds `customer.location.approve` for the customer's branch (super admin; branch manager by default; anyone granted the key), the pin applies at once, also when it moves an existing pin and whatever `customers.staffPinApproval` says. It is stored like the web's direct set (`direct: true`, `status: approved`, `decidedBy` = caller), audited `customer.location.set`, emits `customer.location.approved` with `direct: true, fromApp: true` (activity feed shows it as an applied pin) and reaches the branch on `/sync/pull`. No inbox item for the office.

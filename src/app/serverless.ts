@@ -36,9 +36,30 @@ function getApp(): Promise<{ app: FastifyInstance; ctx: AppContext }> {
   return booting;
 }
 
+/**
+ * A reused function instance can lose its Mongo connection (the instance is frozen between requests, Atlas
+ * closes idle sockets); the app was cached, so nothing connected again and health stayed `mongo: down` while
+ * every write (photos included) failed. Reconnect before handling the request. Never throws: if Mongo is
+ * really unreachable the request still runs and health reports it.
+ */
+export async function ensureMongo(
+  conn: { readyState: number; asPromise: () => Promise<unknown> },
+  connect: () => Promise<unknown>,
+  warn: (msg: string) => void,
+): Promise<void> {
+  try {
+    if (conn.readyState === 1) return;
+    if (conn.readyState === 2) await conn.asPromise(); // already connecting
+    else if (conn.readyState === 0) await connect();
+  } catch (err) {
+    warn(`mongo reconnect failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 /** Vercel function body for every API route. */
 export async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const { app } = await getApp();
+  const { app, ctx } = await getApp();
+  await ensureMongo(mongoose.connection, () => connectMongo(ctx.config.MONGODB_URI, ctx.config.MONGODB_DB_NAME), (m) => ctx.logger.warn(m));
   app.server.emit('request', req, res);
 }
 
@@ -65,6 +86,7 @@ export async function runCron(opts: { job?: string; budgetMs?: number } = {}): P
   // (vercel.json maxDuration), so slow jobs leave less time for the outbox, never more.
   const deadline = performance.now() + (opts.budgetMs ?? 40_000);
   const { ctx } = await getApp();
+  await ensureMongo(mongoose.connection, () => connectMongo(ctx.config.MONGODB_URI, ctx.config.MONGODB_DB_NAME), (m) => ctx.logger.warn(m));
   const scheduler = new JobScheduler(ctx.manifests.flatMap((m) => m.jobs ?? []));
   let ran: string[];
   if (opts.job) {

@@ -12,7 +12,7 @@ import { URL_TTL_SEC, type ObjectStorage } from './types.js';
  * confirms; reads are signed GET URLs (5 minutes). Files are small (media ≤ 1 MB), well inside the
  * 16 MB Mongo document limit and Vercel's 4.5 MB request limit.
  */
-const COLLECTION = 'storage_objects';
+export const COLLECTION = 'storage_objects';
 const MAX_BYTES = 2 * 1024 * 1024;
 
 interface Grant {
@@ -29,16 +29,16 @@ interface Grant {
 
 const b64url = (b: Buffer) => b.toString('base64url');
 
+export interface DbStorageOptions {
+  /** public origin of this API, e.g. https://api.example.com (no trailing slash) */
+  baseUrl: string;
+  /** HMAC key for the URLs; stable across instances (derived from the JWT key) */
+  secret: Buffer;
+  now: () => Date;
+}
+
 export class DbStorage implements ObjectStorage {
-  constructor(
-    private opts: {
-      /** public origin of this API, e.g. https://api.example.com (no trailing slash) */
-      baseUrl: string;
-      /** HMAC key for the URLs; stable across instances (derived from the JWT key) */
-      secret: Buffer;
-      now: () => Date;
-    },
-  ) {}
+  constructor(protected opts: DbStorageOptions) {}
 
   /**
    * Links use the origin the caller reached the API on (the phone: the API host; admin-web through its proxy: the
@@ -92,8 +92,18 @@ export class DbStorage implements ObjectStorage {
       .updateOne({ _id: key as never }, { $set: { contentType, sizeBytes: body.byteLength, body: Buffer.from(body), storedAt: this.opts.now() } }, { upsert: true });
   }
 
+  /** A client upload that passed the signed checks (PUT /storage/o). Here it is kept as is; ADR-053 overrides it. */
+  async receive(key: string, body: Uint8Array, contentType: string): Promise<void> {
+    await this.put(key, body, contentType);
+  }
+
   async delete(key: string) {
-    await db().collection(COLLECTION).deleteOne({ _id: key as never });
+    await this.deleteLocal(key);
+  }
+
+  /** True when there was a copy in MongoDB. */
+  protected async deleteLocal(key: string): Promise<boolean> {
+    return (await db().collection(COLLECTION).deleteOne({ _id: key as never })).deletedCount > 0;
   }
 
   async get(key: string): Promise<{ body: Buffer; contentType: string } | null> {
@@ -116,10 +126,11 @@ const tokenOf = (q: unknown) => {
 };
 
 /** PUT / GET targets of the signed URLs. Public: the signature in the path is the permission. */
-export function storageRoutes(store: DbStorage): FastifyPluginAsync {
+export function storageRoutes(current: () => DbStorage): FastifyPluginAsync {
   return async (app) => {
     app.addContentTypeParser(/^(image|audio)\/|^application\/(octet-stream|pdf|zip|vnd\.)|^text\/csv/, { parseAs: 'buffer', bodyLimit: MAX_BYTES }, (_req, body, done) => done(null, body));
     app.put('/storage/o', { bodyLimit: MAX_BYTES }, async (req, reply) => {
+      const store = current();
       const g = store.verify(tokenOf(req.query), 'PUT');
       const body = Buffer.isBuffer(req.body) ? req.body : null;
       const type = String(req.headers['content-type'] ?? '').split(';')[0]!.trim();
@@ -128,11 +139,12 @@ export function storageRoutes(store: DbStorage): FastifyPluginAsync {
       if (g.t && type !== g.t) throw bad('content type differs from the signed one');
       if (g.n !== undefined && body.length !== g.n) throw bad('size differs from the signed one');
       if (g.h && createHash('sha256').update(body).digest('base64') !== g.h) throw bad('sha256 differs from the signed one');
-      await store.put(g.k, body, type);
+      await store.receive(g.k, body, type);
       reply.code(200);
       return { stored: true };
     });
     app.get('/storage/o', async (req, reply) => {
+      const store = current();
       const g = store.verify(tokenOf(req.query), 'GET');
       const obj = await store.get(g.k);
       if (!obj) throw new AppError('NOT_FOUND', { entity: 'object' });

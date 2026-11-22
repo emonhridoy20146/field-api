@@ -11,7 +11,7 @@ import { URL_TTL_SEC } from './types.js';
  * by name, joined as `k=v&k=v`, followed by the API secret, SHA-1 hex. The secret never leaves this file: it is not
  * logged and error messages carry only the HTTP status and Cloudinary's message.
  */
-export type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: FormData | string }) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
+export type FetchLike = (url: string, init?: { method?: string; headers?: Record<string, string>; body?: FormData | string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
 
 export interface CloudinaryOptions {
   cloudName: string;
@@ -79,14 +79,15 @@ export class CloudinaryClient {
     return `${this.o.folder}/${key.replace(/\.[a-z0-9]+$/i, '')}`;
   }
 
-  async upload(body: Uint8Array, contentType: string, publicId: string): Promise<CloudUpload> {
+  /** `timeoutMs`: give up after this long (a phone is waiting on the upload, ADR-053); the caller falls back. */
+  async upload(body: Uint8Array, contentType: string, publicId: string, timeoutMs?: number): Promise<CloudUpload> {
     const params = { public_id: publicId, timestamp: this.ts(), type: 'authenticated', overwrite: 'true' };
     const form = new FormData();
     for (const [k, v] of Object.entries(params)) form.append(k, String(v));
     form.append('api_key', this.o.apiKey);
     form.append('signature', signParams(params, this.o.apiSecret));
     form.append('file', new Blob([Buffer.from(body)], { type: contentType }), 'photo');
-    const res = await this.fetch(`${API}/${this.o.cloudName}/image/upload`, { method: 'POST', body: form });
+    const res = await this.fetch(`${API}/${this.o.cloudName}/image/upload`, { method: 'POST', body: form, ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}) });
     if (!res.ok) throw new CloudinaryError('upload', res.status, await errorText(res));
     const b = (await res.json()) as { public_id?: string; version?: number; bytes?: number; format?: string };
     if (!b.public_id) throw new CloudinaryError('upload', res.status, 'no public_id in the answer');

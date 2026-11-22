@@ -1,3 +1,5 @@
+import type { CloudUpload } from './cloudinary.js';
+
 /** Private object storage behind presigned URLs (CLAUDE.md §3: PUT 5 min, GET 5 min). */
 export interface ObjectStorage {
   /** `origin`: the public origin the caller reached the API on; only stores that serve files through the API use it. */
@@ -10,5 +12,9 @@ export interface ObjectStorage {
   get(key: string): Promise<{ body: Uint8Array; contentType: string } | null>;
   /** Removes the object; a missing object is not an error, so a delete can be repeated. */
   delete(key: string): Promise<void>;
+  /** Cloudinary-first store only (ADR-053): the Cloudinary copy the client's upload went to, or null. */
+  cloudUpload?(key: string): Promise<CloudUpload | null>;
+  /** Cloudinary-first store only: forgets that record once the media row holds it (the row then owns the file). */
+  forgetCloudUpload?(key: string): Promise<void>;
 }
 export const URL_TTL_SEC = 300;

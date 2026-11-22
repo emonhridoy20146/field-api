@@ -90,7 +90,10 @@ export async function removeFiles(mediaIds: string[]): Promise<void> {
     if (!c) throw new Error('cloudinary not configured; photos copied there cannot be removed yet');
     for (const ids of chunk(inCloud, CLOUD_DELETE_CHUNK)) await c.deleteMany(ids);
   }
-  for (const group of chunk(rows, 20)) await Promise.all(group.map((r) => storage().delete(r.key as string)));
+  // A row whose base copy is already gone (copied, or uploaded straight to Cloudinary, ADR-053) has nothing there: skip
+  // it, so the store is not asked for a file it never had (with the Cloudinary-first store that would reach S3).
+  const inBase = rows.filter((r) => !r.baseRemovedAt);
+  for (const group of chunk(inBase, 20)) await Promise.all(group.map((r) => storage().delete(r.key as string)));
   await MediaModel.updateMany({ _id: { $in: rows.map((r) => r._id) } }, { $set: { 'deleted.filesRemovedAt': now() } });
 }
 
