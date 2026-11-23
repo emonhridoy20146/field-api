@@ -8,6 +8,7 @@ import type { AuthUser } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { changeOwnPassword, findForLogin, getUser, loadAuthUser, markLogin, type UserView } from '../users/index.js';
+import { attendanceRequired } from '../attendance/index.js';
 import { effectivePermissions } from '../rbac/index.js';
 import { flagsFor } from '../flags/index.js';
 import { LoginAttemptModel, SessionModel } from './models/session.model.js';
@@ -83,8 +84,7 @@ async function issueTokens(user: UserView, client: 'app' | 'web', meta: RequestM
     refreshToken,
     refreshTokenExpiresAt: expiresAt.toISOString(),
     user,
-    permissions: [...(await effectivePermissions(user))].sort(),
-    flags: await flagsFor(authUser),
+    ...(await permissionSnapshot(authUser)),
     serverTime: now.toISOString(),
   };
 }
@@ -169,7 +169,14 @@ export async function changePassword(user: AuthUser, current: string, next: stri
 
 export async function me(user: AuthUser) {
   const u = await getUser(user.id);
-  return { user: u, permissions: [...(await effectivePermissions(user))].sort(), flags: await flagsFor(user) };
+  return { user: u, ...(await permissionSnapshot(user)) };
+}
+
+/** Permissions, flags and (1.45.0, FR-ATT-014) whether the user must do attendance: login, refresh and /auth/me. */
+async function permissionSnapshot(user: AuthUser) {
+  const perms = await effectivePermissions(user);
+  const flags = await flagsFor(user);
+  return { permissions: [...perms].sort(), flags, attendanceRequired: attendanceRequired(perms, !!flags['module.attendance']) };
 }
 
 export async function listSessions(userId: string, currentSessionId: string) {

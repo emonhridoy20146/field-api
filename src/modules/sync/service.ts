@@ -10,6 +10,7 @@ import { branchQuery, type AuthUser } from '../../core/security/types.js';
 import { can, effectivePermissions, permissionsVersion } from '../rbac/index.js';
 import { flagsFor, isEnabledForUser } from '../flags/index.js';
 import { appSettings } from '../settings/index.js';
+import { attendanceRequired } from '../attendance/index.js';
 import { cashPositionOf } from '../cash/index.js';
 import { myTarget } from '../targets/index.js';
 import { getUsers } from '../users/index.js';
@@ -43,9 +44,12 @@ async function envelope(user: AuthUser) {
   const cash = user.role === 'field_staff' && flags['module.cash'] ? await cashPositionOf(user.id).catch(() => undefined) : undefined;
   // FR-COL-015: the Today card works offline from this; progress is counted on the device.
   const target = user.role === 'field_staff' && flags['module.targets'] ? await myTarget(user).catch(() => undefined) : undefined;
+  const perms = await effectivePermissions(user);
   return {
-    permissions: { version: await permissionsVersion(), keys: [...(await effectivePermissions(user))].sort() },
+    permissions: { version: await permissionsVersion(), keys: [...perms].sort() },
     flags,
+    // FR-ATT-014 (1.45.0): the app hides attendance when false (e.g. super admins, attendance.exempt).
+    attendanceRequired: attendanceRequired(perms, !!flags['module.attendance']),
     settings: await appSettings(user.branchIds[0] ?? null),
     ...(cash ? { cash } : {}),
     ...(target ? { target } : {}),
