@@ -15,7 +15,7 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 | IDs | Server ids: 24-hex ObjectId strings. Client-created entity ids: `clientId` UUIDv7. |
 | Money | `amountPoisha` integers. |
 | Time | ISO 8601 UTC (`2026-11-15T05:12:44Z`); business dates `YYYY-MM-DD` (Dhaka). |
-| Pagination | Cursor: `?limit=25&cursor=<opaque>` → `{ "items": [...], "nextCursor": "…" | null }`. Max limit 100. Total counts only via `?includeTotal=true` on admin lists (capped). |
+| Pagination | Cursor: `?limit=25&cursor=<opaque>` → `{ "items": [...], "nextCursor": "…" | null }`. Max limit 100. Total counts only via `?includeTotal=true` on admin lists (capped). Exception since 1.46.0: `GET /customers` takes `limit` ≤ 1000 and `offset` (§3.9i), and its `total` is exact. |
 | Sorting | `?sort=-daysOverdue,name` whitelisted per endpoint. |
 | Filtering | Query params, comma lists for multi-value (`status=overdue,due_today`). |
 | Idempotency | `Idempotency-Key` header (UUID) **required** on `POST /collections`, `POST /cash/deposits`, `POST /collections/{id}/resolve`; implicit via `clientId`/`mutationId` inside `/sync/push`. Replays return the original status and body plus header `Idempotent-Replayed: true`. |
@@ -396,6 +396,18 @@ GET   /api/v1/prospects?status=new&from=2026-11-01&to=2026-11-23&q=jamal
 - `attendanceRequired` (login, refresh, `/auth/me`, sync bootstrap/pull): false → the app hides attendance. Super admins hold `attendance.exempt`.
 - `GET /inbox` and `GET /activity` take `from` / `to` (inclusive Dhaka dates). Visit rows carry `businessDate` and `checkInLocalTime` ("HH:mm").
 - `POST /media/upload-url`: `capturedAt` without `Z`/offset is read as Asia/Dhaka time.
+
+### 3.9i Customer list pages of up to 1000 and page jumps (1.46.0, FR-CUS-022)
+```http
+GET /api/v1/customers?limit=1000&offset=2000&sort=name&includeTotal=true      (customer.view; page 3 of 1000)
+→ 200 { "items": [ …1000 CustomerListItem… ], "nextCursor": "eyJvIjozMDAwfQ", "total": 4312, "invoiceTotals": { … } }
+GET /api/v1/customers?limit=500&offset=1500&filter=overdue&branchId=6731…     (page 4 of 500, any filter)
+GET /api/v1/customers?limit=100&offset=99999                                 → 200 { "items": [], "nextCursor": null }
+GET /api/v1/customers?limit=1001  |  ?offset=-1  |  ?offset=1.5              → 400 VALIDATION_FAILED
+```
+- `offset` is 0-based (page N of size L = `offset=(N-1)*L`) and wins over `cursor`; without it the cursor works as before. `nextCursor` is still returned, so "next page" keeps working for existing clients. Default `limit` stays 50.
+- Every sort ends with `_id`, so pages never overlap or skip a row while the data does not change (rows that change between two calls can move, as with any offset pager). `sort=distance` pages only the nearest 2000 in the radius.
+- `total` (with `includeTotal=true`) is the exact number of matches; it was capped at 10,000 before.
 
 ### 3.10a Pin colours and invoice viewer (1.14.0)
 Yellow and orange pins of credit customers in view:

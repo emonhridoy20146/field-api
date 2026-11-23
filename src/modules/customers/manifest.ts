@@ -66,6 +66,18 @@ export const manifest: ModuleManifest = {
       { collection: 'location_proposals', key: { branchId: 1, status: 1, createdAt: -1 } },
       { collection: 'location_proposals', key: { customerId: 1, decidedAt: -1 } },
     ]),
+    // 1.46.0 (ADR-062): each list sort (all end with _id) served from an index, so 1000-row pages and deep offsets
+    // never sort in memory: branch first for scoped users and `branchId=`, sort-only for the super admin (no branch).
+    indexMigration('20261123-0001-customers-list-sort-indexes', [
+      { collection: 'erp_customers', key: { branchId: 1, 'derived.daysOverdue': -1, _id: 1 } },
+      { collection: 'erp_customers', key: { branchId: 1, 'name.en': 1, _id: 1 } },
+      { collection: 'erp_customers', key: { branchId: 1, 'derived.totalOutstandingPoisha': -1, _id: 1 } },
+      { collection: 'erp_customers', key: { branchId: 1, 'derived.nextDueDate': 1, _id: 1 } },
+      { collection: 'erp_customers', key: { 'derived.daysOverdue': -1, _id: 1 } },
+      { collection: 'erp_customers', key: { 'name.en': 1, _id: 1 } },
+      { collection: 'erp_customers', key: { 'derived.totalOutstandingPoisha': -1, _id: 1 } },
+      { collection: 'erp_customers', key: { 'derived.nextDueDate': 1, _id: 1 } },
+    ]),
     // 1.14.0 (ADR-035): fill derived.missedCount (pin colours) for customers cached before it existed.
     { id: '20261118-0001-derive-missed-installments', up: async () => void (await recomputeAllDerived()) },
   ],

@@ -623,6 +623,8 @@ export interface ListQuery {
   sort?: string;
   limit: number;
   cursor?: string;
+  /** 1.46.0: 0-based row offset; when given the cursor is ignored (numbered pager in admin-web). */
+  offset?: number;
   includeTotal?: boolean;
 }
 
@@ -704,10 +706,52 @@ const SORTS: Record<string, Record<string, 1 | -1>> = {
   nextDueDate: { 'derived.nextDueDate': 1, _id: 1 },
 };
 
-/** Offset cursor: lists are scoped and small (≤ a few thousand per user); documented in 05-api-contract. */
+/**
+ * 1.46.0: only the fields listItems() reads, so a 1000-row page does not carry every plan's schedule, the
+ * guarantor or the ERP risk snapshot. `plans.*` / `derived.plans.lines.status` keep just what the invoice
+ * counts and the pre-1.14.0 missed-count fallback need.
+ */
+export const LIST_PROJECTION = {
+  erpCustomerId: 1,
+  code: 1,
+  name: 1,
+  phones: 1,
+  address: 1,
+  location: 1,
+  locationStatus: 1,
+  locationSource: 1,
+  branchId: 1,
+  erpFetchedAt: 1,
+  recentPayments: 1,
+  'plans.status': 1,
+  'plans.kind': 1,
+  'plans.outstandingPoisha': 1,
+  'derived.totalOutstandingPoisha': 1,
+  'derived.overdue': 1,
+  'derived.daysOverdue': 1,
+  'derived.overdueAmountPoisha': 1,
+  'derived.nextInstallmentPoisha': 1,
+  'derived.nextDueDate': 1,
+  'derived.dueToday': 1,
+  'derived.badSuggested': 1,
+  'derived.missedCount': 1,
+  'derived.plans.lines.status': 1,
+  'fos.assigneeId': 1,
+  'fos.tag': 1,
+  'fos.openPromiseDates': 1,
+  'fos.extraPhones': 1,
+} as const;
+
+/** sort=distance sorts in memory; it only ever covers the nearest this many in the radius. */
+export const DISTANCE_SORT_MAX = 2000;
+
+/**
+ * Offset paging: the cursor is an encoded offset; since 1.46.0 `offset` can be sent directly (it wins over the
+ * cursor). Every SORTS entry ends with `_id`, so pages never overlap or skip rows. Documented in 05-api-contract.
+ */
 export async function list(user: AuthUser, q: ListQuery) {
   const filter = await buildFilter(user, q);
-  const offset = decodeCursor<{ o: number }>(q.cursor)?.o ?? 0;
+  const offset = q.offset ?? decodeCursor<{ o: number }>(q.cursor)?.o ?? 0;
   let rows: Doc[];
   let hasMore: boolean;
   if (q.sort === 'distance') {
@@ -715,17 +759,15 @@ export async function list(user: AuthUser, q: ListQuery) {
       throw new AppError('VALIDATION_FAILED', {
         fields: [{ path: 'near', message: 'near is required for sort=distance' }],
       });
-    const all = (await CustomerModel.find(filter).limit(2000).lean()) as Doc[];
+    const all = (await CustomerModel.find(filter).select(LIST_PROJECTION).limit(DISTANCE_SORT_MAX).lean()) as Doc[];
     const near = q.near;
-    all.sort(
-      (a, b) =>
-        haversineM(near, { lat: a.location.coordinates[1], lng: a.location.coordinates[0] }) -
-        haversineM(near, { lat: b.location.coordinates[1], lng: b.location.coordinates[0] }),
-    );
+    const dist = (c: Doc) => haversineM(near, { lat: c.location.coordinates[1], lng: c.location.coordinates[0] });
+    all.sort((a, b) => dist(a) - dist(b) || a._id.toHexString().localeCompare(b._id.toHexString()));
     rows = all.slice(offset, offset + q.limit);
     hasMore = all.length > offset + q.limit;
   } else {
     const found = (await CustomerModel.find(filter)
+      .select(LIST_PROJECTION)
       .sort(SORTS[q.sort ?? '-daysOverdue'] ?? SORTS['-daysOverdue']!)
       .skip(offset)
       .limit(q.limit + 1)
@@ -736,7 +778,8 @@ export async function list(user: AuthUser, q: ListQuery) {
   return {
     items: await listItems(rows, user, q.near ?? null),
     nextCursor: hasMore ? encodeCursor({ o: offset + q.limit }) : null,
-    ...(q.includeTotal ? { total: await CustomerModel.countDocuments(filter).limit(10_000), invoiceTotals: await invoiceTotals(filter) } : {}),
+    // 1.46.0 (ADR-062): the exact count, so a numbered pager can reach the last page (was capped at 10,000).
+    ...(q.includeTotal ? { total: await CustomerModel.countDocuments(filter), invoiceTotals: await invoiceTotals(filter) } : {}),
   };
 }
 
