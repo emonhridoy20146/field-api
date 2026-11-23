@@ -41,8 +41,10 @@ export const manifest: ModuleManifest = {
     },
   ],
   jobs: [
-    { name: 'erp.delta-sync', schedule: '*/5 * * * *', handler: async () => void (await deltaSync()) },
-    { name: 'erp.nightly-reconcile', schedule: '0 2 * * *', handler: async () => void (await reconcile()) },
+    // 1.45.0 (owner request 2026-11-23): every 2 minutes, so the app is fresh without anyone pressing "Sync from ERP".
+    // In a serverless cron call the run gets the call's time left (budgetMs) and resumes on the next call (1.17.0).
+    { name: 'erp.delta-sync', schedule: '*/2 * * * *', catchUpMin: 10, handler: async (o) => void (await deltaSync(o?.budgetMs !== undefined ? { budgetMs: o.budgetMs } : {})) },
+    { name: 'erp.nightly-reconcile', schedule: '0 2 * * *', heavy: true, handler: async () => void (await reconcile()) },
   ],
   init() {
     registerOutboxHandler('erp.post_payment', handlePostPayment, onPostPaymentGaveUp);

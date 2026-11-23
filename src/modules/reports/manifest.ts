@@ -23,8 +23,8 @@ export const manifest: ModuleManifest = {
   ],
   jobs: [
     // 23:50 Dhaka: the day's closing overdue picture, before the ERP reconcile changes tomorrow's.
-    { name: 'reports.overdue-snapshot', schedule: '50 23 * * *', handler: async () => void (await snapshotOverdue()) },
-    { name: 'reports.exports', schedule: '* * * * *', handler: async () => void (await processExports()) },
+    { name: 'reports.overdue-snapshot', schedule: '50 23 * * *', catchUpMin: 9, handler: async () => void (await snapshotOverdue()) },
+    { name: 'reports.exports', schedule: '* * * * *', catchUpMin: 5, handler: async () => void (await processExports()) },
   ],
   migrations: [
     indexMigration('20261116-0001-reports-indexes', [

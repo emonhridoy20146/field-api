@@ -23,7 +23,8 @@ export const manifest: ModuleManifest = {
   settings: [{ key: 'promises.graceDays', type: 'int', default: 1, branchOverridable: true, exposeToApp: true, description: 'FR-PRM-003 grace days after the promised date' }],
   jobs: [
     { name: 'promises.evaluate', schedule: '30 0 * * *', handler: async () => void (await s.evaluateDue()) },
-    { name: 'promises.remind', schedule: '0 9 * * *', handler: async () => void (await s.remindToday()) },
+    // A reminder later than noon is noise: catch up at most 3 hours (1.45.0).
+    { name: 'promises.remind', schedule: '0 9 * * *', catchUpMin: 180, handler: async () => void (await s.remindToday()) },
   ],
   notificationTypes: [{ type: 'promise.due' }, { type: 'promise.broken' }],
   inboxTypes: [{ type: 'promise.broken', severity: 'medium' }],
