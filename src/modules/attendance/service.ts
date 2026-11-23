@@ -597,3 +597,18 @@ export async function decideLeave(actor: AuthUser, id: string, input: { decision
   await ctx().bus.emit('leave.decided', { leaveId: id, userId: l.userId, decision: input.decision });
   return leaveView((await LeaveModel.findById(id).lean()) as Lean);
 }
+
+/**
+ * FR-DSH-002: today's counters in the caller's scope (`todayCounts` plus `onLeave`), from the same day rows as
+ * GET /attendance/days for today, so whoever that list leaves out is not counted here either.
+ */
+export async function todayDashboardCounts(user: AuthUser, branchId?: string) {
+  const all = await days(user, { branchId, from: today(), to: today() });
+  return {
+    present: all.filter((d) => d.firstIn !== null).length,
+    late: all.filter((d) => d.firstIn !== null && d.lateMin > 0).length,
+    absent: all.filter((d) => d.status === 'absent').length,
+    onLeave: all.filter((d) => d.status === 'leave').length,
+    onDutyNow: all.filter((d) => d.status === 'on_duty').length,
+  };
+}

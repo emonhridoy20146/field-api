@@ -1847,3 +1847,24 @@ export async function dataQualityScan(filter: Record<string, unknown>, maxKmFor:
     return { customerId: c.id, code: c.code, name: { bn: d.name?.bn ?? '', en: d.name?.en ?? '' }, branchId: c.branchId, areaCode: d.areaCode ?? null, assigneeId: c.assigneeId, findings };
   });
 }
+
+/**
+ * FR-DSH-002: customers matching `filter` (the caller's scope) per pin colour, worst first, with the same Mongo rules
+ * as GET /customers?payState=… (PAY_FILTERS), so a count opens exactly its list. One $match, then a $facet.
+ */
+export async function payStateCounts(filter: Record<string, unknown>): Promise<{ payState: PayState; count: number }[]> {
+  const states = Object.keys(PAY_FILTERS) as PayState[];
+  const [r] = await CustomerModel.aggregate<Record<string, { n: number }[]>>([
+    { $match: filter },
+    { $facet: Object.fromEntries(states.map((p) => [p, [{ $match: PAY_FILTERS[p] }, { $count: 'n' }]])) },
+  ]);
+  return states.map((p) => ({ payState: p, count: r?.[p]?.[0]?.n ?? 0 }));
+}
+
+/**
+ * FR-DSH-002: customer pin proposals waiting for a decision in the caller's branches (the rows of GET
+ * /location-proposals?status=pending); field staff count their own. Uses {branchId, status, createdAt}.
+ */
+export async function pendingProposalCount(user: AuthUser, branchId: string | undefined): Promise<number> {
+  return LocationProposalModel.countDocuments({ ...branchQuery(user, branchId), ...(user.role === 'field_staff' ? { proposedBy: user.id } : {}), status: 'pending' });
+}

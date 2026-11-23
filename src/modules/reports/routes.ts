@@ -8,7 +8,7 @@ import * as x from './exports.js';
 import * as i from './insights.js';
 
 export const reportRoutes = defineRoutes((r) => {
-  r.get('/dashboard/overview', { access: perm('report.view') }, async (req) => s.overview(requireUser(req), parse(z.object({ branchId: z.string().max(64).optional(), date: z.string().max(10).optional() }), req.query)));
+  r.get('/dashboard/overview', { access: perm('report.view') }, async (req) => s.overview(requireUser(req), parse(z.object({ branchId: z.string().max(64).optional(), date: z.string().max(10).optional(), from: z.string().max(10).optional(), to: z.string().max(10).optional() }), req.query)));
   r.get('/reports/staff-performance', { access: perm('report.view') }, async (req) => t.staffPerformance(requireUser(req), parse(t.performanceQuery, req.query)));
   r.get('/reports/branch-trends', { access: perm('report.view') }, async (req) => t.branchTrends(requireUser(req), parse(t.trendsQuery, req.query)));
   r.get('/reports/reconciliation', { access: perm('report.view') }, async (req) => t.reconciliation(requireUser(req), parse(t.reconciliationQuery, req.query)));

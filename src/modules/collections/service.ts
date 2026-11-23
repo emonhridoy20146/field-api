@@ -931,3 +931,27 @@ export async function postedSplitOf(userId: string, from: string, to: string): P
   }
   return { postedPoisha, pendingPoisha };
 }
+
+/** One cell of the dashboard's collection grid: a business day × method × ERP state, counted statuses only. */
+export interface CollectionDayCell {
+  date: string;
+  method: string;
+  /** `posted` = the ERP has it (POSTED_STATUSES); `pending` = not yet in the ERP (PENDING_STATUSES). */
+  erp: 'posted' | 'pending';
+  amountPoisha: number;
+  count: number;
+}
+
+/**
+ * FR-DSH-002: counted collections of [from, to] in the caller's scope (field staff: their own, like `collectedByDay`),
+ * grouped by Dhaka business day, method and whether the ERP has them. One pipeline on the indexed
+ * {branchId|collectorId, businessDate, status}; the dashboard folds the cells into today / month / range / series /
+ * method figures, so the numbers always add up to each other.
+ */
+export async function collectionDayCells(user: AuthUser, branchId: string | undefined, from: string, to: string): Promise<CollectionDayCell[]> {
+  const rows = await CollectionModel.aggregate<{ _id: { d: string; m: string; p: boolean }; s: number; n: number }>([
+    { $match: { ...scopeFilter(user), ...(branchId ? branchQuery(user, branchId) : {}), businessDate: { $gte: from, $lte: to }, status: { $in: CASH_COUNTED_STATUSES } } },
+    { $group: { _id: { d: '$businessDate', m: '$method', p: { $in: ['$status', PENDING_STATUSES] } }, s: { $sum: '$amountPoisha' }, n: { $sum: 1 } } },
+  ]);
+  return rows.map((r) => ({ date: r._id.d, method: r._id.m, erp: r._id.p ? 'pending' : 'posted', amountPoisha: r.s, count: r.n }));
+}
