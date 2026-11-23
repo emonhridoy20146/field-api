@@ -38,8 +38,10 @@ const listQuery = z.object({
   near: z.string().optional(),
   radiusM: z.coerce.number().int().min(50).max(100_000).default(5000),
   sort: z.enum(['distance', '-daysOverdue', 'name', '-totalOutstanding', 'nextDueDate']).optional(),
-  limit: z.coerce.number().int().min(1).max(200).default(50),
+  // 1.46.0: up to 1000 rows a page and an optional 0-based offset (wins over cursor) for the admin pager.
+  limit: z.coerce.number().int().min(1).max(1000).default(50),
   cursor: z.string().max(200).optional(),
+  offset: z.coerce.number().int().min(0).max(1_000_000).optional(),
   includeTotal: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
 });
 

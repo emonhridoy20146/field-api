@@ -4,6 +4,19 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.46.0] — contract 1.46.0 (customer pages of up to 1000, page jumps)
+### Added (owner request 2026-11-23: admin customers page with 100 / 500 / 1000 rows and a numbered pager; FR-CUS-022, ADR-062)
+- `GET /customers`: `limit` up to **1000** (was 200; default still 50) and an optional **`offset`** (0-based, 0–1,000,000; when sent, `cursor` is ignored) that works with every filter and sort, so any page is one call. Same response shape; `nextCursor` still returned. Past the end = empty page. Bad `limit`/`offset` → 400 `VALIDATION_FAILED`.
+- `includeTotal=true`: `total` is now the exact count (was capped at 10,000), so the pager can reach the last page.
+### Changed
+- The list reads only the fields a row needs (no plan schedules, guarantor or ERP risk snapshot), so a 1000-row page stays small; output unchanged. `sort=distance` ties break by id.
+### Migrations
+- `customers/20261123-0001-customers-list-sort-indexes`: one index per list sort (`-daysOverdue`, `name`, `-totalOutstanding`, `nextDueDate`, each ending with `_id`), with and without a `branchId` prefix. Indexes only, idempotent; no data migration.
+### Tests
+- `test/integration/customers-paging.test.ts` and `customers-paging-scope.test.ts` on 1,280 seeded heavy customers: a 1000-row page (conformance, size, exact total, cursor continues), offset with each sort (pages of 100/500/1000 agree, no overlap, page jumps), distance, offset vs cursor, every filter, 400s, 401, 403, scope; query plans use an index with no in-memory sort for each sort (one branch, two branches, super admin).
+### Notes for the clients
+- admin-web: page N of size L = `GET /customers?limit=L&offset=(N-1)*L&includeTotal=true` (pages = ceil(total / L)); drop the stitching of 100-row cursor pages. staff-app: nothing to change.
+
 ## [1.45.0] — contract 1.45.0 (sync with nobody logged in, photos upload, dashboard, follow-ups, possible customers)
 ### Fixed (owner report 2026-11-23: staff app photos stay "upload pending"; FR-MED-006)
 - **Root cause:** `POST /media/upload-url` refused every photo from the staff app with 400 `VALIDATION_FAILED` (`capturedAt: Invalid datetime`), so the PUT and the confirm never happened and the app retried with back-off forever. The app sends `capturedAt` as `m.capturedAt.toIso8601String()` on a row of its local database (drift); drift returns DateTimes in local time, so the value has no `Z` and no offset (`2026-11-23T16:12:05.000`), and the route's `z.string().datetime({ offset: true })` only accepted `Z` or `±hh:mm`. Everything after it was fine: checked end to end in `test/integration/media-phone-upload.test.ts` with the phone's exact requests behind Vercel's proxy headers. The signed link is `https://howlader-apps-api.vercel.app/api/v1/storage/o?t=…` (from `X-Forwarded-Host`/`-Proto`, never `PUBLIC_BASE_URL`/localhost); `vercel.json` sends `/api/v1/storage/o` to `api/index.js` with the raw body (live: a forged link answers 403 `STORAGE_URL_INVALID`, so the route is reached); the app's photos are ≤ 250 KB (limits: 1 MB presign, 2 MB route, 4.5 MB Vercel); `image/jpeg` has a raw-body parser; type, size and sha256 of the app's bytes match the grant; the PUT goes without a token and the empty-body confirm works since 1.44.0.
