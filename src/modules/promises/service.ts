@@ -370,3 +370,39 @@ export async function promisesBehind(
   }
   return out;
 }
+
+/**
+ * FR-DSH-002 dashboard figures in the caller's scope (field staff: promises they own, like `dayCounts`):
+ * open promises due today / today..today+7 / today..today+15 (amount and count), and how the promises due in
+ * [from, to] ended. `brokenWithoutFollowUp` = broken or partially kept with no `followUpId` (FR-PRM-006; a missing
+ * field matches null). Aggregations only, so the follow-up field is read as stored; both use {branchId|ownerId,
+ * promisedDate, status}.
+ */
+export async function dashboardStats(user: AuthUser, branchId: string | undefined, today: string, from: string, to: string) {
+  const f = { ...scopeFilter(user), ...(branchId ? branchQuery(user, branchId) : {}) };
+  const until = addDays(today, 15);
+  const [open, ended] = await Promise.all([
+    PromiseModel.aggregate<{ _id: string; s: number; n: number }>([
+      { $match: { ...f, status: 'open', promisedDate: { $gte: today, $lte: until } } },
+      { $group: { _id: '$promisedDate', s: { $sum: '$promisedAmountPoisha' }, n: { $sum: 1 } } },
+    ]),
+    PromiseModel.aggregate<{ _id: { s: string; noFollowUp: boolean }; n: number }>([
+      { $match: { ...f, status: { $in: ['kept', 'partially_kept', 'broken'] }, promisedDate: { $gte: from, $lte: to } } },
+      { $group: { _id: { s: '$status', noFollowUp: { $eq: [{ $ifNull: ['$followUpId', null] }, null] } }, n: { $sum: 1 } } },
+    ]),
+  ]);
+  const upTo = (last: string) => {
+    const rows = open.filter((r) => r._id <= last);
+    return { amountPoisha: rows.reduce((t, r) => t + r.s, 0), count: rows.reduce((t, r) => t + r.n, 0) };
+  };
+  const ofStatus = (s: string) => ended.filter((r) => r._id.s === s).reduce((t, r) => t + r.n, 0);
+  return {
+    dueToday: upTo(today),
+    next7Days: upTo(addDays(today, 7)),
+    next15Days: upTo(until),
+    kept: ofStatus('kept'),
+    partiallyKept: ofStatus('partially_kept'),
+    broken: ofStatus('broken'),
+    brokenWithoutFollowUp: ended.filter((r) => r._id.s !== 'kept' && r._id.noFollowUp).reduce((t, r) => t + r.n, 0),
+  };
+}

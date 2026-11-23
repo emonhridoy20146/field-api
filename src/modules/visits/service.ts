@@ -365,3 +365,33 @@ export async function visitSplitByDay(userId: string, from: string, to: string):
   for (const r of joint) row(r._id).coWork = r.n;
   return out;
 }
+
+/**
+ * FR-DSH-002: visits of [from, to] in the caller's scope (field staff: their own and joint visits they took part in,
+ * like `visitsByDay`): total, distinct customers, count per Dhaka day and per outcome. One $match on the indexed
+ * {branchId|userId, checkInAt}, then a $facet so the collection is read once.
+ */
+export async function visitDashboardStats(
+  user: AuthUser,
+  branchId: string | undefined,
+  from: string,
+  to: string,
+): Promise<{ total: number; uniqueCustomers: number; byDay: Map<string, number>; byOutcome: Map<string, number> }> {
+  const [r] = await VisitModel.aggregate<{ days: { _id: string; n: number }[]; outcomes: { _id: string; n: number }[]; customers: { n: number }[] }>([
+    { $match: { ...scopeFilter(user), ...(branchId ? branchQuery(user, branchId) : {}), checkInAt: range(from, to) } },
+    {
+      $facet: {
+        days: [{ $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$checkInAt', timezone: 'Asia/Dhaka' } }, n: { $sum: 1 } } }],
+        outcomes: [{ $group: { _id: '$outcome', n: { $sum: 1 } } }],
+        customers: [{ $group: { _id: '$customerId' } }, { $count: 'n' }],
+      },
+    },
+  ]);
+  const byDay = new Map((r?.days ?? []).map((d) => [d._id, d.n]));
+  return {
+    total: [...byDay.values()].reduce((s, n) => s + n, 0),
+    uniqueCustomers: r?.customers[0]?.n ?? 0,
+    byDay,
+    byOutcome: new Map((r?.outcomes ?? []).map((o) => [o._id, o.n])),
+  };
+}

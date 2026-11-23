@@ -268,3 +268,12 @@ export async function resolveParticipants(recorderId: string, sessionId: string,
 export async function visitCreditFor(soloVisits: number, coWorkVisits: number, branchId?: string): Promise<number> {
   return visitCredit(soloVisits, coWorkVisits, (await getSetting<number>('cowork.visitCredit', branchId)) ?? 1);
 }
+
+/**
+ * FR-DSH-002: co-work sessions of [from, to] (business dates) in the caller's branches, the same rows GET
+ * /cowork/sessions lists for that range; field staff count the sessions they were in. Uses {branchId, businessDate}
+ * or {members.userId, businessDate}.
+ */
+export async function sessionCount(user: AuthUser, branchId: string | undefined, from: string, to: string): Promise<number> {
+  return CoworkSessionModel.countDocuments({ ...branchQuery(user, branchId), ...(user.role === 'field_staff' ? { 'members.userId': user.id } : {}), businessDate: { $gte: from, $lte: to } });
+}
