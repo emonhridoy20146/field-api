@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { as, createTestApp, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
+import { as, createTestApp, login, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
 import { expectConforms } from '../helpers/openapi.js';
 import { deltaSync, reconcile } from '../../src/modules/erp-gateway/index.js';
 import { applyAssignments, getByErpId } from '../../src/modules/customers/index.js';
@@ -172,6 +172,20 @@ describe('refresh (FR-ERP-003)', () => {
     t.erp.unavailable = false;
     expect(r3.status).toBe(503);
     expect(r3.body.code).toBe('ERP_UNAVAILABLE');
+  });
+
+  it('a body-less POST sent with Content-Type: application/json works (the staff app reload got VALIDATION_FAILED, 1.44.0)', async () => {
+    t.clock.advance(31_000);
+    const token = (await login(t.app, '01700000003', { deviceId: 'dev-01700000003' })).accessToken as string;
+    const res = await t.app.inject({
+      method: 'POST',
+      url: `/api/v1/customers/${ids['100246']}/refresh`,
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, 'x-device-id': 'dev-01700000003' },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    // a body that is not JSON is still refused
+    const bad = await t.app.inject({ method: 'POST', url: `/api/v1/customers/${ids['100246']}/refresh`, headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, 'x-device-id': 'dev-01700000003' }, payload: '{nope' });
+    expect(bad.statusCode).toBe(400);
   });
 
   it('emits balance_cleared when outstanding drops to zero', async () => {
@@ -684,5 +698,106 @@ describe('paid this month filter (FR-CUS-019, contract 1.29.0)', () => {
     const noIds = ((await bm.get('/customers?paidThisMonth=no&limit=200')).body.items as Row[]).map((r) => r.id);
     for (const pin of map.body.pins as { id: string }[]) expect(noIds).toContain(pin.id);
     expect((await bm.get('/customers?paidThisMonth=maybe')).status).toBe(400);
+  });
+});
+
+describe('who did this month\'s work (FR-CUS-021, contract 1.44.0)', () => {
+  type Person = { userId: string; name: string; count: number; lastAt: string };
+  type Payer = { name: string; source: string; userId?: string; amountPoisha: number; lastDate: string; pending: boolean };
+  type Activity = { visitCount: number; promisesMade: number; paidPoisha: number; pendingPoisha: number; visitedBy: Person[]; promisedBy: Person[]; paidBy: Payer[] };
+  const geo = { lat: 22.7106, lng: 90.3703, accuracyM: 9 };
+  const mut = (entity: string, payload: Record<string, unknown>) => ({ mutationId: randomUUID(), entity, op: 'create', payload });
+
+  it('names who visited, who promised and who took the money; the counts and amounts add up to the month numbers', async () => {
+    const { CustomerModel } = await import('../../src/modules/customers/models/customer.model.js');
+    const { CollectionModel } = await import('../../src/modules/collections/models/collection.model.js');
+    const id = ids['100246']!;
+    // a second staff member visits and the branch manager promises too (Rakib Hasan did both in the block above)
+    const fs2 = await as(t, '01700000004');
+    const push = await fs2.post('/sync/push', {
+      deviceId: 'dev-01700000004',
+      mutations: [
+        mut('attendance_event', { clientId: randomUUID(), type: 'work_in', at: '2026-11-15T03:00:00Z', geo }),
+        mut('visit', { clientId: randomUUID(), customerId: id, checkInAt: '2026-11-15T04:00:00Z', outcome: 'promised', geo }),
+      ],
+    });
+    expect(push.body.results.slice(1).map((r: { result: string }) => r.result), JSON.stringify(push.body.results)).toEqual(['applied']);
+    const bmPromise = await (await as(t, '01700000002')).post('/promises', { clientId: randomUUID(), customerId: id, promisedDate: '2026-11-25', promisedAmountPoisha: 70000 });
+    expect(bmPromise.status, JSON.stringify(bmPromise.body)).toBeLessThan(300);
+
+    // ERP money of the month: one payment from Rakib's field collection (its key), one office payment with an ERP
+    // referrer, one posted by name without an ERP employee, one office payment with no name, one removed, one older
+    const col = (await CollectionModel.findOne({ customerId: id }).lean())!;
+    const fieldKey = randomUUID();
+    await CollectionModel.create({ ...col, _id: undefined, clientId: randomUUID(), idempotencyKey: fieldKey, receiptNo: 'BRL01-FS014-261110-0001', businessDate: '2026-11-10', amountPoisha: 30000, status: 'posted' });
+    await CustomerModel.updateOne(
+      { _id: id },
+      {
+        $set: {
+          recentPayments: [
+            { erpPaymentId: 'w-1', date: '2026-11-10', amountPoisha: 30000, reversed: false, source: 'field', idempotencyKey: fieldKey, collectorName: 'Rakib Hasan (ERP)' },
+            { erpPaymentId: 'w-2', date: '2026-11-12', amountPoisha: 20000, reversed: false, source: 'office', collectorName: 'Office Clerk', collectorEmployeeId: '10', referrerName: 'Office Clerk' },
+            { erpPaymentId: 'w-3', date: '2026-11-08', amountPoisha: 10000, reversed: false, source: 'field', collectorName: null, referenceName: 'Unlinked Collector' },
+            { erpPaymentId: 'w-4', date: '2026-11-02', amountPoisha: 5000, reversed: false, source: 'office' },
+            { erpPaymentId: 'w-5', date: '2026-11-03', amountPoisha: 9000, reversed: true, source: 'office', collectorName: 'Office Clerk' },
+            { erpPaymentId: 'w-6', date: '2026-10-28', amountPoisha: 8000, reversed: false, source: 'office', collectorName: 'Office Clerk' },
+          ],
+        },
+      },
+    );
+
+    const fs = await as(t, '01700000003');
+    const det = await fs.get(`/customers/${id}`);
+    expect(det.status).toBe(200);
+    expectConforms('GET', '/customers/{id}', 200, det.body);
+    const a = det.body.activity as Activity;
+
+    // visits: one entry per person, newest first, counts add up
+    expect(a.visitedBy.map((p) => p.name)).toEqual(['Sumon Mia', 'Rakib Hasan']);
+    expect(a.visitedBy[0]!.lastAt).toBe('2026-11-15T04:00:00.000Z');
+    expect(a.visitedBy.reduce((n, p) => n + p.count, 0)).toBe(a.visitCount);
+    // promises: who made them; counts add up to promisesMade
+    expect(a.promisedBy.map((p) => p.name).sort()).toEqual(['Manager A', 'Rakib Hasan']);
+    expect(a.promisedBy.reduce((n, p) => n + p.count, 0)).toBe(a.promisesMade);
+
+    // money: the staff collector wins over the ERP name; then the ERP referrer; then the posted name; else unknown
+    const erp = a.paidBy.filter((p) => !p.pending);
+    const pending = a.paidBy.filter((p) => p.pending);
+    expect(erp).toEqual([
+      { name: 'Office Clerk', source: 'erp_referrer', amountPoisha: 20000, lastDate: '2026-11-12', pending: false },
+      { name: 'Rakib Hasan', source: 'staff', userId: s.fs1.id, amountPoisha: 30000, lastDate: '2026-11-10', pending: false },
+      { name: 'Unlinked Collector', source: 'collector_name', amountPoisha: 10000, lastDate: '2026-11-08', pending: false },
+      { name: '', source: 'unknown', amountPoisha: 5000, lastDate: '2026-11-02', pending: false },
+    ]);
+    expect(erp.reduce((n, p) => n + p.amountPoisha, 0)).toBe(a.paidPoisha);
+    // the field collection still waiting for the ERP is its own entry, never merged with ERP money
+    expect(pending.length).toBeGreaterThan(0);
+    expect(pending.every((p) => p.source === 'staff' && p.name === 'Rakib Hasan')).toBe(true);
+    expect(pending.reduce((n, p) => n + p.amountPoisha, 0)).toBe(a.pendingPoisha);
+    // the single names the staff app shows next to the month numbers
+    expect((a as unknown as { lastVisitByName: string }).lastVisitByName).toBe('Sumon Mia');
+    expect((a as unknown as { lastPaidByName: string | null }).lastPaidByName).toBe(a.paidBy[0]!.name || null);
+    expect(det.body.lastVisitByName).toBe('Sumon Mia');
+    // referrerName: the ERP employee of the payment, null without one
+    const pays = det.body.payments as { erpPaymentId: string; referrerName: string | null }[];
+    expect(pays.find((p) => p.erpPaymentId === 'w-3')!.referrerName).toBeNull();
+    expect(pays.find((p) => p.erpPaymentId === 'w-2')!.referrerName).toBe('Office Clerk');
+
+    // the list row and the sync payload carry the same activity, and the home row says who promised
+    const row = ((await fs.get('/customers')).body.items as { id: string; activity: Activity; openPromise: { createdByName: string; ownerName: string } | null }[]).find((r) => r.id === id)!;
+    expect(row.activity).toEqual(a);
+    expect(row.openPromise!.createdByName).toBe('Manager A'); // the newer promise superseded Rakib's open one
+    const boot = await fs.get('/sync/bootstrap?limit=200');
+    const synced = (boot.body.items as { entity: string; id: string; data: { activity: Activity; openPromise: { createdByName: string } } }[]).find((i) => i.entity === 'customer' && i.id === id)!;
+    expect(synced.data.activity.paidBy).toEqual(a.paidBy);
+    expect(synced.data.openPromise.createdByName).toBe('Manager A');
+  });
+
+  it('a customer with nothing this month has empty lists', async () => {
+    const bm = await as(t, '01700000002');
+    const det = await bm.get(`/customers/${ids['100245']}`);
+    const a = det.body.activity as Activity;
+    expect(a.visitedBy.length).toBe(a.visitCount === 0 ? 0 : a.visitedBy.length);
+    expect(Array.isArray(a.paidBy) && Array.isArray(a.promisedBy)).toBe(true);
   });
 });

@@ -84,6 +84,7 @@ export const manifest: ModuleManifest = {
     bus.on('customer.payments_synced', async (p) => s.onPaymentsSynced(p as never));
     registerListEnricher(async (ids) => new Map([...(await s.pendingByCustomer(ids))].map(([k, v]) => [k, { pendingFieldPoisha: v }])));
     registerListEnricher(async (ids) => new Map([...(await s.monthPendingByCustomer(ids))].map(([k, v]) => [k, { monthPendingPoisha: v }])));
+    registerListEnricher(async (ids) => new Map([...(await s.monthCollectionsByCustomer(ids))].map(([k, v]) => [k, { monthCollections: v }])));
     registerMonthPendingSource((month) => s.monthPendingCustomerIds(month));
     registerDetailContributor(async (c) => ({ pendingCollections: await s.pendingForDetail(c.id) }));
     registerTimelineSource(async (customerId, _u, before, limit) => s.timelineItems(customerId, before, limit));

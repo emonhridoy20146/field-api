@@ -21,6 +21,7 @@
     "check:changelog": "tsx scripts/check-changelog.ts",
     "openapi:lint": "tsx scripts/openapi-lint.ts",
     "db:migrate": "tsx --env-file=.env scripts/migrate.ts",
+    "coverage:report": "tsx --env-file=.env scripts/coverage-report.ts",
     "seed:dev": "tsx --env-file=.env scripts/seed-dev.ts",
     "mock:erp": "tsx mock-erp/server.ts",
     "new:module": "tsx scripts/new-module.ts",

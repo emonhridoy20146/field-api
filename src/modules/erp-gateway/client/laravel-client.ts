@@ -19,6 +19,8 @@ export interface LaravelClientOptions {
   timeoutMs: number;
   breaker?: CircuitBreaker;
   fetchImpl?: typeof fetch;
+  /** 1.44.0: told when the ERP refuses a newer query parameter and the client falls back. */
+  onWarn?: (data: Record<string, unknown>, msg: string) => void;
 }
 
 interface RawResponse {
@@ -137,18 +139,57 @@ export class LaravelErpClient implements ErpClient {
     updatedSince?: string | null;
     cursor?: string | null;
     pageSize?: number;
+    /** 1.44.0: `receivables` (default) = customers with an installment or credit invoice; `all` = every ERP customer. */
+    scope?: 'receivables' | 'all';
   }) {
     const p = new URLSearchParams();
     if (q.erpBranchId) p.set('branch_id', q.erpBranchId);
     if (q.updatedSince) p.set('updated_since', q.updatedSince);
     if (q.cursor) p.set('page[cursor]', q.cursor);
     p.set('page[size]', String(q.pageSize ?? 100));
-    p.set('scope', 'receivables');
-    return mapCustomerPage(this.ok(await this.get(`/customers?${p.toString()}`), 'customers'));
+    // 1.44.0 (ADR-057): `all` asks for every customer and every invoice, cash sales included. An ERP without the
+    // `invoices` parameter answers 422: then every customer without cash invoices, then the old receivables pull.
+    const wanted = q.scope ?? 'receivables';
+    for (const level of this.levelsFrom(wanted)) {
+      const params = new URLSearchParams(p);
+      params.set('scope', level === 'receivables' ? 'receivables' : 'all');
+      if (level === 'all') params.set('invoices', 'all');
+      const r = await this.get(`/customers?${params.toString()}`);
+      if (r.status === 422 && level !== 'receivables') {
+        this.downgrade(level, r);
+        continue;
+      }
+      return mapCustomerPage(this.ok(r, 'customers'));
+    }
+    throw new ErpUnavailableError('customers: no scope accepted');
   }
 
-  async getCustomer(id: string) {
-    const r = await this.get(`/customers/${encodeURIComponent(id)}`);
+  /**
+   * What the ERP accepts, learnt per process (1.44.0): `all` = scope=all&invoices=all; `customers` = scope=all
+   * without the invoices parameter (an ERP before howlader-ERP PR #5); `receivables` = the pull before 1.44.0.
+   */
+  private accepted: 'all' | 'customers' | 'receivables' = 'all';
+
+  private levelsFrom(wanted: 'receivables' | 'all'): ('all' | 'customers' | 'receivables')[] {
+    if (wanted === 'receivables') return ['receivables'];
+    const order = ['all', 'customers', 'receivables'] as const;
+    return order.slice(order.indexOf(this.accepted));
+  }
+
+  private downgrade(level: 'all' | 'customers', r: RawResponse) {
+    const next = level === 'all' ? 'customers' : 'receivables';
+    if (this.accepted === level) this.accepted = next;
+    const msg = (r.body as { message?: string } | null)?.message ?? '';
+    this.opts.onWarn?.({ refused: level === 'all' ? 'invoices=all' : 'scope=all', fallback: next, erpMessage: msg.slice(0, 120) }, 'ERP refused a customer query parameter (older ERP); falling back');
+  }
+
+  async getCustomer(id: string, opts: { scope?: 'receivables' | 'all' } = {}) {
+    const base = `/customers/${encodeURIComponent(id)}`;
+    let r = await this.get(opts.scope === 'all' && this.accepted === 'all' ? `${base}?invoices=all` : base);
+    if (r.status === 422 && opts.scope === 'all' && this.accepted === 'all') {
+      this.downgrade('all', r);
+      r = await this.get(base);
+    }
     if (r.status === 404) return null;
     const b = this.ok(r, 'customer') as { data: unknown };
     return mapCustomer(b.data);

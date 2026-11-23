@@ -17,6 +17,7 @@ import { refreshCustomer as erpRefresh, ErpUnavailableError, type ErpCustomer } 
 import { badges, deriveCustomer, isBadTag, payState, worstPayState, worstStatus, type CustomerStatus, type PayState } from './domain/status.js';
 import { MAX_EXTRA_PHONES, mergePhones, normalizeMobile, planAdd, type ExtraPhone, type PhoneInput } from './domain/phones.js';
 import { paidThisMonthFilter, type PaidThisMonth } from './domain/paid-month.js';
+import { paidByOfMonth, type ActivityPerson, type MonthCollectionRef, type MonthPaymentRef } from './domain/activity-by.js';
 import { QUALITY_ISSUES, findIssues, sharedPhones, type Finding, type QualityInput } from './domain/quality.js';
 import { CustomerModel, LocationProposalModel } from './models/customer.model.js';
 
@@ -28,13 +29,19 @@ const today = () => businessDate(ctx().clock.now());
 export interface ListExtras {
   openPromise?: Record<string, unknown> | null;
   lastVisitAt?: string | null;
+  /** 1.44.0: who made the last visit (any month). */
+  lastVisitByName?: string | null;
   pendingFieldPoisha?: number;
   areaName?: { bn: string; en: string } | null;
   /** 1.24.0 (FR-CUS-017): this Dhaka month's work on the customer, each part supplied by its own module. */
-  monthVisits?: { count: number; lastAt: string | null; today: boolean };
+  /** `by` (1.44.0, FR-CUS-021): who made this month's visits. */
+  monthVisits?: { count: number; lastAt: string | null; today: boolean; by?: ActivityPerson[] };
   /** Field collections recorded this month that are not in the ERP yet (never added to ERP money). */
   monthPendingPoisha?: number;
-  monthPromises?: { made: number; kept: number; broken: number };
+  /** `by` (1.44.0, FR-CUS-021): who made this month's promises (cancelled ones left out). */
+  monthPromises?: { made: number; kept: number; broken: number; by?: ActivityPerson[] };
+  /** 1.44.0 (FR-CUS-021): field collections of this month with their collector, to name who took the money. */
+  monthCollections?: MonthCollectionRef[];
 }
 export type ListEnricher = (customerIds: string[], user: AuthUser) => Promise<Map<string, ListExtras>>;
 export type DetailContributor = (
@@ -517,6 +524,9 @@ function monthActivity(c: Doc, x: ListExtras, date: string) {
     paid += p.amountPoisha ?? 0;
     if (!lastPaidDate || p.date > lastPaidDate) lastPaidDate = p.date;
   }
+  // 1.44.0 (FR-CUS-021): the names behind the numbers below.
+  const visitedBy = x.monthVisits?.by ?? [];
+  const paidBy = paidByOfMonth(month, (c.recentPayments ?? []) as MonthPaymentRef[], x.monthCollections ?? []);
   return {
     month,
     visitCount: x.monthVisits?.count ?? 0,
@@ -528,6 +538,11 @@ function monthActivity(c: Doc, x: ListExtras, date: string) {
     promisesMade: x.monthPromises?.made ?? 0,
     promisesKept: x.monthPromises?.kept ?? 0,
     promisesBroken: x.monthPromises?.broken ?? 0,
+    visitedBy,
+    paidBy,
+    promisedBy: x.monthPromises?.by ?? [],
+    lastVisitByName: visitedBy[0]?.name || null,
+    lastPaidByName: paidBy[0]?.name || null,
   };
 }
 
@@ -577,6 +592,7 @@ async function listItems(rows: Doc[], user: AuthUser, near: LatLng | null) {
       tag: tagView(c),
       openPromise: x.openPromise ?? null,
       lastVisitAt: x.lastVisitAt ?? null,
+      lastVisitByName: x.lastVisitByName ?? null,
       pendingFieldPoisha: x.pendingFieldPoisha ?? 0,
       installmentPoisha: c.derived?.nextInstallmentPoisha ?? null,
       overduePoisha: c.derived?.overdueAmountPoisha ?? 0,
@@ -939,6 +955,8 @@ async function detailFrom(c: Doc, item: Awaited<ReturnType<typeof listItems>>[nu
       ...(p.erpPlanId ? { erpPlanId: p.erpPlanId } : {}),
       ...(p.methodLabel ? { methodLabel: p.methodLabel } : {}),
       ...(p.collectorName ? { collectorName: p.collectorName } : {}),
+      // 1.44.0: the ERP referrer employee's name (null when the payment has no employee, ADR-049)
+      referrerName: p.collectorEmployeeId ? (p.referrerName ?? p.collectorName ?? null) : null,
       ...(p.advance ? { advance: true } : {}),
       ...(p.discountPoisha ? { discountPoisha: p.discountPoisha } : {}),
     })),

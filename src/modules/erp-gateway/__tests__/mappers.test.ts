@@ -6,6 +6,7 @@ import {
   mapCustomer,
   mapCustomerPage,
   mapEmployee,
+  mapPayment,
   mapPaymentError,
   mapPosted,
   mapRemovedPayment,
@@ -462,3 +463,54 @@ describe('ERP field API v1 mappers (contract fixtures)', () => {
     });
   });
 });
+
+describe('customer page robustness (1.44.0)', () => {
+  it('a row that cannot be read is skipped and reported; the rest of the page is kept', () => {
+    const raw = fx('customers.ok.json');
+    const good = raw.data.length;
+    const bad = { ...raw.data[0], id: 999001, name: null };
+    const noId = { name: 'x' };
+    const page = mapCustomerPage({ ...raw, data: [bad, ...raw.data, noId] });
+    expect(page.items).toHaveLength(good);
+    expect(page.skipped).toHaveLength(2);
+    expect(page.skipped![0]!.erpCustomerId).toBe('999001');
+    expect(page.skipped![0]!.error).toContain('name');
+    expect(page.skipped![1]!.erpCustomerId).toBeNull();
+  });
+
+  it('reads next_cursor from meta, else from the top level (plain Laravel cursor paginator)', () => {
+    expect(mapCustomerPage({ data: [], meta: { next_cursor: 'm1' } }).nextCursor).toBe('m1');
+    expect(mapCustomerPage({ data: [], next_cursor: 't1' }).nextCursor).toBe('t1');
+    expect(mapCustomerPage({ data: [], meta: null, next_cursor: null }).nextCursor).toBeNull();
+    expect(mapCustomerPage({ data: [] }).skipped).toEqual([]);
+  });
+
+  it('a field payment posted by name carries the name from reference_no; office references are not names', () => {
+    const base = { id: 1, payment_date: '2026-11-10', amount: '100.00', collector_employee_id: null, collector_name: null };
+    expect(mapPayment({ ...base, source: 'field_app', reference_no: ' Unlinked Collector ' }).referenceName).toBe('Unlinked Collector');
+    expect(mapPayment({ ...base, source: 'office', reference_no: 'CHQ-123' }).referenceName).toBeNull();
+    expect(mapPayment({ ...base, source: 'field_app', reference_no: '' }).referenceName).toBeNull();
+  });
+
+  it('referrerName is the ERP employee name, only when the payment has an employee', () => {
+    const base = { id: 1, payment_date: '2026-11-10', amount: '100.00', source: 'office' };
+    expect(mapPayment({ ...base, collector_employee_id: 7, collector_name: 'Office Clerk' }).referrerName).toBe('Office Clerk');
+    expect(mapPayment({ ...base, collector_employee_id: null, collector_name: 'Someone' }).referrerName).toBeNull();
+  });
+});
+
+describe('cash invoices (1.44.0, ADR-057)', () => {
+  const inv = (over: Record<string, unknown> = {}) => ({
+    id: 9001, invoice_number: 'INV-9001', invoice_date: '2026-10-02', branch_id: 3, sale_type: 'cash', status: 'active',
+    payment_status: 'paid', collectable: false, grand_total: '12000.00', amount_paid: '12000.00', amount_due: '0.00', ...over,
+  });
+  it('a paid cash sale is kind cash, completed, with no schedule and nothing due', () => {
+    const c = mapCustomer(customer({ invoices: [inv()] }));
+    expect(c.plans[0]).toMatchObject({ kind: 'cash', status: 'completed', schedule: [], outstandingPoisha: 0, installmentCount: 0, endDate: null });
+  });
+  it('a cash invoice with money left is closed (never collectable or due in FOS)', () => {
+    const c = mapCustomer(customer({ invoices: [inv({ amount_paid: '2000.00', amount_due: '10000.00', payment_status: 'partial' })] }));
+    expect(c.plans[0]).toMatchObject({ kind: 'cash', status: 'closed', schedule: [] });
+  });
+});
+

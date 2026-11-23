@@ -60,7 +60,7 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 | `GET /location-proposals/mine` (own proposals and their status; also sync entity `location_proposal`) | `customer.location.propose` | FR-CUS-008 |
 | `POST /customers/{id}/location` (manager sets the pin on the map, 1.11.0) | `customer.location.approve` | FR-CUS-011 |
 | `DELETE /customers/{id}/location` (manager deletes the pin, 1.17.0; answer `{removed, location}`) | `customer.location.approve` | FR-CUS-014 |
-| `POST /system/erp-sync` ("Sync from ERP", 1.17.0; answer `{customers, branches, partial, durationMs, finishedAt}`; call again while `partial`; 429 `SYNC_RUNNING`, 503 `ERP_UNAVAILABLE`) | `erp.sync` | FR-ERP-007 |
+| `POST /system/erp-sync` ("Sync from ERP", 1.17.0; answer `{customers, branches, partial, durationMs, finishedAt}`, since 1.44.0 also `skipped` and `failedBranches`; which customers are pulled: setting `erp.customerScope` = `all` (default) \| `receivables`; call again while `partial`; 429 `SYNC_RUNNING`, 503 `ERP_UNAVAILABLE`) | `erp.sync` | FR-ERP-007 |
 | `GET /cowork/colleagues` · `POST /cowork/requests` · `GET /cowork/sessions/mine` · `POST /cowork/sessions/{id}/respond` · `POST /cowork/sessions/{id}/leave` | `cowork.use` | FR-CW-001/002 |
 | `GET /cowork/sessions` · `GET /cowork/sessions/{id}` | `cowork.view` | FR-CW-004 |
 | `POST /cowork/sessions/{id}/end` `{ reason }` (1.34.0) | `cowork.manage` | FR-CW-006 |
@@ -275,6 +275,27 @@ Customers of one branch who have not paid anything this Dhaka month, longest ove
 GET /api/v1/customers?branchId=6730…&paidThisMonth=no&sort=-daysOverdue&includeTotal=true
 ```
 → a normal `CustomerPage`; every row's `activity.paidPoisha` and `activity.pendingPoisha` are 0. `paidThisMonth=yes` gives the others (an ERP payment dated this month, or a field collection of this month not yet in the ERP). Works on `/customers/map` too; any other value is a 400.
+
+### 3.9b2 Who did this month's work (1.44.0, FR-CUS-021)
+Every customer row, detail and sync `customer` item carries the names behind `activity`:
+```json
+"activity": {
+  "month": "2026-11", "visitCount": 2, "visitedToday": true, "lastVisitAt": "2026-11-15T04:00:00.000Z",
+  "paidPoisha": 65000, "lastPaidDate": "2026-11-12", "pendingPoisha": 50000,
+  "promisesMade": 2, "promisesKept": 0, "promisesBroken": 0,
+  "visitedBy": [ { "userId": "6702…", "name": "Sumon Mia", "count": 1, "lastAt": "2026-11-15T04:00:00.000Z" },
+                 { "userId": "6701…", "name": "Rakib Hasan", "count": 1, "lastAt": "2026-11-15T03:30:00.000Z" } ],
+  "paidBy": [ { "name": "Rakib Hasan", "source": "staff", "userId": "6701…", "amountPoisha": 50000, "lastDate": "2026-11-15", "pending": true },
+              { "name": "Office Clerk", "source": "erp_referrer", "amountPoisha": 20000, "lastDate": "2026-11-12", "pending": false },
+              { "name": "Rakib Hasan", "source": "staff", "userId": "6701…", "amountPoisha": 30000, "lastDate": "2026-11-10", "pending": false },
+              { "name": "Unlinked Collector", "source": "collector_name", "amountPoisha": 10000, "lastDate": "2026-11-08", "pending": false },
+              { "name": "", "source": "unknown", "amountPoisha": 5000, "lastDate": "2026-11-02", "pending": false } ],
+  "promisedBy": [ { "userId": "6703…", "name": "Manager A", "count": 1, "lastAt": "2026-11-15T05:00:00.000Z" },
+                  { "userId": "6701…", "name": "Rakib Hasan", "count": 1, "lastAt": "2026-11-15T03:31:00.000Z" } ],
+  "lastVisitByName": "Sumon Mia", "lastPaidByName": "Rakib Hasan"
+}
+```
+`paidBy` entries with `pending: false` add up to `paidPoisha`, those with `pending: true` to `pendingPoisha`; never add the two. The home list says "promised by" from `openPromise.createdByName` (filled on list rows since 1.44.0). The row also has `lastVisitByName` (who made the visit at `lastVisitAt`), and each `payments[]` item has `referrerName` (the ERP referrer employee, null without one).
 
 ### 3.9c Deposit detail and the promise behind a cash line (1.30.0, FR-CASH-008)
 ```http

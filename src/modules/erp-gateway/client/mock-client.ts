@@ -103,12 +103,15 @@ export class MockErpClient implements ErpClient {
     updatedSince?: string | null;
     cursor?: string | null;
     pageSize?: number;
+    scope?: 'receivables' | 'all';
   }) {
     this.guard();
     const size = q.pageSize ?? 100;
     const since = q.updatedSince ? Date.parse(q.updatedSince) : null;
     const all = [...this.customers.values()]
       .filter((c) => !q.erpBranchId || c.erpBranchId === q.erpBranchId)
+      // like the ERP: `receivables` (default) = only customers with an installment or credit invoice
+      .filter((c) => q.scope === 'all' || c.plans.length > 0)
       .filter((c) => since === null || Date.parse(c.updatedAt ?? '') >= since)
       .sort(
         (a, b) => Number(a.erpCustomerId) - Number(b.erpCustomerId) || a.erpCustomerId.localeCompare(b.erpCustomerId),

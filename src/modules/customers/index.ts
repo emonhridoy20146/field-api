@@ -29,3 +29,4 @@ export { QUALITY_ISSUES, type QualityIssue } from './domain/quality.js';
 export type { CustomerRef, AssignmentChange, ListExtras, ListEnricher, DetailContributor, TimelineItem, TimelineSource, OverdueRow, ErpFieldPayment, QualityRow } from './service.js';
 export type { CustomerStatus } from './domain/status.js';
 export { PAID_THIS_MONTH, type PaidThisMonth } from './domain/paid-month.js';
+export type { ActivityPerson, MonthCollectionRef } from './domain/activity-by.js';

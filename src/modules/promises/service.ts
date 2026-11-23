@@ -9,7 +9,7 @@ import { addDays, businessDate, isIsoDate } from '../../core/time/index.js';
 import { branchQuery, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
 import { getSetting } from '../settings/index.js';
 import { getUsers } from '../users/index.js';
-import { erpPaidBetween, getCustomerRef, getCustomerRefs, setOpenPromiseDates, type TimelineItem } from '../customers/index.js';
+import { erpPaidBetween, getCustomerRef, getCustomerRefs, setOpenPromiseDates, type ActivityPerson, type TimelineItem } from '../customers/index.js';
 import { dateInRange, isDue, promiseFor, verdict } from './domain/evaluate.js';
 import { PromiseModel } from './models/promise.model.js';
 
@@ -247,33 +247,53 @@ export async function openCount(customerIds: string[]) {
   return PromiseModel.countDocuments({ customerId: { $in: customerIds }, status: 'open' });
 }
 
+/** The open promise of each customer (the earliest date), with who made it: the home list says "promised by" (1.44.0). */
 export async function openByCustomer(customerIds: string[]) {
   const rows = (await PromiseModel.find({ customerId: { $in: customerIds }, status: 'open' }).sort({ promisedDate: 1 }).lean()) as Lean[];
-  const out = new Map<string, ReturnType<typeof view>>();
-  for (const r of rows) if (!out.has(r.customerId)) out.set(r.customerId, view(r));
-  return out;
+  const first = new Map<string, Lean>();
+  for (const r of rows) if (!first.has(r.customerId)) first.set(r.customerId, r);
+  const named = await namedAll([...first.values()]);
+  return new Map(named.map((p) => [p.customerId as string, p]));
 }
 
 /**
  * 1.24.0 (FR-CUS-017): promises of the current Dhaka month per customer. `made` = created this month (a cancelled
  * one is not counted); `kept` / `broken` = promises whose promised date is in this month and that ended that way.
+ * 1.44.0 (FR-CUS-021): `by` = who made this month's promises (same rows as `made`), newest first.
  */
-export async function monthByCustomer(customerIds: string[]): Promise<Map<string, { made: number; kept: number; broken: number }>> {
+export async function monthByCustomer(
+  customerIds: string[],
+): Promise<Map<string, { made: number; kept: number; broken: number; by: ActivityPerson[] }>> {
   const month = businessDate(ctx().clock.now()).slice(0, 7);
   const inMonth = { $gte: `${month}-01`, $lte: `${month}-31` };
   const rows = (await PromiseModel.find({ customerId: { $in: customerIds }, $or: [{ createdDate: inMonth }, { promisedDate: inMonth }] })
-    .select('customerId status createdDate promisedDate')
+    .select('customerId status createdDate promisedDate createdBy ownerId createdAt')
     .lean()) as Lean[];
-  const out = new Map<string, { made: number; kept: number; broken: number }>();
+  const made = rows.filter((r) => String(r.createdDate).startsWith(month) && r.status !== 'cancelled');
+  const users = await getUsers([...new Set(made.map((r) => (r.createdBy ?? r.ownerId) as string))]);
+  const out = new Map<string, { made: number; kept: number; broken: number; by: ActivityPerson[] }>();
   for (const r of rows) {
-    const x = out.get(r.customerId) ?? { made: 0, kept: 0, broken: 0 };
-    if (String(r.createdDate).startsWith(month) && r.status !== 'cancelled') x.made++;
+    const x = out.get(r.customerId) ?? { made: 0, kept: 0, broken: 0, by: [] };
+    if (String(r.createdDate).startsWith(month) && r.status !== 'cancelled') {
+      x.made++;
+      const who = (r.createdBy ?? r.ownerId) as string;
+      const at = (r.createdAt as Date).toISOString();
+      const cur = x.by.find((b) => b.userId === who);
+      if (cur) {
+        cur.count++;
+        if (at > cur.lastAt) cur.lastAt = at;
+      } else {
+        const u = users.get(who);
+        x.by.push({ userId: who, name: u ? u.name.en || u.name.bn : '', count: 1, lastAt: at });
+      }
+    }
     if (String(r.promisedDate).startsWith(month)) {
       if (r.status === 'kept' || r.status === 'partially_kept') x.kept++;
       else if (r.status === 'broken') x.broken++;
     }
     out.set(r.customerId, x);
   }
+  for (const x of out.values()) x.by.sort((a, b) => b.lastAt.localeCompare(a.lastAt));
   return out;
 }
 
