@@ -5,7 +5,7 @@ import { getSetting } from '../settings/index.js';
 import { LaravelErpClient } from './client/laravel-client.js';
 import { MockErpClient } from './client/mock-client.js';
 import { ErpSyncStateModel } from './models/sync-state.model.js';
-import { ErpUnavailableError, type ErpClient, type ErpCustomer, type PostPaymentInput } from './types.js';
+import { ErpUnavailableError, type CustomerPage, type ErpClient, type ErpCustomer, type PostPaymentInput } from './types.js';
 
 let client: ErpClient | null = null;
 
@@ -71,69 +71,128 @@ export async function publishCustomer(customer: ErpCustomer, opts: { reconcile?:
   await ctx().bus.emit('erp.customer.synced', { customer, fetchedAt: ctx().clock.now(), reconcile: !!opts.reconcile });
 }
 
+interface SyncResume {
+  /** Cursor of the page being worked on (null = the branch's first page). */
+  cursor: string | null;
+  since: string | null;
+  serverTime: string | null;
+  /** 1.44.0: customers of that page already handled, so a run cut inside a page does not redo them. */
+  done?: string[];
+}
+
+type PageSkip = NonNullable<CustomerPage['skipped']>[number];
+
+function logSkipped(erpBranchId: string, rows: PageSkip[]) {
+  for (const r of rows)
+    ctx().logger.warn({ erpBranchId, erpCustomerId: r.erpCustomerId, error: r.error }, 'erp customer row could not be read; skipped');
+}
+
 /**
  * FR-ERP-002 delta sync: per ERP branch, customers changed since the watermark (60 s overlap
  * for clock skew / offset pagination, de-duplicated downstream by erpCustomerId).
  *
- * 1.17.0: `budgetMs` stops after the page that crosses the budget and remembers where it was (`resume` on the
- * branch's sync state), so a host with a short request limit (the manual "Sync from ERP" button on Vercel, 60 s)
- * finishes a first, full pull over several calls. The next run, manual or scheduled, continues from there and only
- * then moves the watermark. Without a budget the behaviour is as before.
+ * 1.17.0: `budgetMs` stops the run and remembers where it was (`resume` on the branch's sync state), so a host with a
+ * short request limit (the manual "Sync from ERP" button on Vercel, 60 s) finishes a first, full pull over several
+ * calls. The next run, manual or scheduled, continues from there and only then moves the watermark.
+ *
+ * 1.44.0 (owner report: the ERP has far more customers than the app shows):
+ * - progress is saved after EVERY page, not only when the budget runs out. A run the host stopped (Vercel ends a
+ *   function at 60 s; the scheduled job had no budget at all) used to lose all of its progress and the next run
+ *   started the same branch from the beginning, so a slow branch could never finish;
+ * - the budget is checked per customer, not per page: a page of 100 customers can take longer than the 20 s left
+ *   between the 40 s budget and the 60 s stop;
+ * - a row the mapper cannot read is skipped and counted (`skipped`) instead of failing the branch for good;
+ * - a branch that fails is counted (`failedBranches`) instead of only logged, so the button can say so;
+ * - a page that answers with the same cursor again ends the branch instead of looping.
  */
-export async function deltaSync(opts: { budgetMs?: number } = {}): Promise<{ customers: number; branches: number; partial: boolean }> {
+export async function deltaSync(
+  opts: { budgetMs?: number } = {},
+): Promise<{ customers: number; branches: number; partial: boolean; skipped: number; failedBranches: number }> {
   const startedAtMs = ctx().clock.now().getTime();
   const overBudget = () => opts.budgetMs !== undefined && ctx().clock.now().getTime() - startedAtMs >= opts.budgetMs;
   const branches = await erpClient().listBranches();
   await ctx().bus.emit('erp.branches.synced', { branches });
   let total = 0;
-  let pages = 0;
+  let skipped = 0;
+  let failedBranches = 0;
   let partial = false;
   for (const b of branches) {
-    // always make progress: a run does at least one page, so a tiny budget cannot starve the sync
-    if (pages > 0 && overBudget()) {
+    // always make progress: a run handles at least one customer, so a tiny budget cannot starve the sync
+    if (total > 0 && overBudget()) {
       partial = true;
       break;
     }
     const id = `customers:branch:${b.erpBranchId}`;
     const state = await ErpSyncStateModel.findById(id).lean();
-    const resume = (state?.resume ?? null) as { cursor: string; since: string | null; serverTime: string | null } | null;
+    const resume = (state?.resume ?? null) as SyncResume | null;
     const since = resume
       ? resume.since
       : state?.cursor
         ? new Date(new Date(state.cursor).getTime() - 60_000).toISOString()
         : null;
     const startedAt = ctx().clock.now();
+    const saveResume = (r: SyncResume) => ErpSyncStateModel.updateOne({ _id: id }, { $set: { resume: r } }, { upsert: true });
     try {
       let cursor: string | null = resume?.cursor ?? null;
       let serverTime: string | null = resume?.serverTime ?? null;
-      do {
+      let done = new Set(resume?.done ?? []);
+      const branchSkips: PageSkip[] = [];
+      for (;;) {
         const page = await erpClient().listCustomers({
           erpBranchId: b.erpBranchId,
           updatedSince: since,
           cursor,
           pageSize: 100,
         });
-        for (const c of page.items) await publishCustomer(c);
-        total += page.items.length;
-        pages += 1;
-        cursor = page.nextCursor;
         // Watermark = server time of the FIRST page: rows changed while we paged are picked up next run.
         serverTime ??= page.serverTime;
-        if (cursor && overBudget()) {
-          await ErpSyncStateModel.updateOne({ _id: id }, { $set: { resume: { cursor, since, serverTime } } }, { upsert: true });
+        if (page.skipped?.length) {
+          logSkipped(b.erpBranchId, page.skipped);
+          branchSkips.push(...page.skipped);
+          skipped += page.skipped.length;
+        }
+        let cut = false;
+        for (const c of page.items) {
+          if (done.has(c.erpCustomerId)) continue;
+          if (total > 0 && overBudget()) {
+            cut = true;
+            break;
+          }
+          await publishCustomer(c);
+          done.add(c.erpCustomerId);
+          total += 1;
+        }
+        if (cut) {
+          await saveResume({ cursor, since, serverTime, done: [...done] });
           partial = true;
           break;
         }
-      } while (cursor);
+        const next = page.nextCursor;
+        if (!next) break;
+        if (next === cursor) {
+          ctx().logger.warn({ erpBranchId: b.erpBranchId, cursor }, 'erp returned the same cursor again; branch ended');
+          break;
+        }
+        cursor = next;
+        done = new Set();
+        await saveResume({ cursor, since, serverTime, done: [] });
+        if (overBudget()) {
+          partial = true;
+          break;
+        }
+      }
+      if (branchSkips.length)
+        await ErpSyncStateModel.updateOne({ _id: id }, { $set: { lastSkipped: branchSkips.slice(0, 50) } }, { upsert: true });
       if (partial) break;
       await markSuccess(id, serverTime ?? startedAt.toISOString());
-      if (resume) await ErpSyncStateModel.updateOne({ _id: id }, { $set: { resume: null } });
+      await ErpSyncStateModel.updateOne({ _id: id }, { $set: { resume: null, ...(branchSkips.length ? {} : { lastSkipped: [] }) } });
     } catch (e) {
+      failedBranches += 1;
       await markFailure(id, e);
       ctx().logger.warn({ err: e, erpBranchId: b.erpBranchId }, 'erp delta sync failed');
     }
   }
-  return { customers: total, branches: branches.length, partial };
+  return { customers: total, branches: branches.length, partial, skipped, failedBranches };
 }
 
 /**
@@ -167,23 +226,39 @@ export async function manualSync(budgetMs: number) {
   }
 }
 
-/** Nightly full reconcile: catches missed deltas and marks ERP-missing customers (never deletes). */
+/**
+ * Nightly full reconcile: catches missed deltas and marks ERP-missing customers (never deletes).
+ * 1.44.0: one branch failing no longer stops the others; a row the mapper could not read still counts as seen (it
+ * is in the ERP), and when such a row has no id the branch marks nobody missing.
+ */
 export async function reconcile(): Promise<number> {
   const branches = await erpClient().listBranches();
   let total = 0;
   for (const b of branches) {
-    const seen: string[] = [];
-    let cursor: string | null = null;
-    do {
-      const page = await erpClient().listCustomers({ erpBranchId: b.erpBranchId, cursor, pageSize: 200 });
-      for (const c of page.items) {
-        await publishCustomer(c, { reconcile: true });
-        seen.push(c.erpCustomerId);
-      }
-      cursor = page.nextCursor;
-    } while (cursor);
-    total += seen.length;
-    await ctx().bus.emit('erp.reconcile.completed', { erpBranchId: b.erpBranchId, seenErpCustomerIds: seen });
+    try {
+      const seen: string[] = [];
+      let unknownSkipped = false;
+      let cursor: string | null = null;
+      do {
+        const page: CustomerPage = await erpClient().listCustomers({ erpBranchId: b.erpBranchId, cursor, pageSize: 200 });
+        for (const c of page.items) {
+          await publishCustomer(c, { reconcile: true });
+          seen.push(c.erpCustomerId);
+        }
+        if (page.skipped?.length) logSkipped(b.erpBranchId, page.skipped);
+        for (const sk of page.skipped ?? []) {
+          if (sk.erpCustomerId) seen.push(sk.erpCustomerId);
+          else unknownSkipped = true;
+        }
+        cursor = page.nextCursor && page.nextCursor !== cursor ? page.nextCursor : null;
+      } while (cursor);
+      total += seen.length;
+      if (!unknownSkipped)
+        await ctx().bus.emit('erp.reconcile.completed', { erpBranchId: b.erpBranchId, seenErpCustomerIds: seen });
+    } catch (e) {
+      await markFailure(`customers:branch:${b.erpBranchId}`, e);
+      ctx().logger.warn({ err: e, erpBranchId: b.erpBranchId }, 'erp reconcile failed for branch');
+    }
   }
   await markSuccess('reconcile', null);
   return total;

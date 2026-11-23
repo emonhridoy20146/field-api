@@ -97,3 +97,106 @@ describe('deltaSync with a time budget (1.17.0)', () => {
     void s;
   });
 });
+
+describe('deltaSync keeps going where the old one got stuck (1.44.0)', () => {
+  const reset = async () => {
+    await ErpSyncStateModel.deleteMany({ _id: { $regex: '^customers:branch:' } });
+    await CustomerModel.deleteMany({});
+  };
+  const erpTotal = async () => {
+    let n = 0;
+    for (const b of await t.erp.listBranches()) n += (await t.erp.listCustomers({ erpBranchId: b.erpBranchId, pageSize: 1000 })).items.length;
+    return n;
+  };
+
+  it('a run stopped by the host mid-branch continues from the last page instead of starting the branch again', async () => {
+    await reset();
+    const total = await erpTotal();
+    expect(total).toBeGreaterThan(2);
+    const origList = t.erp.listCustomers.bind(t.erp);
+    const cursors: (string | null)[] = [];
+    let calls = 0;
+    // page size 1; the host "stops the function" (throws) on the 3rd page of the run
+    t.erp.listCustomers = async (q) => {
+      calls += 1;
+      if (calls === 3) throw new Error('function stopped at 60 s');
+      cursors.push(q.cursor ?? null);
+      return origList({ ...q, pageSize: 1 });
+    };
+    const first = await deltaSync();
+    expect(first.failedBranches).toBeGreaterThan(0);
+    const stuck = await ErpSyncStateModel.find({ resume: { $ne: null } }).lean();
+    expect(stuck.length).toBeGreaterThan(0);
+    const saved = stuck[0]!.resume as { cursor: string | null };
+    expect(saved.cursor).not.toBeNull(); // progress of the pages before the stop is kept
+    cursors.length = 0;
+    const second = await deltaSync();
+    expect(second.failedBranches).toBe(0);
+    expect(cursors).toContain(saved.cursor);
+    expect(await CustomerModel.countDocuments()).toBe(total);
+    t.erp.listCustomers = origList;
+  });
+
+  it('the budget is checked per customer: with no time left each run still adds customers and none is done twice', async () => {
+    await reset();
+    const total = await erpTotal();
+    const seen: string[] = [];
+    let listening = true;
+    t.ctx.bus.on('erp.customer.synced', async (p) => void (listening && seen.push((p.customer as { erpCustomerId: string }).erpCustomerId)));
+    let runs = 0;
+    let last = await deltaSync({ budgetMs: 0 });
+    runs += 1;
+    expect(last.partial).toBe(true);
+    expect(last.customers).toBe(1);
+    const mid = await ErpSyncStateModel.findOne({ resume: { $ne: null } }).lean();
+    expect((mid!.resume as { done: string[] }).done).toHaveLength(1);
+    while (last.partial && runs < 50) {
+      last = await deltaSync({ budgetMs: 0 });
+      runs += 1;
+    }
+    expect(last.partial).toBe(false);
+    expect(await CustomerModel.countDocuments()).toBe(total);
+    expect(new Set(seen).size).toBe(seen.length); // nobody published twice
+    expect(seen.length).toBe(total);
+    listening = false;
+  });
+
+  it('a row the ERP sends that cannot be read is skipped and counted; the branch still finishes and moves its watermark', async () => {
+    await reset();
+    const total = await erpTotal();
+    const origList = t.erp.listCustomers.bind(t.erp);
+    t.erp.listCustomers = async (q) => {
+      const page = await origList(q);
+      return q.cursor ? page : { ...page, skipped: [{ erpCustomerId: '999001', error: 'name: Expected string, received null' }] };
+    };
+    const sa = await as(t, '01700000001');
+    const r = await sa.post('/system/erp-sync', {});
+    expect(r.status).toBe(200);
+    expectConforms('POST', '/system/erp-sync', 200, r.body);
+    const branches = (await t.erp.listBranches()).length;
+    expect(r.body.skipped).toBe(branches);
+    expect(r.body.failedBranches).toBe(0);
+    expect(r.body.partial).toBe(false);
+    expect(await CustomerModel.countDocuments()).toBe(total);
+    const st = await ErpSyncStateModel.find({ _id: { $regex: '^customers:branch:' } }).lean();
+    expect(st.every((x) => !!x.cursor)).toBe(true);
+    expect((st[0]!.lastSkipped as { erpCustomerId: string }[])[0]!.erpCustomerId).toBe('999001');
+    t.erp.listCustomers = origList;
+  });
+
+  it('a page that answers with the same cursor again ends the branch instead of looping', async () => {
+    await reset();
+    const origList = t.erp.listCustomers.bind(t.erp);
+    let calls = 0;
+    t.erp.listCustomers = async (q) => {
+      calls += 1;
+      const page = await origList({ ...q, pageSize: 1 });
+      return { ...page, nextCursor: q.cursor ?? 'same' };
+    };
+    const r = await deltaSync();
+    expect(r.partial).toBe(false);
+    expect(calls).toBeLessThanOrEqual((await t.erp.listBranches()).length * 2);
+    t.erp.listCustomers = origList;
+  });
+});
+

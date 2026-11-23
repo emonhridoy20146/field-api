@@ -6,6 +6,7 @@ import {
   mapCustomer,
   mapCustomerPage,
   mapEmployee,
+  mapPayment,
   mapPaymentError,
   mapPosted,
   mapRemovedPayment,
@@ -460,5 +461,34 @@ describe('ERP field API v1 mappers (contract fixtures)', () => {
     expect(mapPaymentError(404, { error: { code: 'CUSTOMER_NOT_FOUND' } }, null)).toMatchObject({
       code: 'PLAN_NOT_FOUND',
     });
+  });
+});
+
+describe('customer page robustness (1.44.0)', () => {
+  it('a row that cannot be read is skipped and reported; the rest of the page is kept', () => {
+    const raw = fx('customers.ok.json');
+    const good = raw.data.length;
+    const bad = { ...raw.data[0], id: 999001, name: null };
+    const noId = { name: 'x' };
+    const page = mapCustomerPage({ ...raw, data: [bad, ...raw.data, noId] });
+    expect(page.items).toHaveLength(good);
+    expect(page.skipped).toHaveLength(2);
+    expect(page.skipped![0]!.erpCustomerId).toBe('999001');
+    expect(page.skipped![0]!.error).toContain('name');
+    expect(page.skipped![1]!.erpCustomerId).toBeNull();
+  });
+
+  it('reads next_cursor from meta, else from the top level (plain Laravel cursor paginator)', () => {
+    expect(mapCustomerPage({ data: [], meta: { next_cursor: 'm1' } }).nextCursor).toBe('m1');
+    expect(mapCustomerPage({ data: [], next_cursor: 't1' }).nextCursor).toBe('t1');
+    expect(mapCustomerPage({ data: [], meta: null, next_cursor: null }).nextCursor).toBeNull();
+    expect(mapCustomerPage({ data: [] }).skipped).toEqual([]);
+  });
+
+  it('a field payment posted by name carries the name from reference_no; office references are not names', () => {
+    const base = { id: 1, payment_date: '2026-11-10', amount: '100.00', collector_employee_id: null, collector_name: null };
+    expect(mapPayment({ ...base, source: 'field_app', reference_no: ' Unlinked Collector ' }).referenceName).toBe('Unlinked Collector');
+    expect(mapPayment({ ...base, source: 'office', reference_no: 'CHQ-123' }).referenceName).toBeNull();
+    expect(mapPayment({ ...base, source: 'field_app', reference_no: '' }).referenceName).toBeNull();
   });
 });

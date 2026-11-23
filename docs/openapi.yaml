@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.43.0
+  version: 1.44.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -2424,7 +2424,7 @@ components:
         daysOverdue: { type: integer }
         badges: { type: array, items: { $ref: '#/components/schemas/CustomerStatus' } }
         tag: { $ref: '#/components/schemas/Tag' }
-        openPromise: { oneOf: [ { $ref: '#/components/schemas/Promise' }, { type: 'null' } ] }
+        openPromise: { oneOf: [ { $ref: '#/components/schemas/Promise' }, { type: 'null' } ], description: 'The open promise with the earliest date. Since 1.44.0 it carries `createdByName` / `ownerName` here too, so the home list can say "promised by <name>"' }
         lastVisitAt: { type: [string, 'null'], format: date-time }
         pendingFieldPoisha: { type: integer, description: 'Field collections not yet posted to ERP' }
         installmentPoisha: { type: [integer, 'null'], description: 'Amount of the next unpaid schedule line across active plans (ERP cache). Added in 1.2.0' }
@@ -2471,6 +2471,45 @@ components:
         promisesMade: { type: integer, description: 'Promises created this month (cancelled ones not counted)' }
         promisesKept: { type: integer, description: 'Promises due this month that were kept, fully or partly' }
         promisesBroken: { type: integer, description: 'Promises due this month that were broken' }
+        visitedBy:
+          type: array
+          description: 'Added in 1.44.0 (FR-CUS-021). Who made this month''s visits: one entry per staff member, newest visit first. `count` adds up to `visitCount`. Empty when nobody visited'
+          items: { $ref: '#/components/schemas/ActivityPerson' }
+        paidBy:
+          type: array
+          description: |
+            Added in 1.44.0 (FR-CUS-021). Who took this month's money, newest first, one entry per person and kind.
+            ERP payments (`pending: false`) are the same payments as `paidPoisha` and add up to it; field money not in the
+            ERP yet (`pending: true`) is the same money as `pendingPoisha` and adds up to that. Never add the two kinds
+            together. The name: the FOS staff member who collected it (`source: staff`, with `userId`), else the ERP
+            employee recorded as referrer on an office/ERP payment (`erp_referrer`), else the collector name the payment
+            was posted with when there was no ERP employee (`collector_name`), else `unknown` with an empty name (an
+            office payment the ERP has no name for).
+          items: { $ref: '#/components/schemas/ActivityPayer' }
+        promisedBy:
+          type: array
+          description: 'Added in 1.44.0 (FR-CUS-021). Who made this month''s promises (cancelled ones left out): one entry per staff member, newest first. `count` adds up to `promisesMade`. For the open promise on the home list use `openPromise.createdByName`'
+          items: { $ref: '#/components/schemas/ActivityPerson' }
+    ActivityPerson:
+      type: object
+      description: Added in 1.44.0 (FR-CUS-021). One staff member's part of a customer's month (visits or promises)
+      required: [userId, name, count, lastAt]
+      properties:
+        userId: { type: string }
+        name: { type: string, description: 'Display name of the staff member (empty if the user no longer exists)' }
+        count: { type: integer }
+        lastAt: { type: string, format: date-time, description: 'The newest visit check-in / promise creation of this person this month' }
+    ActivityPayer:
+      type: object
+      description: Added in 1.44.0 (FR-CUS-021). Who took part of a customer's money this month; see `CustomerActivity.paidBy`
+      required: [name, source, amountPoisha, lastDate, pending]
+      properties:
+        name: { type: string }
+        source: { type: string, enum: [staff, erp_referrer, collector_name, unknown], description: 'Where `name` comes from; unknown values are possible later' }
+        userId: { type: string, description: 'The FOS staff user, only when `source` is `staff`' }
+        amountPoisha: { type: integer }
+        lastDate: { type: string, format: date, description: 'Newest payment date (ERP) or business date (field) of this entry' }
+        pending: { type: boolean, description: 'true = field money recorded in FOS and not in the ERP yet' }
     CustomerPage:
       type: object
       properties:
@@ -3146,6 +3185,8 @@ components:
         customers: { type: integer, description: 'Customers pulled and updated by this call' }
         branches: { type: integer, description: 'ERP branches seen' }
         partial: { type: boolean, description: 'true = stopped for time; call again to continue' }
+        skipped: { type: integer, description: 'Added in 1.44.0. ERP customer rows this call could not read and left out (the server log names them); 0 normally' }
+        failedBranches: { type: integer, description: 'Added in 1.44.0. ERP branches whose pull failed in this call (the next call tries them again); 0 normally' }
         durationMs: { type: integer }
         finishedAt: { type: string, format: date-time }
     SetLocationResult:

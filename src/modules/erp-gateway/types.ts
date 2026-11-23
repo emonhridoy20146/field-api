@@ -156,6 +156,8 @@ export interface ErpPayment {
   methodLabel?: string | null;
   collectorName?: string | null;
   collectorEmployeeId?: string | null;
+  /** 1.44.0: for a field payment posted by name (no ERP employee, ADR-049), the collector name the ERP stored. */
+  referenceName?: string | null;
   /** The ERP's down-payment advance. */
   advance?: boolean;
   /** Settlement discount given with this payment (counts as paid in the ERP). */
@@ -190,6 +192,8 @@ export interface CustomerPage {
   items: ErpCustomer[];
   nextCursor: string | null;
   serverTime: string | null;
+  /** 1.44.0: rows the mapper could not read; the rest of the page is still used. */
+  skipped?: { erpCustomerId: string | null; error: string }[];
 }
 
 export interface PostPaymentInput {

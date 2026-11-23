@@ -481,6 +481,8 @@ export function mapPayment(raw: unknown): ErpPayment {
     methodLabel: p.payment_method_name ?? null,
     collectorName: p.collector_name ?? null,
     collectorEmployeeId: p.collector_employee_id ?? null,
+    // 1.44.0: a field payment posted by name (no ERP employee, ADR-049) carries the collector's name as its reference.
+    referenceName: p.source === 'field_app' ? (p.reference_no?.trim() || null) : null,
     advance: p.is_advance,
     discountPoisha: poisha(p.settlement_discount),
   };
@@ -558,6 +560,12 @@ export function mapCustomer(raw: unknown): ErpCustomer {
   };
 }
 
+/**
+ * 1.44.0: rows are read one by one. Before, one row the mapper could not read (a null name, a number where a string
+ * was expected) failed the whole page; the delta sync then logged a warning for that branch and never got past it, so
+ * every customer after the bad row in that branch stayed out of FOS. A bad row is now skipped and reported.
+ * `next_cursor` is also read from the top level (Laravel's plain cursor paginator) when `meta` lacks it.
+ */
 export function mapCustomerPage(raw: unknown): CustomerPage {
   const r = z
     .object({
@@ -565,13 +573,29 @@ export function mapCustomerPage(raw: unknown): CustomerPage {
       meta: z
         .object({ next_cursor: z.string().nullable().optional(), server_time: z.string().nullable().optional() })
         .partial()
+        .nullable()
         .optional(),
+      next_cursor: z.string().nullable().optional(),
     })
     .parse(raw);
+  const items: ErpCustomer[] = [];
+  const skipped: CustomerPage['skipped'] = [];
+  for (const row of r.data) {
+    try {
+      items.push(mapCustomer(row));
+    } catch (e) {
+      const rawId = (row as { id?: unknown } | null)?.id;
+      skipped.push({
+        erpCustomerId: typeof rawId === 'string' || typeof rawId === 'number' ? String(rawId) : null,
+        error: e instanceof z.ZodError ? e.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ').slice(0, 300) : String(e).slice(0, 300),
+      });
+    }
+  }
   return {
-    items: r.data.map(mapCustomer),
-    nextCursor: r.meta?.next_cursor ?? null,
+    items,
+    nextCursor: r.meta?.next_cursor ?? r.next_cursor ?? null,
     serverTime: r.meta?.server_time ?? null,
+    skipped,
   };
 }
 

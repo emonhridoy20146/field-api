@@ -16,7 +16,7 @@ import * as audit from '../audit/index.js';
 import { getSetting } from '../settings/index.js';
 import { getBranch } from '../branches/index.js';
 import { getUser, getUsers } from '../users/index.js';
-import { getCustomerRef, getCustomerRefs, type TimelineItem } from '../customers/index.js';
+import { getCustomerRef, getCustomerRefs, type MonthCollectionRef, type TimelineItem } from '../customers/index.js';
 import { refreshCustomer, type ErpPayment, type PostPaymentJob, type PostPaymentResult } from '../erp-gateway/index.js';
 import {
   checkReceipt,
@@ -735,6 +735,34 @@ export async function monthPendingByCustomer(customerIds: string[]): Promise<Map
     { $group: { _id: '$customerId', sum: { $sum: '$amountPoisha' } } },
   ]);
   return new Map(rows.map((r: { _id: string; sum: number }) => [r._id, r.sum]));
+}
+
+/**
+ * 1.44.0 (FR-CUS-021): field collections of the current Dhaka month per customer with their collector's name. The
+ * customer row uses them to name who took each ERP payment (matched by idempotency key, CLAUDE.md §2.4) and who holds
+ * the money not in the ERP yet. Voided collections are left out: they never became money.
+ */
+export async function monthCollectionsByCustomer(customerIds: string[]): Promise<Map<string, MonthCollectionRef[]>> {
+  const from = `${businessDate(ctx().clock.now()).slice(0, 7)}-01`;
+  const rows = (await CollectionModel.find({ customerId: { $in: customerIds }, businessDate: { $gte: from }, status: { $nin: ['voided', 'resolved_voided'] } })
+    .select('customerId idempotencyKey collectorId amountPoisha businessDate status')
+    .lean()) as Lean[];
+  const users = await getUsers([...new Set(rows.map((r) => r.collectorId as string))]);
+  const out = new Map<string, MonthCollectionRef[]>();
+  for (const r of rows) {
+    const u = users.get(r.collectorId);
+    const list = out.get(r.customerId) ?? [];
+    list.push({
+      idempotencyKey: r.idempotencyKey,
+      userId: r.collectorId,
+      name: u ? u.name.en || u.name.bn : '',
+      amountPoisha: r.amountPoisha,
+      businessDate: r.businessDate,
+      pending: (PENDING_STATUSES as string[]).includes(r.status),
+    });
+    out.set(r.customerId, list);
+  }
+  return out;
 }
 
 /** 1.29.0 (FR-CUS-019): customers with a field collection of the Dhaka month `YYYY-MM` still waiting for the ERP. */

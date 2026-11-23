@@ -17,6 +17,7 @@ import { refreshCustomer as erpRefresh, ErpUnavailableError, type ErpCustomer } 
 import { badges, deriveCustomer, isBadTag, payState, worstPayState, worstStatus, type CustomerStatus, type PayState } from './domain/status.js';
 import { MAX_EXTRA_PHONES, mergePhones, normalizeMobile, planAdd, type ExtraPhone, type PhoneInput } from './domain/phones.js';
 import { paidThisMonthFilter, type PaidThisMonth } from './domain/paid-month.js';
+import { paidByOfMonth, type ActivityPerson, type MonthCollectionRef, type MonthPaymentRef } from './domain/activity-by.js';
 import { QUALITY_ISSUES, findIssues, sharedPhones, type Finding, type QualityInput } from './domain/quality.js';
 import { CustomerModel, LocationProposalModel } from './models/customer.model.js';
 
@@ -31,10 +32,14 @@ export interface ListExtras {
   pendingFieldPoisha?: number;
   areaName?: { bn: string; en: string } | null;
   /** 1.24.0 (FR-CUS-017): this Dhaka month's work on the customer, each part supplied by its own module. */
-  monthVisits?: { count: number; lastAt: string | null; today: boolean };
+  /** `by` (1.44.0, FR-CUS-021): who made this month's visits. */
+  monthVisits?: { count: number; lastAt: string | null; today: boolean; by?: ActivityPerson[] };
   /** Field collections recorded this month that are not in the ERP yet (never added to ERP money). */
   monthPendingPoisha?: number;
-  monthPromises?: { made: number; kept: number; broken: number };
+  /** `by` (1.44.0, FR-CUS-021): who made this month's promises (cancelled ones left out). */
+  monthPromises?: { made: number; kept: number; broken: number; by?: ActivityPerson[] };
+  /** 1.44.0 (FR-CUS-021): field collections of this month with their collector, to name who took the money. */
+  monthCollections?: MonthCollectionRef[];
 }
 export type ListEnricher = (customerIds: string[], user: AuthUser) => Promise<Map<string, ListExtras>>;
 export type DetailContributor = (
@@ -528,6 +533,10 @@ function monthActivity(c: Doc, x: ListExtras, date: string) {
     promisesMade: x.monthPromises?.made ?? 0,
     promisesKept: x.monthPromises?.kept ?? 0,
     promisesBroken: x.monthPromises?.broken ?? 0,
+    // 1.44.0 (FR-CUS-021): the names behind the numbers above.
+    visitedBy: x.monthVisits?.by ?? [],
+    paidBy: paidByOfMonth(month, (c.recentPayments ?? []) as MonthPaymentRef[], x.monthCollections ?? []),
+    promisedBy: x.monthPromises?.by ?? [],
   };
 }
 

@@ -9,7 +9,7 @@ import { addDays, businessDate, startOfBusinessDay } from '../../core/time/index
 import { branchQuery, canSeeBranch, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
 import { getSetting } from '../settings/index.js';
 import { getUsers } from '../users/index.js';
-import { getCustomerRef, getCustomerRefs, type TimelineItem } from '../customers/index.js';
+import { getCustomerRef, getCustomerRefs, type ActivityPerson, type TimelineItem } from '../customers/index.js';
 import { VisitModel } from './models/visit.model.js';
 
 type Lean = LeanDoc;
@@ -207,16 +207,34 @@ export async function lastVisits(customerIds: string[]): Promise<Map<string, Dat
   return new Map(rows.map((r: { _id: string; at: Date }) => [r._id, r.at]));
 }
 
-/** 1.24.0 (FR-CUS-017): visits of the current Dhaka month per customer: how many, the last one, and whether one is today. */
-export async function monthVisits(customerIds: string[]): Promise<Map<string, { count: number; lastAt: string | null; today: boolean }>> {
+/**
+ * 1.24.0 (FR-CUS-017): visits of the current Dhaka month per customer: how many, the last one, and whether one is today.
+ * 1.44.0 (FR-CUS-021): `by` = who visited, one entry per staff member (count and last visit), newest first.
+ */
+export async function monthVisits(
+  customerIds: string[],
+): Promise<Map<string, { count: number; lastAt: string | null; today: boolean; by: ActivityPerson[] }>> {
   const date = businessDate(ctx().clock.now());
   const from = startOfBusinessDay(`${date.slice(0, 7)}-01`);
   const day = startOfBusinessDay(date);
-  const rows = await VisitModel.aggregate([
+  const rows = await VisitModel.aggregate<{ _id: { c: string; u: string }; count: number; lastAt: Date; today: number }>([
     { $match: { customerId: { $in: customerIds }, checkInAt: { $gte: from } } },
-    { $group: { _id: '$customerId', count: { $sum: 1 }, lastAt: { $max: '$checkInAt' }, today: { $sum: { $cond: [{ $gte: ['$checkInAt', day] }, 1, 0] } } } },
+    { $group: { _id: { c: '$customerId', u: '$userId' }, count: { $sum: 1 }, lastAt: { $max: '$checkInAt' }, today: { $sum: { $cond: [{ $gte: ['$checkInAt', day] }, 1, 0] } } } },
   ]);
-  return new Map(rows.map((r: { _id: string; count: number; lastAt: Date; today: number }) => [r._id, { count: r.count, lastAt: r.lastAt.toISOString(), today: r.today > 0 }]));
+  const users = await getUsers([...new Set(rows.map((r) => r._id.u))]);
+  const out = new Map<string, { count: number; lastAt: string | null; today: boolean; by: ActivityPerson[] }>();
+  for (const r of rows) {
+    const x = out.get(r._id.c) ?? { count: 0, lastAt: null, today: false, by: [] };
+    const at = r.lastAt.toISOString();
+    x.count += r.count;
+    if (!x.lastAt || at > x.lastAt) x.lastAt = at;
+    x.today ||= r.today > 0;
+    const u = users.get(r._id.u);
+    x.by.push({ userId: r._id.u, name: u ? u.name.en || u.name.bn : '', count: r.count, lastAt: at });
+    out.set(r._id.c, x);
+  }
+  for (const x of out.values()) x.by.sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+  return out;
 }
 
 export async function lastVisitOf(customerId: string) {

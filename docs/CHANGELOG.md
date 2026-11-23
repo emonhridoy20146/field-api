@@ -4,6 +4,22 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 
 ## [Unreleased]
 
+## [1.44.0] — contract 1.44.0 (ERP pull that finishes; who did this month's work)
+### Fixed (owner report 2026-11-23: the ERP has 2400+ customers/invoices, the staff app shows about 800; FR-ERP-002, FR-ERP-007, ADR-056)
+- **The ERP customer pull could stop for good in the middle of a branch.** Progress was saved only when the 40 s budget ran out after a page. A run the host stopped (Vercel ends a function at 60 s; the scheduled `erp.delta-sync` job had no budget at all) or a page that failed lost everything it had done, and the next run started the same branch again from its first page, so a large or slow branch could stay incomplete forever. Now the page cursor is saved after every page and the budget is checked per customer (the customers already handled on a cut page are remembered in `resume.done` and not done again).
+- **One ERP row the mapper could not read failed its whole page**, and the branch never got past it (the error was only logged). Rows are now read one by one; a bad row is skipped, logged with its ERP id and kept on the branch's sync state (`lastSkipped`), and the rest of the branch is pulled and its watermark moves.
+- The nightly reconcile goes on with the next branch when one fails, counts a skipped row as seen (it is in the ERP), and marks nobody missing in a branch where a row without an id was skipped.
+- A page that answers with the same cursor again ends the branch instead of looping; `next_cursor` is also read from the top level of the ERP answer when `meta` lacks it.
+- `POST /system/erp-sync` answers two more numbers (additive): `skipped` (rows left out) and `failedBranches` (branches whose pull failed in this call; the next call tries them again).
+- `pnpm coverage:report`: read-only report from field-api's MongoDB (customers stored, per branch with the visibility setting, what each field staff member can see, the ERP pull state per branch).
+### Added (owner request 2026-11-23, FR-CUS-021)
+- `CustomerActivity` (every customer row, detail and sync `customer` item) names who did this month's work: `visitedBy[]` and `promisedBy[]` (`ActivityPerson`: `userId`, `name`, `count`, `lastAt`), and `paidBy[]` (`ActivityPayer`: `name`, `source` = `staff` | `erp_referrer` | `collector_name` | `unknown`, `userId` for staff, `amountPoisha`, `lastDate`, `pending`). An ERP payment is named after the FOS collector when it came from a field collection (matched by idempotency key), else after the ERP referrer employee, else after the collector name it was posted with (no ERP employee, ADR-049). ERP money and field money not in the ERP yet stay separate entries (`pending`), adding up to `paidPoisha` and `pendingPoisha`.
+- The list row's `openPromise` now carries `createdByName` / `ownerName` (declared on `Promise` since 1.31.0 but not filled on list rows), so the home list can say "promised by <name>".
+- ERP payments keep `referenceName` (the name a field payment was posted with when the collector had no ERP employee; read from the ERP's `reference_no` of `field_app` payments only). Stored on the next pull; nothing to migrate.
+### Notes for the clients
+- staff-app: customer details "This month": show `activity.visitedBy[].name`, `activity.paidBy[]` (name, amount; mark `pending: true` as "not in ERP yet"; `source: unknown` = "office") and `activity.promisedBy[].name`. Home list: a promised row shows "promised by `openPromise.createdByName`". The fields arrive with the next pull of each customer; a fresh bootstrap fills them at once. Older apps ignore them.
+- admin-web: "Sync from ERP" may show `skipped` / `failedBranches` when they are not 0.
+
 ## [1.43.0] — contract 1.43.0 (the office moves a place offline)
 ### Added (owner decision 2026-11-22, FR-PLC-003, ADR-055)
 - Sync mutation `place_edit` accepts an optional `location` `{ lat, lng }`: a direct move by a `place.manage` holder (super admin, branch manager) from the staff app, also offline. It runs the same code as `PATCH /places/{id}` with `location`: Bangladesh bounds (`BUSINESS_RULE OUTSIDE_BANGLADESH`), deleted place (`INVALID_STATE PLACE_DELETED`; 404 for staff), an open move request is closed as rejected ("Moved by the office", requester told, inbox item closed), audit `place.moved`, events `place.moved` / `place.move_decided`.
