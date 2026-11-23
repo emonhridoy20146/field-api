@@ -491,4 +491,10 @@ describe('customer page robustness (1.44.0)', () => {
     expect(mapPayment({ ...base, source: 'office', reference_no: 'CHQ-123' }).referenceName).toBeNull();
     expect(mapPayment({ ...base, source: 'field_app', reference_no: '' }).referenceName).toBeNull();
   });
+
+  it('referrerName is the ERP employee name, only when the payment has an employee', () => {
+    const base = { id: 1, payment_date: '2026-11-10', amount: '100.00', source: 'office' };
+    expect(mapPayment({ ...base, collector_employee_id: 7, collector_name: 'Office Clerk' }).referrerName).toBe('Office Clerk');
+    expect(mapPayment({ ...base, collector_employee_id: null, collector_name: 'Someone' }).referrerName).toBeNull();
+  });
 });

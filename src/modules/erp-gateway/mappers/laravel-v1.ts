@@ -481,6 +481,8 @@ export function mapPayment(raw: unknown): ErpPayment {
     methodLabel: p.payment_method_name ?? null,
     collectorName: p.collector_name ?? null,
     collectorEmployeeId: p.collector_employee_id ?? null,
+    // 1.44.0: the ERP referrer employee (the payment's collector_employee_id); its name is collector_name.
+    referrerName: p.collector_employee_id ? (p.collector_name ?? null) : null,
     // 1.44.0: a field payment posted by name (no ERP employee, ADR-049) carries the collector's name as its reference.
     referenceName: p.source === 'field_app' ? (p.reference_no?.trim() || null) : null,
     advance: p.is_advance,

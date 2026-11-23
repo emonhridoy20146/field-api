@@ -200,3 +200,27 @@ describe('deltaSync keeps going where the old one got stuck (1.44.0)', () => {
   });
 });
 
+describe('erp.customerScope (1.44.0)', () => {
+  it('receivables (default) leaves out a cash-only customer; all pulls it on the next run, starting every branch over', async () => {
+    const { setSystem } = await import('../../src/modules/settings/index.js');
+    await ErpSyncStateModel.deleteMany({ _id: { $regex: '^customers:branch:' } });
+    await CustomerModel.deleteMany({});
+    const any = (await t.erp.listCustomers({ pageSize: 1 })).items[0]!;
+    t.erp.upsertCustomer({ ...structuredClone(any), erpCustomerId: '777001', code: 'CUS777001', plans: [], recentPayments: [], updatedAt: '2026-01-01T00:00:00Z' });
+    const def = await deltaSync();
+    expect(def.failedBranches).toBe(0);
+    expect(await CustomerModel.countDocuments({ erpCustomerId: '777001' })).toBe(0);
+    const before = await CustomerModel.countDocuments();
+    // a delta run with the old watermark would not see it (unchanged since January): the scope change starts over
+    await setSystem('erp.customerScope', 'all');
+    const all = await deltaSync();
+    expect(all.partial).toBe(false);
+    expect(await CustomerModel.countDocuments({ erpCustomerId: '777001' })).toBe(1);
+    expect(await CustomerModel.countDocuments()).toBe(before + 1);
+    const st = await ErpSyncStateModel.find({ _id: { $regex: '^customers:branch:' } }).lean();
+    expect(st.every((x) => (x as { scope?: string }).scope === 'all')).toBe(true);
+    await setSystem('erp.customerScope', 'receivables');
+    t.erp.removeCustomer('777001');
+  });
+});
+

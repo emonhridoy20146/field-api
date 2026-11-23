@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { as, createTestApp, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
+import { as, createTestApp, login, seedBasics, type Seeded, type TestApp } from '../helpers/app.js';
 import { expectConforms } from '../helpers/openapi.js';
 import { deltaSync, reconcile } from '../../src/modules/erp-gateway/index.js';
 import { applyAssignments, getByErpId } from '../../src/modules/customers/index.js';
@@ -172,6 +172,20 @@ describe('refresh (FR-ERP-003)', () => {
     t.erp.unavailable = false;
     expect(r3.status).toBe(503);
     expect(r3.body.code).toBe('ERP_UNAVAILABLE');
+  });
+
+  it('a body-less POST sent with Content-Type: application/json works (the staff app reload got VALIDATION_FAILED, 1.44.0)', async () => {
+    t.clock.advance(31_000);
+    const token = (await login(t.app, '01700000003', { deviceId: 'dev-01700000003' })).accessToken as string;
+    const res = await t.app.inject({
+      method: 'POST',
+      url: `/api/v1/customers/${ids['100246']}/refresh`,
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, 'x-device-id': 'dev-01700000003' },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    // a body that is not JSON is still refused
+    const bad = await t.app.inject({ method: 'POST', url: `/api/v1/customers/${ids['100246']}/refresh`, headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, 'x-device-id': 'dev-01700000003' }, payload: '{nope' });
+    expect(bad.statusCode).toBe(400);
   });
 
   it('emits balance_cleared when outstanding drops to zero', async () => {
@@ -722,7 +736,7 @@ describe('who did this month\'s work (FR-CUS-021, contract 1.44.0)', () => {
         $set: {
           recentPayments: [
             { erpPaymentId: 'w-1', date: '2026-11-10', amountPoisha: 30000, reversed: false, source: 'field', idempotencyKey: fieldKey, collectorName: 'Rakib Hasan (ERP)' },
-            { erpPaymentId: 'w-2', date: '2026-11-12', amountPoisha: 20000, reversed: false, source: 'office', collectorName: 'Office Clerk' },
+            { erpPaymentId: 'w-2', date: '2026-11-12', amountPoisha: 20000, reversed: false, source: 'office', collectorName: 'Office Clerk', collectorEmployeeId: '10', referrerName: 'Office Clerk' },
             { erpPaymentId: 'w-3', date: '2026-11-08', amountPoisha: 10000, reversed: false, source: 'field', collectorName: null, referenceName: 'Unlinked Collector' },
             { erpPaymentId: 'w-4', date: '2026-11-02', amountPoisha: 5000, reversed: false, source: 'office' },
             { erpPaymentId: 'w-5', date: '2026-11-03', amountPoisha: 9000, reversed: true, source: 'office', collectorName: 'Office Clerk' },
@@ -760,6 +774,14 @@ describe('who did this month\'s work (FR-CUS-021, contract 1.44.0)', () => {
     expect(pending.length).toBeGreaterThan(0);
     expect(pending.every((p) => p.source === 'staff' && p.name === 'Rakib Hasan')).toBe(true);
     expect(pending.reduce((n, p) => n + p.amountPoisha, 0)).toBe(a.pendingPoisha);
+    // the single names the staff app shows next to the month numbers
+    expect((a as unknown as { lastVisitByName: string }).lastVisitByName).toBe('Sumon Mia');
+    expect((a as unknown as { lastPaidByName: string | null }).lastPaidByName).toBe(a.paidBy[0]!.name || null);
+    expect(det.body.lastVisitByName).toBe('Sumon Mia');
+    // referrerName: the ERP employee of the payment, null without one
+    const pays = det.body.payments as { erpPaymentId: string; referrerName: string | null }[];
+    expect(pays.find((p) => p.erpPaymentId === 'w-3')!.referrerName).toBeNull();
+    expect(pays.find((p) => p.erpPaymentId === 'w-2')!.referrerName).toBe('Office Clerk');
 
     // the list row and the sync payload carry the same activity, and the home row says who promised
     const row = ((await fs.get('/customers')).body.items as { id: string; activity: Activity; openPromise: { createdByName: string; ownerName: string } | null }[]).find((r) => r.id === id)!;

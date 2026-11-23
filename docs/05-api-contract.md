@@ -291,10 +291,11 @@ Every customer row, detail and sync `customer` item carries the names behind `ac
               { "name": "Unlinked Collector", "source": "collector_name", "amountPoisha": 10000, "lastDate": "2026-11-08", "pending": false },
               { "name": "", "source": "unknown", "amountPoisha": 5000, "lastDate": "2026-11-02", "pending": false } ],
   "promisedBy": [ { "userId": "6703…", "name": "Manager A", "count": 1, "lastAt": "2026-11-15T05:00:00.000Z" },
-                  { "userId": "6701…", "name": "Rakib Hasan", "count": 1, "lastAt": "2026-11-15T03:31:00.000Z" } ]
+                  { "userId": "6701…", "name": "Rakib Hasan", "count": 1, "lastAt": "2026-11-15T03:31:00.000Z" } ],
+  "lastVisitByName": "Sumon Mia", "lastPaidByName": "Rakib Hasan"
 }
 ```
-`paidBy` entries with `pending: false` add up to `paidPoisha`, those with `pending: true` to `pendingPoisha`; never add the two. The home list says "promised by" from `openPromise.createdByName` (filled on list rows since 1.44.0).
+`paidBy` entries with `pending: false` add up to `paidPoisha`, those with `pending: true` to `pendingPoisha`; never add the two. The home list says "promised by" from `openPromise.createdByName` (filled on list rows since 1.44.0). The row also has `lastVisitByName` (who made the visit at `lastVisitAt`), and each `payments[]` item has `referrerName` (the ERP referrer employee, null without one).
 
 ### 3.9c Deposit detail and the promise behind a cash line (1.30.0, FR-CASH-008)
 ```http

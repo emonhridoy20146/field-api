@@ -65,6 +65,18 @@ export async function buildApp(opts: BuildOptions): Promise<Built> {
     bodyLimit: 1024 * 1024,
   });
 
+  // 1.44.0: many HTTP clients send `Content-Type: application/json` on a POST that has no body (the staff app's
+  // customer reload, POST /customers/{id}/refresh). Fastify refused those with FST_ERR_CTP_EMPTY_JSON_BODY, which
+  // became VALIDATION_FAILED. An empty body is now "no body"; malformed JSON is still a 400, and routes that need a
+  // body still validate it with zod.
+  const defaultJson = app.getDefaultJsonParser('error', 'error'); // keeps the prototype-poisoning guard
+  app.removeContentTypeParser('application/json');
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+    const text = typeof body === 'string' ? body : body.toString('utf8');
+    if (text.trim() === '') return done(null, undefined);
+    defaultJson(req, text, done);
+  });
+
   app.decorateRequest('user', null);
   app.decorateRequest('authError', null);
   app.decorateRequest('perms', null);

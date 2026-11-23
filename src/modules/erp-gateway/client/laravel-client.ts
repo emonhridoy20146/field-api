@@ -137,13 +137,15 @@ export class LaravelErpClient implements ErpClient {
     updatedSince?: string | null;
     cursor?: string | null;
     pageSize?: number;
+    /** 1.44.0: `receivables` (default) = customers with an installment or credit invoice; `all` = every ERP customer. */
+    scope?: 'receivables' | 'all';
   }) {
     const p = new URLSearchParams();
     if (q.erpBranchId) p.set('branch_id', q.erpBranchId);
     if (q.updatedSince) p.set('updated_since', q.updatedSince);
     if (q.cursor) p.set('page[cursor]', q.cursor);
     p.set('page[size]', String(q.pageSize ?? 100));
-    p.set('scope', 'receivables');
+    p.set('scope', q.scope ?? 'receivables');
     return mapCustomerPage(this.ok(await this.get(`/customers?${p.toString()}`), 'customers'));
   }
 

@@ -156,6 +156,8 @@ export interface ErpPayment {
   methodLabel?: string | null;
   collectorName?: string | null;
   collectorEmployeeId?: string | null;
+  /** 1.44.0: name of the ERP referrer employee, null when the payment has none. */
+  referrerName?: string | null;
   /** 1.44.0: for a field payment posted by name (no ERP employee, ADR-049), the collector name the ERP stored. */
   referenceName?: string | null;
   /** The ERP's down-payment advance. */
@@ -187,6 +189,9 @@ export interface ErpCustomer {
   /** Where erpBranchId came from: the customer row, or the customer's latest invoice. */
   branchSource?: 'customer' | 'last_invoice' | null;
 }
+
+/** Which ERP customers the pull asks for (setting `erp.customerScope`, 1.44.0). */
+export type ErpCustomerScope = 'receivables' | 'all';
 
 export interface CustomerPage {
   items: ErpCustomer[];
@@ -253,6 +258,8 @@ export interface ErpClient {
     updatedSince?: string | null;
     cursor?: string | null;
     pageSize?: number;
+    /** 1.44.0: `receivables` (default) = customers with an installment or credit invoice; `all` = every ERP customer. */
+    scope?: ErpCustomerScope;
   }): Promise<CustomerPage>;
   getCustomer(erpCustomerId: string): Promise<ErpCustomer | null>;
   listPayments(erpCustomerId: string): Promise<ErpPayment[]>;

@@ -31,6 +31,14 @@ export const manifest: ModuleManifest = {
   settings: [
     { key: 'erp.recordOnly', type: 'bool', default: false, description: 'FR-ERP-005 record-only fallback' },
     { key: 'erp.staleAfterMin', type: 'int', default: 15, description: 'FR-ERP-004 admin header warning' },
+    {
+      key: 'erp.customerScope',
+      type: 'enum',
+      enum: ['receivables', 'all'],
+      default: 'receivables',
+      description:
+        'FR-ERP-008 (1.44.0): which ERP customers are pulled. receivables = customers with an installment or credit invoice (as before); all = every ERP customer, cash-only ones show with nothing due. A change makes the next pull start over for every branch',
+    },
   ],
   jobs: [
     { name: 'erp.delta-sync', schedule: '*/5 * * * *', handler: async () => void (await deltaSync()) },

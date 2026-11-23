@@ -202,9 +202,20 @@ export async function syncSnapshot(user: AuthUser, cursor: string | null, limit:
   return { items: await namedAll(page), nextCursor: rows.length > limit ? encodeCursor({ id: page[page.length - 1]!._id.toHexString() }) : null };
 }
 
-export async function lastVisits(customerIds: string[]): Promise<Map<string, Date>> {
-  const rows = await VisitModel.aggregate([{ $match: { customerId: { $in: customerIds } } }, { $group: { _id: '$customerId', at: { $max: '$checkInAt' } } }]);
-  return new Map(rows.map((r: { _id: string; at: Date }) => [r._id, r.at]));
+/** The last visit of each customer and (1.44.0) the name of who made it. */
+export async function lastVisits(customerIds: string[]): Promise<Map<string, { at: Date; byName: string | null }>> {
+  const rows = await VisitModel.aggregate<{ _id: string; at: Date; userId: string }>([
+    { $match: { customerId: { $in: customerIds } } },
+    { $sort: { checkInAt: -1 } },
+    { $group: { _id: '$customerId', at: { $first: '$checkInAt' }, userId: { $first: '$userId' } } },
+  ]);
+  const users = await getUsers([...new Set(rows.map((r) => r.userId))]);
+  return new Map(
+    rows.map((r) => {
+      const u = users.get(r.userId);
+      return [r._id, { at: r.at, byName: u ? u.name.en || u.name.bn || null : null }];
+    }),
+  );
 }
 
 /**

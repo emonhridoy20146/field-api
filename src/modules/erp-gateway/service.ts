@@ -5,7 +5,7 @@ import { getSetting } from '../settings/index.js';
 import { LaravelErpClient } from './client/laravel-client.js';
 import { MockErpClient } from './client/mock-client.js';
 import { ErpSyncStateModel } from './models/sync-state.model.js';
-import { ErpUnavailableError, type CustomerPage, type ErpClient, type ErpCustomer, type PostPaymentInput } from './types.js';
+import { ErpUnavailableError, type CustomerPage, type ErpClient, type ErpCustomer, type ErpCustomerScope, type PostPaymentInput } from './types.js';
 
 let client: ErpClient | null = null;
 
@@ -34,11 +34,16 @@ export async function isRecordOnly(): Promise<boolean> {
   return ctx().config.ERP_MODE === 'record_only' || (await getSetting<boolean>('erp.recordOnly'));
 }
 
-async function markSuccess(id: string, cursor: string | null) {
+/** Setting `erp.customerScope` (1.44.0); anything unexpected counts as the default. */
+export async function customerScope(): Promise<ErpCustomerScope> {
+  return (await getSetting<string>('erp.customerScope')) === 'all' ? 'all' : 'receivables';
+}
+
+async function markSuccess(id: string, cursor: string | null, extra: Record<string, unknown> = {}) {
   const now = ctx().clock.now();
   await ErpSyncStateModel.updateOne(
     { _id: id },
-    { $set: { lastSuccessAt: now, consecutiveFailures: 0, lastError: null, lagSec: 0, ...(cursor ? { cursor } : {}) } },
+    { $set: { lastSuccessAt: now, consecutiveFailures: 0, lastError: null, lagSec: 0, ...(cursor ? { cursor } : {}), ...extra } },
     { upsert: true },
   );
 }
@@ -72,6 +77,8 @@ export async function publishCustomer(customer: ErpCustomer, opts: { reconcile?:
 }
 
 interface SyncResume {
+  /** 1.44.0: the customer scope the run was started with; a run of another scope is not continued. */
+  scope?: ErpCustomerScope;
   /** Cursor of the page being worked on (null = the branch's first page). */
   cursor: string | null;
   since: string | null;
@@ -112,6 +119,7 @@ export async function deltaSync(
   const overBudget = () => opts.budgetMs !== undefined && ctx().clock.now().getTime() - startedAtMs >= opts.budgetMs;
   const branches = await erpClient().listBranches();
   await ctx().bus.emit('erp.branches.synced', { branches });
+  const scope = await customerScope();
   let total = 0;
   let skipped = 0;
   let failedBranches = 0;
@@ -124,10 +132,16 @@ export async function deltaSync(
     }
     const id = `customers:branch:${b.erpBranchId}`;
     const state = await ErpSyncStateModel.findById(id).lean();
-    const resume = (state?.resume ?? null) as SyncResume | null;
+    // 1.44.0: the watermark and an unfinished run belong to the scope they were made with (documents from before
+    // 1.44.0 have none: receivables). After a scope change the branch is pulled again from the start, otherwise
+    // the customers the new scope adds, unchanged since the watermark, would never arrive.
+    const stateScope = ((state as { scope?: string } | null)?.scope ?? 'receivables') as ErpCustomerScope;
+    const sameScope = stateScope === scope;
+    const savedResume = (state?.resume ?? null) as SyncResume | null;
+    const resume = savedResume && (savedResume.scope ?? 'receivables') === scope ? savedResume : null;
     const since = resume
       ? resume.since
-      : state?.cursor
+      : state?.cursor && sameScope
         ? new Date(new Date(state.cursor).getTime() - 60_000).toISOString()
         : null;
     const startedAt = ctx().clock.now();
@@ -143,6 +157,7 @@ export async function deltaSync(
           updatedSince: since,
           cursor,
           pageSize: 100,
+          scope,
         });
         // Watermark = server time of the FIRST page: rows changed while we paged are picked up next run.
         serverTime ??= page.serverTime;
@@ -163,7 +178,7 @@ export async function deltaSync(
           total += 1;
         }
         if (cut) {
-          await saveResume({ cursor, since, serverTime, done: [...done] });
+          await saveResume({ scope, cursor, since, serverTime, done: [...done] });
           partial = true;
           break;
         }
@@ -175,7 +190,7 @@ export async function deltaSync(
         }
         cursor = next;
         done = new Set();
-        await saveResume({ cursor, since, serverTime, done: [] });
+        await saveResume({ scope, cursor, since, serverTime, done: [] });
         if (overBudget()) {
           partial = true;
           break;
@@ -184,7 +199,7 @@ export async function deltaSync(
       if (branchSkips.length)
         await ErpSyncStateModel.updateOne({ _id: id }, { $set: { lastSkipped: branchSkips.slice(0, 50) } }, { upsert: true });
       if (partial) break;
-      await markSuccess(id, serverTime ?? startedAt.toISOString());
+      await markSuccess(id, serverTime ?? startedAt.toISOString(), { scope });
       await ErpSyncStateModel.updateOne({ _id: id }, { $set: { resume: null, ...(branchSkips.length ? {} : { lastSkipped: [] }) } });
     } catch (e) {
       failedBranches += 1;
@@ -233,6 +248,7 @@ export async function manualSync(budgetMs: number) {
  */
 export async function reconcile(): Promise<number> {
   const branches = await erpClient().listBranches();
+  const scope = await customerScope();
   let total = 0;
   for (const b of branches) {
     try {
@@ -240,7 +256,7 @@ export async function reconcile(): Promise<number> {
       let unknownSkipped = false;
       let cursor: string | null = null;
       do {
-        const page: CustomerPage = await erpClient().listCustomers({ erpBranchId: b.erpBranchId, cursor, pageSize: 200 });
+        const page: CustomerPage = await erpClient().listCustomers({ erpBranchId: b.erpBranchId, cursor, pageSize: 200, scope });
         for (const c of page.items) {
           await publishCustomer(c, { reconcile: true });
           seen.push(c.erpCustomerId);

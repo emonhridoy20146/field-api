@@ -172,6 +172,9 @@ paths:
         (the next call continues where the last one stopped). Never changes money; the ERP stays the truth.
         `429 RATE_LIMITED` (`details.reason: SYNC_RUNNING`) while another run is in progress; `503 ERP_UNAVAILABLE`
         when the ERP cannot be reached.
+        1.44.0: which ERP customers are pulled is the setting `erp.customerScope` (`PATCH /settings`): `receivables`
+        (default: customers with an installment or credit invoice) or `all` (every ERP customer; cash-only ones show
+        with nothing due). After a change the next pull starts over for every branch, so press until `partial` is false.
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/ErpSyncResult' } } } }
         '403': { $ref: '#/components/responses/Problem' }
@@ -2426,6 +2429,7 @@ components:
         tag: { $ref: '#/components/schemas/Tag' }
         openPromise: { oneOf: [ { $ref: '#/components/schemas/Promise' }, { type: 'null' } ], description: 'The open promise with the earliest date. Since 1.44.0 it carries `createdByName` / `ownerName` here too, so the home list can say "promised by <name>"' }
         lastVisitAt: { type: [string, 'null'], format: date-time }
+        lastVisitByName: { type: [string, 'null'], description: 'Added in 1.44.0 (FR-CUS-021). Display name of who made the visit at `lastVisitAt` (any month); null when there is none' }
         pendingFieldPoisha: { type: integer, description: 'Field collections not yet posted to ERP' }
         installmentPoisha: { type: [integer, 'null'], description: 'Amount of the next unpaid schedule line across active plans (ERP cache). Added in 1.2.0' }
         overduePoisha: { type: integer, description: 'Sum of overdue unpaid schedule amounts (ERP cache). Added in 1.2.0' }
@@ -2490,6 +2494,8 @@ components:
           type: array
           description: 'Added in 1.44.0 (FR-CUS-021). Who made this month''s promises (cancelled ones left out): one entry per staff member, newest first. `count` adds up to `promisesMade`. For the open promise on the home list use `openPromise.createdByName`'
           items: { $ref: '#/components/schemas/ActivityPerson' }
+        lastVisitByName: { type: [string, 'null'], description: 'Added in 1.44.0 (FR-CUS-021). Who made this month''s last visit (`visitedBy[0].name`); null when nobody visited this month' }
+        lastPaidByName: { type: [string, 'null'], description: 'Added in 1.44.0 (FR-CUS-021). Who took this month''s newest money (`paidBy[0].name`: the staff collector, else the ERP referrer, else the posted collector name; an ERP payment comes before field money of the same day); null when nothing was paid this month or the ERP has no name' }
     ActivityPerson:
       type: object
       description: Added in 1.44.0 (FR-CUS-021). One staff member's part of a customer's month (visits or promises)
@@ -2618,6 +2624,7 @@ components:
         erpPlanId: { type: string, description: 'Added in 1.13.0. Plan (invoice) the payment went to' }
         methodLabel: { type: string, description: 'Added in 1.13.0. ERP payment method name, e.g. Cash-03' }
         collectorName: { type: string, description: 'Added in 1.13.0. ERP employee recorded as collector' }
+        referrerName: { type: [string, 'null'], description: 'Added in 1.44.0. Name of the ERP referrer employee of the payment; null when the payment has no ERP employee (posted by name, ADR-049, or an office payment without a referrer)' }
         advance: { type: boolean, description: 'Added in 1.13.0. Down-payment advance' }
         discountPoisha: { type: integer, description: 'Added in 1.13.0. Settlement discount given with the payment' }
     CustomerDetail:

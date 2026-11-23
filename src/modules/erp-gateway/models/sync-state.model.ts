@@ -13,6 +13,8 @@ const syncStateSchema = new Schema(
     resume: { type: Schema.Types.Mixed, default: null }, // { cursor, since, serverTime, done? (1.44.0) }
     // 1.44.0: ERP rows of this branch the mapper could not read on the last run ({ erpCustomerId, error }, at most 50).
     lastSkipped: { type: Schema.Types.Mixed, default: undefined },
+    // 1.44.0: the customer scope (`erp.customerScope`) the watermark `cursor` was made with; absent = receivables.
+    scope: { type: String, default: undefined },
     lockedUntil: { type: Date, default: null }, // manual sync lock (_id 'manual-sync')
   },
   { collection: 'erp_sync_state', versionKey: false },
