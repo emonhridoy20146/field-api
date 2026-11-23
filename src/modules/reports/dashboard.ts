@@ -6,6 +6,7 @@ import { collectedByUser, collectionDayCells, type CollectionDayCell } from '../
 import { visitDashboardStats, visitsByUser } from '../visits/index.js';
 import { promiseDashboardStats } from '../promises/index.js';
 import { coworkSessionCount } from '../cowork/index.js';
+import { prospectDashboardStats } from '../prospects/index.js';
 import { datesOf, linkTo, monthStart, previousMonth, rate, topBy, type DashboardLink, type DashboardRange } from './domain/dashboard.js';
 
 const TOP = 5;
@@ -148,13 +149,14 @@ export async function dashboardStats(user: AuthUser, x: DashboardInputs) {
     sessions: { count: on['module.cowork'] ? await coworkSessionCount(user, branchId, from, to) : 0, link: linkTo('/cowork/sessions', { ...b, ...mine('userId'), from, to }) },
   };
 
-  // TODO(prospects): plug in the prospects module's counts (created / converted in range, open now) once it exports
-  // them; until then the figures are zero and the links already open GET /prospects with the right filters.
+  // Possible customers (FR-PRO-001): created and converted in range, open (new or contacted) now. GET /prospects filters
+  // from/to on the creation date and one status, so the `converted` and `openNow` links are the nearest lists.
   const proLink = (q: Record<string, string>) => linkTo('/prospects', { ...b, ...mine('createdBy'), ...q });
+  const pro = on['module.prospects'] ? await prospectDashboardStats(user, branchId, from, to) : { created: 0, converted: 0, openNow: 0 };
   const prospectStats = {
-    created: { count: 0, link: proLink({ from, to }) },
-    converted: { count: 0, link: proLink({ from, to, status: 'converted' }) },
-    openNow: { count: 0, link: proLink({}) },
+    created: { count: pro.created, link: proLink({ from, to }) },
+    converted: { count: pro.converted, link: proLink({ status: 'converted' }) },
+    openNow: { count: pro.openNow, link: proLink({}) },
   };
 
   return {

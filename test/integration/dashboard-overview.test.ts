@@ -105,6 +105,13 @@ beforeAll(async () => {
   await mongoose.connection.collection('cowork_sessions').insertMany([session(A, '2026-11-10'), session(A, '2026-10-10'), session(s.branchB, '2026-11-10')]);
   const proposal = (branchId: string, customer: string, status: string) => ({ clientId: randomUUID(), customerId: ids[customer], branchId, proposedBy: s.fs1.id, point: { type: 'Point', coordinates: [90.37, 22.71] }, accuracyM: 8, status, createdAt: new Date(NOW) });
   await mongoose.connection.collection('location_proposals').insertMany([proposal(A, '100245', 'pending'), proposal(A, '100246', 'approved'), proposal(s.branchB, '200301', 'pending')]);
+  // Possible customers: one new in range, one converted in range (created in October), one in the other branch.
+  const prospect = (branchId: string, createdDate: string, status: string, convertedDate: string | null = null) => ({
+    clientId: randomUUID(), name: 'Possible', phones: [], address: null, note: null, location: null, branchId, createdBy: { id: s.fs1.id, name: 'Rakib Hasan' },
+    createdAt: new Date(`${createdDate}T04:00:00Z`), createdDate, status, statusChangedAt: new Date(`${createdDate}T04:00:00Z`), convertedCustomerId: null, convertedErpCustomerId: null,
+    convertedAt: convertedDate ? new Date(`${convertedDate}T04:00:00Z`) : null, convertedDate, convertedBy: null, fromProspectId: null, history: [], updatedAt: new Date(NOW), version: 1,
+  });
+  await mongoose.connection.collection('prospects').insertMany([prospect(A, '2026-11-10', 'new'), prospect(A, '2026-10-05', 'converted', '2026-11-12'), prospect(s.branchB, '2026-11-11', 'contacted')]);
 });
 afterAll(async () => t.close());
 
@@ -177,8 +184,9 @@ describe('dashboard statistics (FR-DSH-002)', () => {
     expect(b.cashInHand).toEqual({ amountPoisha: 20000, count: 1, link: { path: '/cash/positions', query: {} } });
     expect(b.cashInHand.amountPoisha).toBe(b.cash.onHandPoisha);
     expect(b.coworkStats.sessions).toEqual({ count: 1, link: { path: '/cowork/sessions', query: MONTH } });
-    expect(b.prospectStats.created).toEqual({ count: 0, link: { path: '/prospects', query: MONTH } });
-    expect(b.prospectStats.converted.link.query).toEqual({ ...MONTH, status: 'converted' });
+    expect(b.prospectStats.created).toEqual({ count: 1, link: { path: '/prospects', query: MONTH } });
+    expect(b.prospectStats.converted).toEqual({ count: 1, link: { path: '/prospects', query: { status: 'converted' } } });
+    expect(b.prospectStats.openNow.count).toBe(1);
   });
 
   it('links open the list behind the number', async () => {
@@ -264,7 +272,7 @@ describe('dashboard statistics (FR-DSH-002)', () => {
 
   it('switched-off modules give zeros and empty lists', async () => {
     const { setFlagSystem } = await import('../../src/modules/flags/index.js');
-    for (const f of ['module.collections', 'module.visits', 'module.promises', 'module.cowork', 'module.cash', 'module.attendance']) await setFlagSystem(f, false);
+    for (const f of ['module.collections', 'module.visits', 'module.promises', 'module.cowork', 'module.cash', 'module.attendance', 'module.prospects']) await setFlagSystem(f, false);
     try {
       const bm = await as(t, BM);
       const r = await bm.get('/dashboard/overview');
@@ -278,8 +286,9 @@ describe('dashboard statistics (FR-DSH-002)', () => {
       expect(r.body.attendanceToday.present.count).toBe(0);
       expect(r.body.cashInHand.amountPoisha).toBe(0);
       expect(r.body.coworkStats.sessions.count).toBe(0);
+      expect(r.body.prospectStats.created.count).toBe(0);
     } finally {
-      for (const f of ['module.collections', 'module.visits', 'module.promises', 'module.cowork', 'module.cash', 'module.attendance']) await setFlagSystem(f, true);
+      for (const f of ['module.collections', 'module.visits', 'module.promises', 'module.cowork', 'module.cash', 'module.attendance', 'module.prospects']) await setFlagSystem(f, true);
     }
   });
 
