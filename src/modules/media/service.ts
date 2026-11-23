@@ -6,6 +6,7 @@ import { cloudinary, storage, URL_TTL_SEC } from '../../core/storage/index.js';
 import { withTransaction } from '../../core/db/index.js';
 import { canSeeBranch, type AuthUser } from '../../core/security/types.js';
 import { MediaModel } from './models/media.model.js';
+import { parseCapturedAt } from './domain/captured-at.js';
 import { deletedError, enqueueCopy } from './cloud.js';
 
 export const uploadSchema = z.object({
@@ -13,7 +14,13 @@ export const uploadSchema = z.object({
   contentType: z.enum(['image/jpeg', 'image/webp', 'audio/aac', 'audio/mp4']),
   sizeBytes: z.number().int().min(1).max(1_048_576),
   sha256: z.string().regex(/^[a-f0-9]{64}$/i, 'hex sha256'),
-  capturedAt: z.string().datetime({ offset: true }).optional(),
+  // 1.45.0: the staff app sends a local time without an offset (drift hands back local DateTimes); that 400 kept every
+  // photo "upload pending". Such a value is Asia/Dhaka wall-clock time. Anything that is not a date-time is still a 400.
+  capturedAt: z
+    .string()
+    .max(40)
+    .refine((v) => parseCapturedAt(v) !== null, 'ISO-8601 date-time')
+    .optional(),
   geo: z.object({ lat: z.number(), lng: z.number(), accuracyM: z.number() }).passthrough().nullable().optional(),
 });
 
@@ -40,7 +47,7 @@ export async function uploadUrl(user: AuthUser, input: z.infer<typeof uploadSche
       sizeBytes: input.sizeBytes,
       sha256: sha,
       key: `${input.kind}/${user.id}/${sha}.${ext[input.contentType]}`,
-      capturedAt: input.capturedAt ? new Date(input.capturedAt) : null,
+      capturedAt: input.capturedAt ? parseCapturedAt(input.capturedAt) : null,
       geo: input.geo ? { lat: input.geo.lat, lng: input.geo.lng, accuracyM: input.geo.accuracyM } : null,
       createdAt: now,
     }));

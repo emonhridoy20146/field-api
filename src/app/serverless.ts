@@ -76,26 +76,43 @@ export interface CronResult {
   outbox: DispatchStats;
 }
 
+/** Time a cron call keeps for the outbox after the jobs (ms): payments waiting for the ERP must still move. */
+export const OUTBOX_RESERVE_MS = 8_000;
+/** Default budget of a cron call (ms). The function is stopped at 60 s (vercel.json maxDuration); 20 s stay spare. */
+export const CRON_BUDGET_MS = 40_000;
+
 /**
- * One worker "tick" inside a function call: the jobs whose schedule matches this minute (or the
- * one named job), then the outbox until it is empty or the time budget is spent. Jobs are leased
- * in Mongo (ADR-008), so overlapping calls never run a job twice in the same minute.
+ * One worker "tick" inside a function call: the jobs that are due (or the one named job), then the outbox until it
+ * is empty or the time budget is spent. Jobs are leased in Mongo (ADR-008), so overlapping calls never run a slot twice.
+ *
+ * 1.45.0 (owner request: ERP sync without anyone logged in): calls come from a GitHub schedule (every 5 minutes, often
+ * late) and optionally an external pinger, never exactly on a job's minute. A job is due when its latest slot within
+ * its catch-up window has not run yet (JobScheduler); every job gets the time left as `budgetMs` minus
+ * OUTBOX_RESERVE_MS (the ERP delta sync stops there and resumes on the next call), no job starts when less than 2 s are
+ * left (it runs on the next call), and heavy jobs (nightly reconcile) run last.
  */
 export async function runCron(opts: { job?: string; budgetMs?: number } = {}): Promise<CronResult> {
-  // The budget counts from the start of the call, jobs included: the function is stopped at 60 s
-  // (vercel.json maxDuration), so slow jobs leave less time for the outbox, never more.
-  const deadline = performance.now() + (opts.budgetMs ?? 40_000);
+  // The budget counts from the start of the call, jobs included: slow jobs leave less time for the outbox, never more.
+  const deadline = performance.now() + (opts.budgetMs ?? CRON_BUDGET_MS);
   const { ctx } = await getApp();
   await ensureMongo(mongoose.connection, () => connectMongo(ctx.config.MONGODB_URI, ctx.config.MONGODB_DB_NAME), (m) => ctx.logger.warn(m));
-  const scheduler = new JobScheduler(ctx.manifests.flatMap((m) => m.jobs ?? []));
+  return cronTick(new JobScheduler(ctx.manifests.flatMap((m) => m.jobs ?? [])), { deadline, ...(opts.job ? { job: opts.job } : {}) });
+}
+
+/** The body of runCron, without the app boot, so it can be tested. */
+export async function cronTick(
+  scheduler: JobScheduler,
+  opts: { deadline: number; job?: string; now?: () => number; dispatch?: (limit: number) => Promise<DispatchStats> },
+): Promise<CronResult> {
+  const now = opts.now ?? (() => performance.now());
   let ran: string[];
   if (opts.job) {
-    await scheduler.runNow(opts.job);
+    await scheduler.runNow(opts.job, { budgetMs: Math.max(1_000, opts.deadline - now() - OUTBOX_RESERVE_MS) });
     ran = [opts.job];
   } else {
-    ran = await scheduler.tick();
+    ran = await scheduler.tick(undefined, { deadline: opts.deadline, now, reserveMs: OUTBOX_RESERVE_MS });
   }
-  return { ran, outbox: await drainOutbox(deadline) };
+  return { ran, outbox: await drainOutbox(opts.deadline, opts.dispatch, now) };
 }
 
 /**

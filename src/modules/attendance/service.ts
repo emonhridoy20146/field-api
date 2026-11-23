@@ -9,6 +9,8 @@ import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { getSetting, isHoliday, resolveShift, type ShiftView } from '../settings/index.js';
 import { getUser, getUsers, listByRole, type UserView } from '../users/index.js';
+import { effectivePermissions } from '../rbac/index.js';
+import { attendanceRequired } from './domain/required.js';
 import { isUploadedBy, markMediaDeleted, removeDeletedMediaFiles, type RemovalBatch } from '../media/index.js';
 import { autoCloseAt, deriveDay, dutyIntervals, dutyStateAt, lateAbsences, type DayEvent, type DayKind, type DutyIntervals, type EventType } from './domain/day.js';
 import { AttendanceDayModel, AttendanceEventModel, LeaveModel } from './models/attendance.model.js';
@@ -354,7 +356,17 @@ export async function allOnDutyNow(): Promise<{ userId: string; branchId: string
 async function staffInScope(user: AuthUser, branchId?: string, userId?: string): Promise<UserView[]> {
   if (branchId && !canSeeBranch(user, branchId)) return [];
   const staff = await listByRole(['field_staff'], branchId ? [branchId] : isSuperAdmin(user) ? undefined : user.branchIds);
-  return userId ? staff.filter((s) => s.id === userId) : staff;
+  return withoutExempt(userId ? staff.filter((s) => s.id === userId) : staff);
+}
+
+/**
+ * FR-ATT-014 (1.45.0): people who do not do attendance (permission attendance.exempt, or no attendance.record) are left
+ * out of the day grid, counts and the nightly absences, so they are never shown absent. Permissions are cached 60 s.
+ */
+export async function withoutExempt(users: UserView[]): Promise<UserView[]> {
+  const out: UserView[] = [];
+  for (const u of users) if (attendanceRequired(await effectivePermissions(u), true)) out.push(u);
+  return out;
 }
 
 /** Day grid for a date range (max 62 days); days without events are derived (absent / holiday / weekly off / leave). */
@@ -475,7 +487,7 @@ export async function autoClose(): Promise<number> {
 
 /** Nightly: materialize yesterday for every active field staff (absent / off days) and emit absences. */
 export async function finalize(date = addDays(today(), -1)): Promise<number> {
-  const staff = await listByRole(['field_staff']);
+  const staff = await withoutExempt(await listByRole(['field_staff']));
   let absent = 0;
   for (const s of staff) {
     const before = await AttendanceDayModel.findOne({ userId: s.id, businessDate: date }).lean();
@@ -584,4 +596,19 @@ export async function decideLeave(actor: AuthUser, id: string, input: { decision
   }
   await ctx().bus.emit('leave.decided', { leaveId: id, userId: l.userId, decision: input.decision });
   return leaveView((await LeaveModel.findById(id).lean()) as Lean);
+}
+
+/**
+ * FR-DSH-002: today's counters in the caller's scope (`todayCounts` plus `onLeave`), from the same day rows as
+ * GET /attendance/days for today, so whoever that list leaves out is not counted here either.
+ */
+export async function todayDashboardCounts(user: AuthUser, branchId?: string) {
+  const all = await days(user, { branchId, from: today(), to: today() });
+  return {
+    present: all.filter((d) => d.firstIn !== null).length,
+    late: all.filter((d) => d.firstIn !== null && d.lateMin > 0).length,
+    absent: all.filter((d) => d.status === 'absent').length,
+    onLeave: all.filter((d) => d.status === 'leave').length,
+    onDutyNow: all.filter((d) => d.status === 'on_duty').length,
+  };
 }

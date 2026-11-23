@@ -359,7 +359,21 @@ export async function onCollectionReceived(p: { collectorId: string; branchId: s
 
 /** Dashboard totals for the caller's scope. */
 export async function cashOverview(user: AuthUser, branchId?: string) {
+  const d = await cashDashboard(user, branchId);
+  return { onHandPoisha: d.onHandPoisha, overLimitStaff: d.overLimitStaff, pendingDeposits: d.pendingDeposits };
+}
+
+/**
+ * FR-DSH-002: `cashOverview` plus how many staff hold cash right now (`holders`), from one positions read, so the
+ * dashboard's old `cash` block and the new `cashInHand` figure always agree.
+ */
+export async function cashDashboard(user: AuthUser, branchId?: string) {
   const pos = await branchPositions(user, branchId);
   const pendingDeposits = await DepositModel.countDocuments({ ...branchQuery(user, branchId), ...(user.role === 'field_staff' ? { userId: user.id } : {}), status: 'pending' });
-  return { onHandPoisha: pos.reduce((s, p) => s + p.onHandPoisha, 0), overLimitStaff: pos.filter((p) => p.state === 'exceeded').length, pendingDeposits };
+  return {
+    onHandPoisha: pos.reduce((s, p) => s + p.onHandPoisha, 0),
+    overLimitStaff: pos.filter((p) => p.state === 'exceeded').length,
+    pendingDeposits,
+    holders: pos.filter((p) => p.onHandPoisha > 0).length,
+  };
 }

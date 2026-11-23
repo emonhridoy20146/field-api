@@ -368,6 +368,35 @@ DELETE /api/v1/places/6752…?reason=Shop%20closed%20down                       
 - Notifications: `place.move_request` (to everyone with `place.manage` in any branch since 1.42.0, `data.placeId`), `place.move_decided` (to the requester, `data { placeId, decision }`). Inbox item type `place.move_request`, link `/places/move-requests`, shown to every `place.manage` holder in any branch (1.42.0).
 - 1.42.0 (ADR-054): a place needs no branch. `branchId` in the create body is ignored (no more `PLACE_INVALID_BRANCH`); `Place.branchId` is the adder's first branch for information (`''` when none). Office actions with `place.manage` work on any branch's place; staff edit rules are unchanged.
 
+### 3.9h Dashboard, follow-ups, possible customers, attendance exemption (1.45.0, FR-DSH-002, FR-PRM-006, FR-PRO-001, FR-ATT-014)
+```http
+GET /api/v1/dashboard/overview?branchId=6731…&from=2026-11-01&to=2026-11-23   (report.view)
+→ 200 { …fields of 1.44.0…, "range": { "from": "2026-11-01", "to": "2026-11-23", "days": 23 },
+        "collections": { "today": { "amountPoisha": 220000, "count": 3, "link": { "path": "/collections", "query": { "branchId": "6731…", "from": "2026-11-23", "to": "2026-11-23" } } },
+                         "byMethod": [ { "method": "cash", "amountPoisha": 1800000, "count": 41, "link": { "path": "/collections", "query": { "branchId": "6731…", "from": "2026-11-01", "to": "2026-11-23", "method": "cash" } } } ], … },
+        "promiseStats": { "brokenWithoutFollowUp": { "count": 4, "link": { "path": "/promises", "query": { "branchId": "6731…", "from": "2026-11-01", "to": "2026-11-23", "brokenWithoutFollowUp": "true" } } }, "keptRate": 0.62, … },
+        "attendanceToday": { "present": { "count": 12, "link": { "path": "/attendance/days", "query": { "from": "2026-11-23", "to": "2026-11-23" } } }, … }, … }
+
+POST /api/v1/promises   (promise.create; also sync mutation `promise`)
+{ "clientId": "0193…", "customerId": "6750…", "promisedDate": "2026-11-27", "promisedAmountPoisha": 150000, "followUpOf": "6761…" }
+→ 201 { "id": "6770…", "followUpOf": "6761…", "followUpId": null, "attempt": 2, "chainRootId": "6761…", "status": "open", … }
+→ 422 { "code": "BUSINESS_RULE", "details": { "rule": "PROMISE_FOLLOW_UP_INVALID", "reason": "NOT_BROKEN", "followUpOf": "6761…" } }
+GET  /api/v1/promises?brokenWithoutFollowUp=true&from=2026-11-01&to=2026-11-23
+GET  /api/v1/promises?from=2026-11-23&to=2026-11-30&createdBy=6740…          (next 7 days, made by one person)
+
+POST /api/v1/prospects   (prospect.create; also sync mutation `prospect`)
+{ "clientId": "0193…", "name": "Jamal Uddin", "phones": [ { "number": "01712345678" } ], "address": "Near the ghat", "location": { "lat": 22.70, "lng": 90.37, "accuracyM": 12 } }
+→ 201 { "id": "6780…", "status": "new", "phones": [ { "number": "+8801712345678", "label": null } ], "createdBy": { "id": "6740…", "name": "Rakib Hasan" }, "history": [ { "status": "new", … } ], "version": 1, … }
+PATCH /api/v1/prospects/6780…            { "status": "contacted", "reason": "Called, will visit the shop" }   (prospect.manage)
+POST  /api/v1/prospects/6780…/convert    { "erpCustomerCode": "BRL01-100245" }                                  (prospect.manage)
+POST  /api/v1/prospects/6780…/reopen     { "reason": "Bought once, wants a second item" }                       (prospect.manage)
+GET   /api/v1/prospects?status=new&from=2026-11-01&to=2026-11-23&q=jamal
+```
+- `link` opens the list behind a number: `GET /api/v1{path}?{query}`. A few lists lack an exact filter (collections take one status; attendance days have no status filter); the link then opens the nearest list.
+- `attendanceRequired` (login, refresh, `/auth/me`, sync bootstrap/pull): false → the app hides attendance. Super admins hold `attendance.exempt`.
+- `GET /inbox` and `GET /activity` take `from` / `to` (inclusive Dhaka dates). Visit rows carry `businessDate` and `checkInLocalTime` ("HH:mm").
+- `POST /media/upload-url`: `capturedAt` without `Z`/offset is read as Asia/Dhaka time.
+
 ### 3.10a Pin colours and invoice viewer (1.14.0)
 Yellow and orange pins of credit customers in view:
 ```http
@@ -439,7 +468,7 @@ A call to the guarantor is logged like any contact attempt with `"target": "guar
 | 412 | `PRECONDITION_FAILED` | Reload and retry edit. |
 | 413 | `PAYLOAD_TOO_LARGE` | Split batch. |
 | 422 | `OFF_DUTY` | Location outside duty; drop points. |
-| 422 | `BUSINESS_RULE` | `details.rule` (e.g. `PROMISE_DATE_RANGE`, `REASON_REQUIRED`, `LAST_SUPER_ADMIN`, `COWORK_INVALID_INVITEE`, `COWORK_TOO_MANY`, `TARGET_IN_PAST`). |
+| 422 | `BUSINESS_RULE` | `details.rule` (e.g. `PROMISE_DATE_RANGE`, `PROMISE_FOLLOW_UP_INVALID` (1.45.0, `details.reason`), `REASON_REQUIRED`, `LAST_SUPER_ADMIN`, `COWORK_INVALID_INVITEE`, `COWORK_TOO_MANY`, `TARGET_IN_PAST`). |
 | 423 | `ACCOUNT_LOCKED` | `details.until`. |
 | 426 | `UPGRADE_REQUIRED` | `details.minVersion`, `details.storeUrl`. |
 | 429 | `RATE_LIMITED` | Honour `Retry-After`. |

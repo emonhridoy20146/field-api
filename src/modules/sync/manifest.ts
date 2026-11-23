@@ -7,7 +7,7 @@ export const manifest: ModuleManifest = {
   version: '1.0.0',
   description: 'Offline sync for the staff app: pull change feed, push mutation batch, bootstrap snapshot, device sync health (FR-SYNC-001..006)',
   featureFlag: { key: 'module.sync', default: false, description: 'Mobile offline sync', owner: 'field-api' },
-  dependsOn: ['rbac', 'flags', 'settings', 'users', 'cash', 'targets'],
+  dependsOn: ['rbac', 'flags', 'settings', 'users', 'cash', 'targets', 'attendance'],
   permissions: [],
   routes: syncRoutes,
   migrations: [

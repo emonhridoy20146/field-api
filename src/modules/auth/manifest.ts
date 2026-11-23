@@ -9,7 +9,7 @@ export const manifest: ModuleManifest = {
   version: '1.0.0',
   core: true,
   description: 'Login, rotating refresh tokens, password change, sessions (FR-AUTH-*)',
-  dependsOn: ['audit', 'users', 'rbac', 'flags'],
+  dependsOn: ['audit', 'users', 'rbac', 'flags', 'attendance'],
   permissions: [],
   routes: authRoutes,
   events: { emits: ['auth.login', 'auth.login_failed', 'auth.session_revoked'], consumes: ['user.deactivated', 'user.password_reset'] },

@@ -169,6 +169,8 @@ Retention: permanent (≥ 8 years, OD-09).
 ### promises
 `{ clientId, branchId, customerId, erpPlanId, ownerId, createdBy, promisedDate, promisedAmountPoisha, note, status: 'open'|'kept'|'partially_kept'|'broken'|'superseded'|'cancelled', evaluatedAt, paidTowardsPoisha, supersededBy }` · `{ clientId:1 } unique`, `{ ownerId:1, promisedDate:1, status:1 }`, `{ customerId:1, status:1 }`, `{ branchId:1, promisedDate:1 }`.
 
+- **1.45.0 (FR-PRM-006, ADR-059):** `followUpOf` (id of the broken / partially kept promise this one follows up, null), `followUpId` (newest non-cancelled follow-up of this promise, null; recomputed when a follow-up is cancelled), `attempt` (1, 2, 3…; missing on old rows = 1), `chainRootId` (first promise of the chain; missing = own id), `noFollowUpAlertedAt` (internal: the office was told once, `promises.follow-up-alert`). Indexes (migration `promises/20261123-0001-promises-follow-up-indexes`): `{ status:1, followUpId:1, closedAt:-1 }` (brokenWithoutFollowUp), `{ followUpOf:1 }`, `{ customerId:1, createdAt:-1 }` (recentPromises). No data migration.
+
 ### media
 `{ _id, ownerId, kind: 'visit_photo'|'deposit_slip'|'selfie'|'location_proof'|'refund_proof'|'voice_note'|'export', bucketKey: 'media/2026/11/15/<uuid>.jpg', contentType, sizeBytes, sha256, width, height, capturedAt, geo, status: 'pending'|'confirmed', thumbKey }` · `{ sha256:1 }`, TTL on pending: `{ createdAt:1 } partial(status=pending) 1 day` (implemented by job since TTL partial filters on status are allowed).
 
@@ -195,6 +197,12 @@ Derived, rebuildable from events. `{ userId, branchId, businessDate, status: 'no
 
 ### storage_cloud_objects [ADDED 1.40.0] (driver `cloudinary` only, ADR-053)
 `{ _id: <object key>, publicId, version, bytes, format, contentType, storedAt }`. A photo the phone uploaded that is already in Cloudinary but not yet confirmed. The confirm copies it to `media.cloud` and removes the record; an admin delete of an unconfirmed upload removes the Cloudinary file through it. Lookups by `_id`; no index, no migration (created on first write).
+
+### prospects [ADDED 2026-11-23, FR-PRO-001, ADR-061]
+`{ clientId, name, phones: [{ number: '+8801XXXXXXXXX', label | null }], address | null, note | null, location: { lat, lng, accuracyM | null } | null, branchId, createdBy: { id, name }, createdAt, createdDate (Dhaka), status: 'new'|'contacted'|'converted'|'dropped', statusChangedAt, convertedCustomerId | null, convertedErpCustomerId (customer code) | null, convertedAt | null, convertedDate (Dhaka, internal) | null, convertedBy: { id, name } | null, fromProspectId | null, history: [{ status, at, by: { id, name }, reason, convertedCustomerId, convertedErpCustomerId }], updatedAt, version }` · `{ clientId:1 } unique`, `{ branchId:1, createdAt:-1 }`, `{ 'createdBy.id':1, createdAt:-1 }`, `{ status:1, branchId:1 }` (migration `prospects/20261123-0001-prospects-indexes`). Never deleted; never written to the ERP.
+
+### jobs (scheduler leases, ADR-008/058)
+`{ _id: job name, lastRunKey: 'YYYY-MM-DDTHH:mm' (UTC minute of the last schedule slot claimed), lockedUntil, lastStartedAt, lastFinishedAt, lastError, runs }`. 1.45.0: the key is the slot's minute, not the tick's; only a newer slot can claim it. Existing documents keep working unchanged.
 
 ## 5. Location
 

@@ -1,0 +1,35 @@
+# 1.45.0 (owner request 2026-11-23): keep the Vercel deployment working when nobody has the admin panel open.
+# On Vercel the worker only runs when something calls /api/cron (ADR-034): ERP delta sync (every 2 min), outbox to the
+# ERP, attendance auto-close, collections requeue, photo copies to Cloudinary, ...
+# GitHub runs schedules at most every 5 minutes and often late, so an external pinger (e.g. cron-job.org every 1–2
+# minutes, same URL and header) is recommended on top (README "Automatic ERP sync"). Overlapping calls are safe: jobs
+# are leased in MongoDB and each schedule slot runs once.
+name: cron
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: cron
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Call /api/cron
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CRON_URL: https://howlader-apps-api.vercel.app/api/cron
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::notice::CRON_SECRET repository secret is not set; skipping (README: Automatic ERP sync)"
+            exit 0
+          fi
+          curl -fsS --max-time 90 --retry 2 --retry-delay 5 -H "Authorization: Bearer $CRON_SECRET" "$CRON_URL"
+          echo

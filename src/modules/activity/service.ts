@@ -3,6 +3,7 @@ import { ctx } from '../../core/context/index.js';
 import { type LeanDoc } from '../../core/db/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { branchQuery, type AuthUser } from '../../core/security/types.js';
+import { endOfBusinessDay, isIsoDate, startOfBusinessDay } from '../../core/time/index.js';
 import { getUsers } from '../users/index.js';
 import { getCustomerRefs } from '../customers/index.js';
 import { ACTIVITY_TYPES, FROM_EVENT, UNSEEN_CAP, type ActivityDraft } from './domain/feed.js';
@@ -26,13 +27,19 @@ export function subscribe(): void {
     });
 }
 
-export const listQuery = z.object({
-  branchId: z.string().max(64).optional(),
-  type: z.enum(ACTIVITY_TYPES).optional(),
-  userId: z.string().max(64).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(30),
-  cursor: z.string().max(200).optional(),
-});
+const day = z.string().refine(isIsoDate, 'YYYY-MM-DD');
+export const listQuery = z
+  .object({
+    branchId: z.string().max(64).optional(),
+    type: z.enum(ACTIVITY_TYPES).optional(),
+    userId: z.string().max(64).optional(),
+    // 1.45.0: inclusive Asia/Dhaka business dates on when it happened.
+    from: day.optional(),
+    to: day.optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(30),
+    cursor: z.string().max(200).optional(),
+  })
+  .refine((q) => !q.from || !q.to || q.from <= q.to, { message: 'from after to', path: ['to'] });
 
 async function seenAt(userId: string): Promise<Date | null> {
   const s = (await ActivitySeenModel.findOne({ userId }).lean()) as { at: Date } | null;
@@ -47,6 +54,7 @@ export async function list(user: AuthUser, q: z.infer<typeof listQuery>) {
   const scope = branchQuery(user, q.branchId);
   const cur = decodeCursor<{ id: string }>(q.cursor);
   const f: Record<string, unknown> = { ...scope, ...(q.type ? { type: q.type } : {}), ...(q.userId ? { actorId: q.userId } : {}), ...(cur ? { _id: { $lt: cur.id } } : {}) };
+  if (q.from || q.to) f.at = { ...(q.from ? { $gte: startOfBusinessDay(q.from) } : {}), ...(q.to ? { $lte: endOfBusinessDay(q.to) } : {}) };
   const rows = (await ActivityItemModel.find(f).sort({ _id: -1 }).limit(q.limit + 1).lean()) as Lean[];
   const items = rows.slice(0, q.limit);
   const last = items[items.length - 1];

@@ -10,11 +10,16 @@ export const manifest: ModuleManifest = {
   version: '1.0.0',
   description: 'Work-in/out, breaks, derived days, corrections, auto-close and leave (FR-ATT-001..008)',
   featureFlag: { key: 'module.attendance', default: false, description: 'Attendance', owner: 'field-api' },
-  dependsOn: ['audit', 'settings', 'users', 'media'],
+  dependsOn: ['audit', 'settings', 'users', 'media', 'rbac'],
   permissions: [
     { key: 'attendance.record', description: { en: 'Own work-in/out and breaks', bn: 'নিজের হাজিরা' }, defaults: { field_staff: true } },
     { key: 'attendance.view', description: { en: 'View attendance of others in scope', bn: 'হাজিরা দেখা' }, defaults: { super_admin: true, branch_manager: true, viewer: true } },
     { key: 'attendance.manage', description: { en: 'Corrections, leave approval, shift assignment', bn: 'হাজিরা সংশোধন ও ছুটি অনুমোদন' }, defaults: { super_admin: true, branch_manager: true } },
+    {
+      key: 'attendance.exempt',
+      description: { en: 'Does not do attendance: hidden in the app, never counted absent or late (FR-ATT-014)', bn: 'হাজিরা লাগবে না: অ্যাপে হাজিরা দেখাবে না, অনুপস্থিত বা দেরি গণনা হবে না' },
+      defaults: { super_admin: true },
+    },
     { key: 'leave.request', description: { en: 'Request leave', bn: 'ছুটির আবেদন' }, defaults: { field_staff: true } },
   ],
   routes: attendanceRoutes,

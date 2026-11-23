@@ -156,6 +156,7 @@ export async function login(
     refreshToken: string;
     permissions: string[];
     flags: Record<string, boolean>;
+    attendanceRequired: boolean;
     user: UserView;
   };
 }
