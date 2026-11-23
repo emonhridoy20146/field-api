@@ -201,12 +201,13 @@ describe('deltaSync keeps going where the old one got stuck (1.44.0)', () => {
 });
 
 describe('erp.customerScope (1.44.0)', () => {
-  it('receivables (default) leaves out a cash-only customer; all pulls it on the next run, starting every branch over', async () => {
+  it('receivables leaves out a cash-only customer; all (the default) pulls it on the next run, starting every branch over', async () => {
     const { setSystem } = await import('../../src/modules/settings/index.js');
     await ErpSyncStateModel.deleteMany({ _id: { $regex: '^customers:branch:' } });
     await CustomerModel.deleteMany({});
     const any = (await t.erp.listCustomers({ pageSize: 1 })).items[0]!;
     t.erp.upsertCustomer({ ...structuredClone(any), erpCustomerId: '777001', code: 'CUS777001', plans: [], recentPayments: [], updatedAt: '2026-01-01T00:00:00Z' });
+    await setSystem('erp.customerScope', 'receivables');
     const def = await deltaSync();
     expect(def.failedBranches).toBe(0);
     expect(await CustomerModel.countDocuments({ erpCustomerId: '777001' })).toBe(0);
@@ -219,8 +220,28 @@ describe('erp.customerScope (1.44.0)', () => {
     expect(await CustomerModel.countDocuments()).toBe(before + 1);
     const st = await ErpSyncStateModel.find({ _id: { $regex: '^customers:branch:' } }).lean();
     expect(st.every((x) => (x as { scope?: string }).scope === 'all')).toBe(true);
-    await setSystem('erp.customerScope', 'receivables');
     t.erp.removeCustomer('777001');
+  });
+
+  it('a customer with only a paid cash sale appears with nothing due; the cash invoice is listed but never open', async () => {
+    const any = (await t.erp.listCustomers({ pageSize: 1 })).items[0]!;
+    const cashPlan = { ...structuredClone(any.plans[0]!), erpPlanId: '990001', kind: 'cash' as const, status: 'completed' as const, schedule: [], outstandingPoisha: 0, paidPoisha: 1200000, installmentCount: 0, startDate: null, endDate: null };
+    t.erp.upsertCustomer({ ...structuredClone(any), erpCustomerId: '777002', code: 'CUS777002', plans: [cashPlan], recentPayments: [], updatedAt: t.ctx.clock.now().toISOString() });
+    await deltaSync();
+    const id = (await CustomerModel.findOne({ erpCustomerId: '777002' }).lean())!._id.toHexString();
+    const sa = await as(t, '01700000001');
+    const det = await sa.get(`/customers/${id}`);
+    expect(det.status).toBe(200);
+    expectConforms('GET', '/customers/{id}', 200, det.body);
+    expect(det.body.totalOutstandingPoisha).toBe(0);
+    expect(det.body.overduePoisha).toBe(0);
+    expect(det.body.daysOverdue).toBe(0);
+    expect(det.body.invoiceCount).toEqual({ total: 1, open: 0 });
+    expect(det.body.openInvoices).toEqual({ installment: 0, credit: 0 });
+    expect(det.body.plans[0].kind).toBe('cash');
+    const overdue = await sa.get('/customers?filter=overdue&limit=200');
+    expect((overdue.body.items as { id: string }[]).map((r) => r.id)).not.toContain(id);
+    t.erp.removeCustomer('777002');
   });
 });
 

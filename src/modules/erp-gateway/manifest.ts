@@ -35,9 +35,9 @@ export const manifest: ModuleManifest = {
       key: 'erp.customerScope',
       type: 'enum',
       enum: ['receivables', 'all'],
-      default: 'receivables',
+      default: 'all',
       description:
-        'FR-ERP-008 (1.44.0): which ERP customers are pulled. receivables = customers with an installment or credit invoice (as before); all = every ERP customer, cash-only ones show with nothing due. A change makes the next pull start over for every branch',
+        'FR-ERP-008 (1.44.0, owner decision 2026-11-23): which ERP customers and invoices are pulled. all (default) = every customer and every invoice, cash sales included (shown, never due); receivables = only customers with an installment or credit invoice (the pull before 1.44.0). A change makes the next pull start over for every branch',
     },
   ],
   jobs: [

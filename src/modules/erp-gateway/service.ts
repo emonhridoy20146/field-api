@@ -17,6 +17,7 @@ export function createClientFromConfig(): ErpClient {
     token: c.ERP_API_TOKEN!,
     nextToken: c.ERP_API_TOKEN_NEXT,
     timeoutMs: c.ERP_TIMEOUT_MS,
+    onWarn: (data, msg) => ctx().logger.warn(data, msg),
   });
 }
 
@@ -36,7 +37,7 @@ export async function isRecordOnly(): Promise<boolean> {
 
 /** Setting `erp.customerScope` (1.44.0); anything unexpected counts as the default. */
 export async function customerScope(): Promise<ErpCustomerScope> {
-  return (await getSetting<string>('erp.customerScope')) === 'all' ? 'all' : 'receivables';
+  return (await getSetting<string>('erp.customerScope')) === 'receivables' ? 'receivables' : 'all';
 }
 
 async function markSuccess(id: string, cursor: string | null, extra: Record<string, unknown> = {}) {
@@ -287,7 +288,7 @@ export async function listErpEmployees() {
 }
 
 export async function refreshCustomer(erpCustomerId: string): Promise<ErpCustomer | null> {
-  const c = await erpClient().getCustomer(erpCustomerId);
+  const c = await erpClient().getCustomer(erpCustomerId, { scope: await customerScope() });
   if (c) await publishCustomer(c);
   return c;
 }

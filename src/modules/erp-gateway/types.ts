@@ -54,7 +54,8 @@ export interface ErpLinePayment {
 }
 
 /** What one FOS plan is in the ERP: an installment invoice or a credit (pay-later) invoice (ADR-033). */
-export type ErpPlanKind = 'installment' | 'credit';
+/** 1.44.0 (ADR-057): `cash` = a cash sale, pulled with `invoices=all`; never due, never collectable in FOS. */
+export type ErpPlanKind = 'installment' | 'credit' | 'cash';
 export type ErpPlanFrequency = 'monthly' | 'weekly' | 'daily' | 'custom';
 
 export interface ErpPlanItem {
@@ -261,7 +262,8 @@ export interface ErpClient {
     /** 1.44.0: `receivables` (default) = customers with an installment or credit invoice; `all` = every ERP customer. */
     scope?: ErpCustomerScope;
   }): Promise<CustomerPage>;
-  getCustomer(erpCustomerId: string): Promise<ErpCustomer | null>;
+  /** 1.44.0: `scope: 'all'` also returns cash invoices (`invoices=all`) where the ERP supports it. */
+  getCustomer(erpCustomerId: string, opts?: { scope?: ErpCustomerScope }): Promise<ErpCustomer | null>;
   listPayments(erpCustomerId: string): Promise<ErpPayment[]>;
   postPayment(input: PostPaymentInput): Promise<PostPaymentResult>;
   /** Used after timeouts before retrying (erp-integration-spec v2 §4.9). */

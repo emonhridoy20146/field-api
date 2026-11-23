@@ -498,3 +498,19 @@ describe('customer page robustness (1.44.0)', () => {
     expect(mapPayment({ ...base, collector_employee_id: null, collector_name: 'Someone' }).referrerName).toBeNull();
   });
 });
+
+describe('cash invoices (1.44.0, ADR-057)', () => {
+  const inv = (over: Record<string, unknown> = {}) => ({
+    id: 9001, invoice_number: 'INV-9001', invoice_date: '2026-10-02', branch_id: 3, sale_type: 'cash', status: 'active',
+    payment_status: 'paid', collectable: false, grand_total: '12000.00', amount_paid: '12000.00', amount_due: '0.00', ...over,
+  });
+  it('a paid cash sale is kind cash, completed, with no schedule and nothing due', () => {
+    const c = mapCustomer(customer({ invoices: [inv()] }));
+    expect(c.plans[0]).toMatchObject({ kind: 'cash', status: 'completed', schedule: [], outstandingPoisha: 0, installmentCount: 0, endDate: null });
+  });
+  it('a cash invoice with money left is closed (never collectable or due in FOS)', () => {
+    const c = mapCustomer(customer({ invoices: [inv({ amount_paid: '2000.00', amount_due: '10000.00', payment_status: 'partial' })] }));
+    expect(c.plans[0]).toMatchObject({ kind: 'cash', status: 'closed', schedule: [] });
+  });
+});
+

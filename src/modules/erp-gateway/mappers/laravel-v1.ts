@@ -4,7 +4,7 @@
  * Shapes verified against the ERP code and a copy of its data (docs/erp-findings.md, erp-integration-spec v2).
  *
  * Key decisions (ADR-033):
- * - One FOS plan = one ERP receivable invoice (`sales_invoices`, sale_type installment|credit). erpPlanId is the
+ * - One FOS plan = one ERP invoice (`sales_invoices`, sale_type installment|credit; since 1.44.0 also cash, ADR-057). erpPlanId is the
  *   invoice id because the ERP records payments against invoices.
  * - Schedule line amount = due + late fee; paid comes from the ERP; zero lines are "rolled" (moved forward).
  * - Returned/cancelled invoices are not collectable (status closed/cancelled).
@@ -320,6 +320,9 @@ function planStatus(inv: LvInvoice, duePoisha: number): ErpPlanStatus {
   const s = inv.status.toLowerCase();
   if (s === 'cancelled') return 'cancelled';
   if (s === 'returned' || s === 'draft') return 'closed';
+  // 1.44.0 (ADR-057): a cash sale is never collected in the field. Paid → completed (shown, nothing due); a cash
+  // invoice with money left is still closed here, so it never counts as due, overdue or collectable in FOS.
+  if (inv.sale_type === 'cash') return duePoisha <= 0 ? 'completed' : 'closed';
   if (inv.sale_type !== 'installment' && inv.sale_type !== 'credit') return 'closed';
   if (duePoisha <= 0) return 'completed';
   if (inv.collectable === false) return 'closed';
@@ -356,9 +359,12 @@ export function mapInvoice(inv: LvInvoice): ErpPlan {
   const paid = poisha(inv.amount_paid);
   const writtenOff = poisha(inv.written_off);
   const plan = inv.installment_plan ?? null;
-  const kind = inv.sale_type === 'credit' ? 'credit' : 'installment';
+  const kind: ErpPlan['kind'] = inv.sale_type === 'credit' ? 'credit' : inv.sale_type === 'cash' ? 'cash' : 'installment';
   let schedule: ErpScheduleLine[];
-  if (plan) {
+  if (kind === 'cash') {
+    // 1.44.0: a cash sale has no schedule: no due dates, so it can never be due, missed or overdue.
+    schedule = [];
+  } else if (plan) {
     schedule = [...plan.schedules]
       .sort((a, b) => a.installment_no - b.installment_no)
       .map((l) => {
@@ -401,7 +407,7 @@ export function mapInvoice(inv: LvInvoice): ErpPlan {
     principalPoisha: plan ? poisha(plan.financed_amount) : total,
     downPaymentPoisha: down,
     totalPayablePoisha: total,
-    installmentCount: plan ? (plan.installment_count ?? schedule.length) : 1,
+    installmentCount: plan ? (plan.installment_count ?? schedule.length) : kind === 'cash' ? 0 : 1,
     startDate: dates[0] ?? null,
     // No end-date column in the ERP: the last line's due date is the final due date (E-05).
     endDate: dates[dates.length - 1] ?? null,
