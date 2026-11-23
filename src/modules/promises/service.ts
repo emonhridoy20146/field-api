@@ -1,16 +1,20 @@
 import { z } from 'zod';
 import { ctx } from '../../core/context/index.js';
 import { AppError, businessRule, notFound } from '../../core/errors/index.js';
-import { isDuplicateKey, isOid, type LeanDoc } from '../../core/db/index.js';
+import { isDuplicateKey, isOid, newId, type LeanDoc } from '../../core/db/index.js';
 import { recordChange } from '../../core/changefeed/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { formatBdt } from '../../core/money/index.js';
 import { addDays, businessDate, isIsoDate } from '../../core/time/index.js';
+import type { RequestMeta } from '../../core/http/router.js';
 import { branchQuery, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
+import * as audit from '../audit/index.js';
+import { raiseInboxItem, resolveInboxItem } from '../inbox/index.js';
 import { getSetting } from '../settings/index.js';
 import { getUsers } from '../users/index.js';
 import { erpPaidBetween, getCustomerRef, getCustomerRefs, setOpenPromiseDates, type ActivityPerson, type TimelineItem } from '../customers/index.js';
 import { dateInRange, isDue, promiseFor, verdict } from './domain/evaluate.js';
+import { FOLLOW_UP_STATUSES, attemptOf, chainRootOf, followUpOverdue, followUpProblem, newestFollowUp, nextInChain } from './domain/follow-up.js';
 import { PromiseModel } from './models/promise.model.js';
 
 type Lean = LeanDoc;
@@ -23,6 +27,8 @@ export const createSchema = z.object({
   promisedDate: z.string().refine(isIsoDate, 'YYYY-MM-DD'),
   promisedAmountPoisha: z.number().int().min(1),
   note: z.string().max(500).optional(),
+  /** 1.45.0 (FR-PRM-006): the broken / partially kept promise of the same customer this one follows up. */
+  followUpOf: z.string().max(64).nullish(),
 });
 
 function view(p: Lean) {
@@ -39,6 +45,12 @@ function view(p: Lean) {
     status: p.status,
     paidTowardsPoisha: p.paidTowardsPoisha ?? 0,
     createdAt: (p.createdAt as Date).toISOString(),
+    // 1.45.0 (FR-PRM-006): null on a first promise.
+    followUpOf: (p.followUpOf as string | null | undefined) ?? null,
+    followUpId: (p.followUpId as string | null | undefined) ?? null,
+    attempt: attemptOf({ attempt: p.attempt as number | null | undefined }),
+    chainRootId: chainRootOf({ id: p._id.toHexString(), chainRootId: p.chainRootId as string | null | undefined }),
+    closedAt: p.closedAt ? (p.closedAt as Date).toISOString() : null,
   };
 }
 
@@ -75,8 +87,30 @@ async function touch(p: Lean) {
   await recordChange({ entity: 'promise', entityId: p._id.toHexString(), userIds: [p.ownerId, p.createdBy], branchId: p.branchId, fanoutBranchId: p.branchId });
 }
 
+const noFollowUpKey = (promiseId: string) => `promise.no_follow_up:${promiseId}`;
+
+/** FR-PRM-006: the promise a new one follows up, checked against the caller's read scope and the customer. */
+async function followUpParent(user: AuthUser, parentId: string, customerId: string): Promise<Lean> {
+  const parent = isOid(parentId) ? ((await PromiseModel.findOne({ _id: parentId, ...readScope(user) }).lean()) as Lean | null) : null;
+  const problem = followUpProblem(parent ? { id: parent._id.toHexString(), customerId: parent.customerId, status: parent.status } : null, customerId);
+  if (problem || !parent) throw businessRule('PROMISE_FOLLOW_UP_INVALID', { reason: problem ?? 'NOT_FOUND', followUpOf: parentId });
+  return parent;
+}
+
+/** The parent shows its newest follow-up that is not cancelled; devices and lists are told when that changes. */
+async function refreshFollowUpId(parentId: string): Promise<void> {
+  const parent = (await PromiseModel.findById(parentId).lean()) as Lean | null;
+  if (!parent) return;
+  const children = (await PromiseModel.find({ followUpOf: parentId }).select('_id status createdAt').lean()) as Lean[];
+  const next = newestFollowUp(children.map((c) => ({ id: c._id.toHexString(), status: c.status, createdAt: c.createdAt as Date })));
+  if ((parent.followUpId ?? null) === next) return;
+  await PromiseModel.updateOne({ _id: parent._id }, { $set: { followUpId: next } });
+  await touch(parent);
+  if (next) await resolveInboxItem(noFollowUpKey(parentId));
+}
+
 /** FR-PRM-001: one open promise per plan; a new one supersedes the old (history kept). Idempotent by clientId. */
-export async function create(user: AuthUser, input: z.infer<typeof createSchema>): Promise<{ statusCode: 200 | 201; body: Awaited<ReturnType<typeof named>> }> {
+export async function create(user: AuthUser, input: z.infer<typeof createSchema>, meta?: RequestMeta): Promise<{ statusCode: 200 | 201; body: Awaited<ReturnType<typeof named>> }> {
   const prior = (await PromiseModel.findOne({ clientId: input.clientId }).lean()) as Lean | null;
   if (prior) {
     if (prior.createdBy !== user.id) throw new AppError('IDEMPOTENCY_MISMATCH', { clientId: input.clientId });
@@ -84,6 +118,7 @@ export async function create(user: AuthUser, input: z.infer<typeof createSchema>
   }
   const c = await getCustomerRef(user, input.customerId);
   if (!c?.branchId) throw notFound('customer');
+  const parent = input.followUpOf ? await followUpParent(user, input.followUpOf, c.id) : null;
   if (!dateInRange(input.promisedDate, today())) throw businessRule('PROMISE_DATE_RANGE', { min: today(), maxDaysAhead: 60 });
   const active = c.plans.filter((p) => p.status === 'active');
   const erpPlanId = input.erpPlanId ?? (active.length === 1 ? active[0]!.erpPlanId : null);
@@ -91,7 +126,9 @@ export async function create(user: AuthUser, input: z.infer<typeof createSchema>
   const now = ctx().clock.now();
   try {
     const old = (await PromiseModel.find({ customerId: c.id, erpPlanId, status: 'open' }).lean()) as Lean[];
+    const id = newId();
     const doc = await PromiseModel.create({
+      _id: id,
       clientId: input.clientId,
       branchId: c.branchId,
       customerId: c.id,
@@ -103,6 +140,8 @@ export async function create(user: AuthUser, input: z.infer<typeof createSchema>
       note: input.note ?? null,
       createdAt: now,
       createdDate: today(),
+      // A first promise is the root of its own chain.
+      ...(parent ? { followUpOf: parent._id.toHexString(), ...nextInChain({ id: parent._id.toHexString(), customerId: parent.customerId, status: parent.status, attempt: parent.attempt, chainRootId: parent.chainRootId }) } : { attempt: 1, chainRootId: id }),
     });
     for (const o of old) {
       await PromiseModel.updateOne({ _id: o._id, status: 'open' }, { $set: { status: 'superseded', closedAt: now, closeReason: `superseded by ${doc._id.toHexString()}` } });
@@ -111,10 +150,14 @@ export async function create(user: AuthUser, input: z.infer<typeof createSchema>
     const lean = doc.toObject() as Lean;
     await syncOverlay(c.id);
     await touch(lean);
+    if (parent) await refreshFollowUpId(parent._id.toHexString());
+    // FR-AUD-001: the office recording a promise from admin-web is audited (the app's promises are the staff's own work).
+    if (user.client === 'web')
+      await audit.record({ actor: user, action: 'promise.created', entity: 'promise', entityId: lean._id.toHexString(), branchId: c.branchId, after: { customerId: c.id, erpPlanId, promisedDate: input.promisedDate, promisedAmountPoisha: input.promisedAmountPoisha, followUpOf: lean.followUpOf ?? null }, ...(meta ? { meta } : {}) });
     await ctx().bus.emit('promise.created', { promiseId: lean._id.toHexString(), customerId: c.id, branchId: c.branchId, ownerId: lean.ownerId, promisedDate: input.promisedDate });
     return { statusCode: 201, body: await named(lean) };
   } catch (e) {
-    if (isDuplicateKey(e)) return create(user, input);
+    if (isDuplicateKey(e)) return create(user, input, meta);
     throw e;
   }
 }
@@ -127,6 +170,7 @@ export async function cancel(user: AuthUser, id: string, reason: string) {
   await PromiseModel.updateOne({ _id: id, status: 'open' }, { $set: { status: 'cancelled', closedAt: ctx().clock.now(), closeReason: reason } });
   await syncOverlay(p.customerId);
   await touch(p);
+  if (p.followUpOf) await refreshFollowUpId(p.followUpOf as string);
   return named((await PromiseModel.findById(id).lean()) as Lean);
 }
 
@@ -148,9 +192,16 @@ async function withRefs(rows: Lean[]) {
   });
 }
 
-export async function list(user: AuthUser, q: { branchId?: string | undefined; ownerId?: string | undefined; customerId?: string | undefined; date?: string | undefined; from?: string | undefined; to?: string | undefined; status?: string | undefined; limit: number; cursor?: string | undefined }) {
+export async function list(user: AuthUser, q: { branchId?: string | undefined; ownerId?: string | undefined; createdBy?: string | undefined; brokenWithoutFollowUp?: 'true' | 'false' | undefined; followUpOf?: string | undefined; customerId?: string | undefined; date?: string | undefined; from?: string | undefined; to?: string | undefined; status?: string | undefined; limit: number; cursor?: string | undefined }) {
   const f: Record<string, unknown> = { ...readScope(user), ...(q.branchId ? branchQuery(user, q.branchId) : {}) };
   if (q.ownerId && user.role !== 'field_staff') f.ownerId = q.ownerId;
+  // 1.45.0 (FR-PRM-006): who made it; the read scope above still applies.
+  if (q.createdBy) f.createdBy = q.createdBy;
+  if (q.followUpOf) f.followUpOf = q.followUpOf;
+  if (q.brokenWithoutFollowUp === 'true') {
+    f.status = { $in: [...FOLLOW_UP_STATUSES] };
+    f.followUpId = null; // also matches promises older than 1.45.0 that have no such field
+  }
   if (q.customerId) f.customerId = q.customerId;
   // `date` wins over the inclusive `from`/`to` range on the promised date.
   if (q.date) f.promisedDate = q.date;
@@ -179,6 +230,43 @@ export async function get(user: AuthUser, id: string) {
   const p = (await PromiseModel.findOne({ _id: id, ...readScope(user) }).lean()) as Lean | null;
   if (!p) throw notFound('promise');
   return named(p);
+}
+
+/** Customer detail (1.45.0, FR-PRM-006): the customer's last 20 promises, newest first, so the chain can be drawn. */
+export async function recentPromises(customerId: string) {
+  const rows = (await PromiseModel.find({ customerId }).sort({ createdAt: -1, _id: -1 }).limit(20).lean()) as Lean[];
+  return namedAll(rows);
+}
+
+/**
+ * FR-PRM-006 daily: broken / partially kept promises closed `promises.followUpAlertDays` Dhaka days ago or more that
+ * nobody followed up raise one inbox item each (never again for the same promise); a follow-up resolves it.
+ */
+export async function followUpAlert(): Promise<number> {
+  const date = today();
+  const rows = (await PromiseModel.find({ status: { $in: [...FOLLOW_UP_STATUSES] }, followUpId: null, closedAt: { $ne: null }, noFollowUpAlertedAt: null }).sort({ closedAt: 1 }).limit(5000).lean()) as Lean[];
+  const days = new Map<string, number>();
+  let n = 0;
+  for (const p of rows) {
+    if (!days.has(p.branchId)) days.set(p.branchId, (await getSetting<number>('promises.followUpAlertDays', p.branchId)) ?? 2);
+    const closedDate = businessDate(p.closedAt as Date);
+    if (!followUpOverdue(closedDate, date, days.get(p.branchId)!)) continue;
+    const r = await PromiseModel.updateOne({ _id: p._id, noFollowUpAlertedAt: null, followUpId: null }, { $set: { noFollowUpAlertedAt: ctx().clock.now() } });
+    if (r.modifiedCount !== 1) continue;
+    const id = p._id.toHexString();
+    await raiseInboxItem({
+      key: noFollowUpKey(id),
+      type: 'promise.no_follow_up',
+      branchId: p.branchId,
+      entity: 'promise',
+      entityId: id,
+      summary: { bn: `ভাঙা প্রতিশ্রুতির পরে নতুন প্রতিশ্রুতি নেওয়া হয়নি (${p.promisedDate})`, en: `No follow-up after a broken promise (${p.promisedDate})` },
+      link: `/customers/${p.customerId as string}`,
+    });
+    await ctx().bus.emit('promise.follow_up_overdue', { promiseId: id, customerId: p.customerId, branchId: p.branchId, ownerId: p.ownerId, createdBy: p.createdBy ?? p.ownerId, status: p.status, closedDate, days: days.get(p.branchId)! });
+    n++;
+  }
+  return n;
 }
 
 async function paidFor(p: Lean, until: string) {

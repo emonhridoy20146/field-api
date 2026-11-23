@@ -3200,7 +3200,7 @@ components:
         promisedDate: { type: string, format: date }
         promisedAmountPoisha: { type: integer, minimum: 1 }
         note: { type: string }
-        followUpOf: { type: string, description: 'Added in 1.45.0 (FR-PRM-006). Id of the broken or partially kept promise this one follows up (same customer). Omit for a first promise' }
+        followUpOf: { type: [string, 'null'], description: 'Added in 1.45.0 (FR-PRM-006). Id of the broken or partially kept promise this one follows up (same customer). Omit for a first promise' }
     Promise:
       allOf:
         - $ref: '#/components/schemas/PromiseCreate'
@@ -3228,7 +3228,7 @@ components:
             customer: { type: object, properties: { id: { type: string }, name: { $ref: '#/components/schemas/I18nText' }, code: { type: string } } }
             user: { type: object, properties: { id: { type: string }, name: { type: string } } }
             businessDate: { type: string, format: date, description: 'Added in 1.45.0. Asia/Dhaka business date of checkInAt (the day filters `date` / `from` / `to` use)' }
-            checkInLocalTime: { type: string, pattern: '^\\d{2}:\\d{2}$', description: 'Added in 1.45.0. Asia/Dhaka wall-clock time of checkInAt, HH:mm (24 h), so a table can show date and time without converting' }
+            checkInLocalTime: { type: string, pattern: '^\d{2}:\d{2}$', description: 'Added in 1.45.0. Asia/Dhaka wall-clock time of checkInAt, HH:mm (24 h), so a table can show date and time without converting' }
     PromiseListItem:
       description: 'Promise plus display refs, returned by GET /promises (1.4.0)'
       allOf:

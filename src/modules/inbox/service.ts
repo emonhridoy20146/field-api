@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { ctx } from '../../core/context/index.js';
 import { AppError, notFound } from '../../core/errors/index.js';
 import { isOid, type LeanDoc } from '../../core/db/index.js';
@@ -5,6 +6,7 @@ import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import type { I18n } from '../../core/module/types.js';
 import { branchQuery, type AuthUser } from '../../core/security/types.js';
+import { endOfBusinessDay, isIsoDate, startOfBusinessDay } from '../../core/time/index.js';
 import * as audit from '../audit/index.js';
 import { effectivePermissions } from '../rbac/index.js';
 import { InboxItemModel } from './models/inbox.model.js';
@@ -81,10 +83,30 @@ async function wakeSnoozed(): Promise<void> {
   await InboxItemModel.updateMany({ status: 'snoozed', snoozedUntil: { $lte: now() } }, { $set: { status: 'open', snoozedUntil: null } });
 }
 
-export async function list(user: AuthUser, q: { branchId?: string | undefined; status: 'open' | 'snoozed' | 'resolved'; type?: string | undefined; limit: number; cursor?: string | undefined }) {
+const day = z.string().refine(isIsoDate, 'YYYY-MM-DD');
+export const listQuery = z
+  .object({
+    branchId: z.string().max(64).optional(),
+    status: z.enum(['open', 'snoozed', 'resolved']).default('open'),
+    type: z.string().max(60).optional(),
+    from: day.optional(),
+    to: day.optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(25),
+    cursor: z.string().max(200).optional(),
+  })
+  .refine((q) => !q.from || !q.to || q.from <= q.to, { message: 'from after to', path: ['to'] });
+
+/** 1.45.0: inclusive Asia/Dhaka business dates on when the item was raised. */
+function raisedBetween(from?: string, to?: string): Record<string, unknown> {
+  if (!from && !to) return {};
+  return { createdAt: { ...(from ? { $gte: startOfBusinessDay(from) } : {}), ...(to ? { $lte: endOfBusinessDay(to) } : {}) } };
+}
+
+export async function list(user: AuthUser, q: z.infer<typeof listQuery>) {
   await wakeSnoozed();
   // Items without a branch (system-wide) are for super admins only, which branchQuery already implies.
-  const scope = { ...(await visibleTo(user, q.branchId)), visibleFrom: { $lte: now() } };
+  // `counts` follow the same dates as the items (contract 1.45.0).
+  const scope = { ...(await visibleTo(user, q.branchId)), visibleFrom: { $lte: now() }, ...raisedBetween(q.from, q.to) };
   const cur = decodeCursor<{ r: number; id: string }>(q.cursor);
   const f: Record<string, unknown> = { ...scope, status: q.status, ...(q.type ? { type: q.type } : {}) };
   if (cur) f.$and = [{ $or: [{ severityRank: { $lt: cur.r } }, { severityRank: cur.r, _id: { $lt: cur.id } }] }];

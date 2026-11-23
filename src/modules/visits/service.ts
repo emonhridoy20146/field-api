@@ -5,7 +5,7 @@ import { isDuplicateKey, isOid, type LeanDoc } from '../../core/db/index.js';
 import { recordChange } from '../../core/changefeed/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { haversineM } from '../../core/geo/index.js';
-import { addDays, businessDate, startOfBusinessDay } from '../../core/time/index.js';
+import { addDays, businessDate, dhakaMinuteOfDay, startOfBusinessDay } from '../../core/time/index.js';
 import { branchQuery, canSeeBranch, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
 import { getSetting } from '../settings/index.js';
 import { getUsers } from '../users/index.js';
@@ -147,6 +147,12 @@ export async function checkout(user: AuthUser, id: string, input: { checkOutAt: 
   return named((await VisitModel.findById(id).lean()) as Lean);
 }
 
+/** Dhaka wall-clock "HH:mm" (24 h) of an instant. */
+function dhakaHhmm(at: Date): string {
+  const m = dhakaMinuteOfDay(at);
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
 /** List rows carry display refs so admin tables need no extra calls (contract 1.4.0). */
 async function withRefs(rows: Lean[]) {
   const refs = await getCustomerRefs(rows.map((r) => r.customerId));
@@ -158,7 +164,8 @@ async function withRefs(rows: Lean[]) {
   return rows.map((v) => {
     const ref = refs.get(v.customerId);
     const u = users.get(v.userId);
-    const base = { ...view(v), userName: u ? u.name.en || u.name.bn : '' };
+    // 1.45.0: the Dhaka day and time of the check-in, so tables need not convert.
+    const base = { ...view(v), userName: u ? u.name.en || u.name.bn : '', businessDate: businessDate(v.checkInAt as Date), checkInLocalTime: dhakaHhmm(v.checkInAt as Date) };
     return { ...base, coWork: base.coWork ? { ...base.coWork, participants: base.coWork.participantIds.map((id) => ({ id, name: nameOf(id) })) } : null, customer: { id: v.customerId, name: ref?.name ?? { bn: '', en: '' }, code: ref?.code ?? '' }, user: { id: v.userId, name: u ? u.name.en || u.name.bn : '' } };
   });
 }
