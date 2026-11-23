@@ -3,7 +3,7 @@ import { syncMutations } from './sync.js';
 import { ctx } from '../../core/context/index.js';
 import { indexMigration } from '../../core/db/migrations.js';
 import type { AuthUser } from '../../core/security/types.js';
-import { registerListEnricher, registerTimelineSource } from '../customers/index.js';
+import { registerDetailContributor, registerListEnricher, registerTimelineSource } from '../customers/index.js';
 import { registerSummaryContributor } from '../handovers/index.js';
 import { promiseRoutes } from './routes.js';
 import * as s from './service.js';
@@ -13,20 +13,27 @@ export const manifest: ModuleManifest = {
   version: '1.0.0',
   description: 'Promise-to-pay with supersede, reminders and nightly evaluation (FR-PRM-001..003)',
   featureFlag: { key: 'module.promises', default: false, description: 'Promises to pay', owner: 'field-api' },
-  dependsOn: ['settings', 'users', 'customers', 'handovers'],
+  dependsOn: ['settings', 'users', 'customers', 'handovers', 'audit', 'inbox'],
   permissions: [
     { key: 'promise.create', description: { en: 'Record/update promise-to-pay', bn: 'প্রতিশ্রুতি রেকর্ড' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
     { key: 'promise.view', description: { en: 'View promises in scope', bn: 'প্রতিশ্রুতি দেখা' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
   ],
   routes: promiseRoutes,
-  events: { emits: ['promise.created', 'promise.kept', 'promise.broken', 'promise.due'], consumes: ['customer.payments_synced', 'handover.accepted'] },
-  settings: [{ key: 'promises.graceDays', type: 'int', default: 1, branchOverridable: true, exposeToApp: true, description: 'FR-PRM-003 grace days after the promised date' }],
+  events: { emits: ['promise.created', 'promise.kept', 'promise.broken', 'promise.due', 'promise.follow_up_overdue'], consumes: ['customer.payments_synced', 'handover.accepted'] },
+  settings: [
+    { key: 'promises.graceDays', type: 'int', default: 1, branchOverridable: true, exposeToApp: true, description: 'FR-PRM-003 grace days after the promised date' },
+    { key: 'promises.followUpAlertDays', type: 'int', default: 2, branchOverridable: true, description: 'FR-PRM-006 Dhaka days after a broken / partially kept promise without a follow-up before the office is alerted' },
+  ],
   jobs: [
     { name: 'promises.evaluate', schedule: '30 0 * * *', handler: async () => void (await s.evaluateDue()) },
     { name: 'promises.remind', schedule: '0 9 * * *', handler: async () => void (await s.remindToday()) },
+    { name: 'promises.follow-up-alert', schedule: '45 9 * * *', handler: async () => void (await s.followUpAlert()) },
   ],
   notificationTypes: [{ type: 'promise.due' }, { type: 'promise.broken' }],
-  inboxTypes: [{ type: 'promise.broken', severity: 'medium' }],
+  inboxTypes: [
+    { type: 'promise.broken', severity: 'medium' },
+    { type: 'promise.no_follow_up', severity: 'medium' },
+  ],
   syncEntities: [
     {
       entity: 'promise',
@@ -47,6 +54,12 @@ export const manifest: ModuleManifest = {
       { collection: 'promises', key: { branchId: 1, promisedDate: 1, status: 1 } },
       { collection: 'promises', key: { status: 1, promisedDate: 1 } },
     ]),
+    // 1.45.0 (FR-PRM-006): brokenWithoutFollowUp lists, the follow-up alert job and a promise's follow-ups.
+    indexMigration('20261123-0001-promises-follow-up-indexes', [
+      { collection: 'promises', key: { status: 1, followUpId: 1, closedAt: -1 } },
+      { collection: 'promises', key: { followUpOf: 1 } },
+      { collection: 'promises', key: { customerId: 1, createdAt: -1 } },
+    ]),
   ],
   init() {
     const bus = ctx().bus;
@@ -55,6 +68,7 @@ export const manifest: ModuleManifest = {
     registerListEnricher(async (ids) => new Map([...(await s.openByCustomer(ids))].map(([k, v]) => [k, { openPromise: v }])));
     registerListEnricher(async (ids) => new Map([...(await s.monthByCustomer(ids))].map(([k, v]) => [k, { monthPromises: v }])));
     registerTimelineSource(async (customerId, _u, before, limit) => s.timelineItems(customerId, before, limit));
+    registerDetailContributor(async (c) => ({ recentPromises: await s.recentPromises(c.id) }));
     registerSummaryContributor(async (p) => ({ openPromises: await s.openCount(p.customerIds) }));
   },
 };

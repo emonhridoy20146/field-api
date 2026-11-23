@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { defineRoutes, perm, requireUser } from '../../core/http/router.js';
+import { defineRoutes, perm, requestMeta, requireUser } from '../../core/http/router.js';
 import { parse } from '../../core/http/index.js';
 import * as s from './service.js';
 
@@ -9,11 +9,11 @@ export const promiseRoutes = defineRoutes((r) => {
   r.get('/promises', { access: perm('promise.view') }, async (req) =>
     s.list(
       requireUser(req),
-      parse(z.object({ branchId: z.string().max(64).optional(), ownerId: z.string().max(64).optional(), customerId: z.string().max(64).optional(), date: day.optional(), from: day.optional(), to: day.optional(), status: z.enum(['open', 'kept', 'partially_kept', 'broken', 'superseded', 'cancelled']).optional(), limit: z.coerce.number().int().min(1).max(200).default(50), cursor: z.string().max(200).optional() }), req.query),
+      parse(z.object({ branchId: z.string().max(64).optional(), ownerId: z.string().max(64).optional(), createdBy: z.string().max(64).optional(), brokenWithoutFollowUp: z.enum(['true', 'false']).optional(), followUpOf: z.string().max(64).optional(), customerId: z.string().max(64).optional(), date: day.optional(), from: day.optional(), to: day.optional(), status: z.enum(['open', 'kept', 'partially_kept', 'broken', 'superseded', 'cancelled']).optional(), limit: z.coerce.number().int().min(1).max(200).default(50), cursor: z.string().max(200).optional() }), req.query),
     ),
   );
   r.post('/promises', { access: perm('promise.create') }, async (req, reply) => {
-    const res = await s.create(requireUser(req), parse(s.createSchema, req.body));
+    const res = await s.create(requireUser(req), parse(s.createSchema, req.body), requestMeta(req));
     reply.code(res.statusCode);
     return res.body;
   });
