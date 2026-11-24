@@ -4,7 +4,7 @@ import { AppError, forbidden, notFound } from '../../core/errors/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { isOid } from '../../core/db/index.js';
 import { businessDate } from '../../core/time/index.js';
-import { branchQuery, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
+import { branchQuery, hasAllBranches, type AuthUser } from '../../core/security/types.js';
 import { can } from '../rbac/index.js';
 import { flagsFor } from '../flags/index.js';
 import { getSetting } from '../settings/index.js';
@@ -106,7 +106,7 @@ export async function collectionBoard(user: AuthUser, q: z.infer<typeof collecti
   const everywhere = (await getSetting<string>('reports.leaderboardScope')) !== 'branch';
   if (q.branchId && !isOid(q.branchId)) throw notFound('branch');
   // Which branches the caller may see on the board; undefined = all of them.
-  const allowed = everywhere || isSuperAdmin(user) ? undefined : manager ? user.branchIds : own ? [own] : [];
+  const allowed = everywhere || hasAllBranches(user) ? undefined : manager ? user.branchIds : own ? [own] : [];
   if (q.branchId && allowed && !allowed.includes(q.branchId)) throw notFound('branch');
   const branchIds = q.branchId ? [q.branchId] : allowed;
 

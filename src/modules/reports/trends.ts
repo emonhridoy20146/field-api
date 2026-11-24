@@ -3,7 +3,7 @@ import { ctx } from '../../core/context/index.js';
 import { AppError, notFound } from '../../core/errors/index.js';
 import { isOid, type LeanDoc } from '../../core/db/index.js';
 import { businessDate } from '../../core/time/index.js';
-import { branchQuery, canSeeBranch, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
+import { branchQuery, canSeeBranch, hasAllBranches, type AuthUser } from '../../core/security/types.js';
 import { flagsFor } from '../flags/index.js';
 import { getUsers, listByRole } from '../users/index.js';
 import { listBranches } from '../branches/index.js';
@@ -39,7 +39,7 @@ export async function staffPerformance(user: AuthUser, q: z.infer<typeof perform
   const range = reportRange(q.period, q.date, today());
   if (!range) throw bad('date', q.period === 'daily' ? 'today or earlier (YYYY-MM-DD)' : 'this month or earlier (YYYY-MM)');
   const branchId = branchInScope(user, q.branchId);
-  const all = await listByRole(['field_staff'], branchId ? [branchId] : isSuperAdmin(user) ? undefined : user.branchIds);
+  const all = await listByRole(['field_staff'], branchId ? [branchId] : hasAllBranches(user) ? undefined : user.branchIds);
   const staff = q.userId ? all.filter((u) => u.id === q.userId) : all;
   if (q.userId && !staff.length) throw notFound('user');
   staff.sort((a, b) => a.employeeCode.localeCompare(b.employeeCode));
@@ -200,7 +200,7 @@ export async function reconciliation(user: AuthUser, q: z.infer<typeof reconcili
 
 /** Dashboard (FR-COL-015): the day's targets and visit credit of the field staff in scope. */
 export async function teamDay(user: AuthUser, branchId: string | undefined, date: string, on: Record<string, boolean>) {
-  const staff = await listByRole(['field_staff'], branchId ? [branchId] : isSuperAdmin(user) ? undefined : user.branchIds);
+  const staff = await listByRole(['field_staff'], branchId ? [branchId] : hasAllBranches(user) ? undefined : user.branchIds);
   const out = { targetPoisha: 0, visitTarget: 0, visitCredit: 0 };
   if (on['module.targets'])
     for (const t of (await targetsOf(staff, date, date)).values()) {

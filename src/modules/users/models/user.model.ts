@@ -1,4 +1,5 @@
 import { Schema, model } from 'mongoose';
+import { ROLES } from '../../../core/security/types.js';
 
 const userSchema = new Schema(
   {
@@ -7,7 +8,7 @@ const userSchema = new Schema(
     username: { type: String, default: undefined },
     passwordHash: { type: String, required: true },
     mustChangePassword: { type: Boolean, default: true },
-    role: { type: String, enum: ['super_admin', 'branch_manager', 'field_staff', 'viewer'], required: true },
+    role: { type: String, enum: ROLES, required: true },
     branchIds: { type: [String], default: [] },
     employeeCode: { type: String, required: true },
     erpEmployeeId: { type: String, default: null },

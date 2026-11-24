@@ -11,7 +11,7 @@ export const manifest: ModuleManifest = {
   featureFlag: { key: 'module.devices', default: false, description: 'One active device per field staff', owner: 'field-api' },
   dependsOn: ['audit', 'users', 'flags', 'settings', 'auth'],
   permissions: [
-    { key: 'device.manage', description: { en: 'View devices, revoke sessions, unbind device', bn: 'ডিভাইস ব্যবস্থাপনা' }, defaults: { super_admin: true, branch_manager: true } },
+    { key: 'device.manage', description: { en: 'View devices, revoke sessions, unbind device', bn: 'ডিভাইস ব্যবস্থাপনা' }, defaults: { super_admin: true, area_manager: true, branch_manager: true } },
   ],
   routes: deviceRoutes,
   events: { emits: ['device.bound', 'device.unbound', 'device.approval_requested'], consumes: ['auth.login'] },

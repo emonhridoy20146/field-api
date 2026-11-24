@@ -16,12 +16,12 @@ export const manifest: ModuleManifest = {
   featureFlag: { key: 'module.collections', default: false, description: 'Field collections', owner: 'field-api' },
   dependsOn: ['audit', 'settings', 'branches', 'users', 'customers', 'erp-gateway', 'handovers'],
   permissions: [
-    { key: 'collection.record', description: { en: 'Record a field collection', bn: 'মাঠে টাকা আদায় রেকর্ড' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
-    { key: 'collection.view', description: { en: 'View collections in scope (the branch for FS)', bn: 'আদায় দেখা' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
-    { key: 'collection.void', description: { en: 'Void a collection not yet posted to ERP', bn: 'পোস্টের আগে আদায় বাতিল' }, defaults: { super_admin: true, branch_manager: true } },
-    { key: 'collection.withdraw', description: { en: 'Withdraw (delete) your own cash collection until it is deposited', bn: 'জমার আগে নিজের নগদ আদায় বাতিল' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
-    { key: 'collection.edit', description: { en: 'Correct the amount, note or payer of your own cash collection until it is deposited', bn: 'জমার আগে নিজের নগদ আদায় সংশোধন' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
-    { key: 'collection.resolve', description: { en: 'Resolve collection conflicts', bn: 'আদায়ের সমস্যা সমাধান' }, defaults: { super_admin: true, branch_manager: true } },
+    { key: 'collection.record', description: { en: 'Record a field collection', bn: 'মাঠে টাকা আদায় রেকর্ড' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, field_staff: true } },
+    { key: 'collection.view', description: { en: 'View collections in scope (the branch for FS)', bn: 'আদায় দেখা' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, field_staff: true, viewer: true } },
+    { key: 'collection.void', description: { en: 'Void a collection not yet posted to ERP', bn: 'পোস্টের আগে আদায় বাতিল' }, defaults: { super_admin: true, area_manager: true, branch_manager: true } },
+    { key: 'collection.withdraw', description: { en: 'Withdraw (delete) your own cash collection until it is deposited', bn: 'জমার আগে নিজের নগদ আদায় বাতিল' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, field_staff: true } },
+    { key: 'collection.edit', description: { en: 'Correct the amount, note or payer of your own cash collection until it is deposited', bn: 'জমার আগে নিজের নগদ আদায় সংশোধন' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, field_staff: true } },
+    { key: 'collection.resolve', description: { en: 'Resolve collection conflicts', bn: 'আদায়ের সমস্যা সমাধান' }, defaults: { super_admin: true, area_manager: true, branch_manager: true } },
   ],
   routes: collectionRoutes,
   events: {

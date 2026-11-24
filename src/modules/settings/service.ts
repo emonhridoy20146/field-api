@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { ctx } from '../../core/context/index.js';
 import { AppError, businessRule, notFound } from '../../core/errors/index.js';
 import type { SettingDef } from '../../core/module/types.js';
-import type { AuthUser } from '../../core/security/types.js';
+import { hasAllBranches, type AuthUser } from '../../core/security/types.js';
 import { isOid } from '../../core/db/index.js';
 import { weekday } from '../../core/time/index.js';
 import * as audit from '../audit/index.js';
@@ -76,7 +76,7 @@ export function validateValue(d: SettingDef, v: unknown): unknown {
 /** All settings visible to the user. Non-admins only see app-exposed keys. */
 export async function view(user: AuthUser, canManage: boolean, branchId?: string): Promise<Record<string, unknown>> {
   const defs = definitions().filter((d) => canManage || d.exposeToApp);
-  const b = branchId ?? (user.role === 'super_admin' ? undefined : user.branchIds[0]);
+  const b = branchId ?? (hasAllBranches(user) ? undefined : user.branchIds[0]);
   return getMany(defs.map((d) => d.key), b);
 }
 

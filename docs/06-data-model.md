@@ -21,6 +21,7 @@ Conventions
   "locale": "bn", "digits": "bn", "privacyNoticeAcceptedVersion": "2026-11-v1", "lastLoginAt": "…" }
 ```
 Indexes: `{ phone: 1 } unique`, `{ username: 1 } unique sparse`, `{ employeeCode: 1 } unique`, `{ branchIds: 1, role: 1, active: 1 }`.
+`role`: `super_admin | area_manager | branch_manager | field_staff | viewer` (`area_manager` 1.48.0, ADR-065: every branch by role; `branchIds[0]` is only the home branch). No data migration: existing users keep their role.
 
 ### sessions
 `{ _id, userId, familyId, refreshTokenHash (sha256), deviceId, client: 'app'|'web', userAgent, ip, createdAt, lastUsedAt, expiresAt, revokedAt, revokedReason }`
@@ -201,6 +202,9 @@ Derived, rebuildable from events. `{ userId, branchId, businessDate, status: 'no
 
 ### prospects [ADDED 2026-11-23, FR-PRO-001, ADR-061]
 `{ clientId, name, phones: [{ number: '+8801XXXXXXXXX', label | null }], address | null, note | null, location: { lat, lng, accuracyM | null } | null, branchId, createdBy: { id, name }, createdAt, createdDate (Dhaka), status: 'new'|'contacted'|'converted'|'dropped', statusChangedAt, convertedCustomerId | null, convertedErpCustomerId (customer code) | null, convertedAt | null, convertedDate (Dhaka, internal) | null, convertedBy: { id, name } | null, fromProspectId | null, history: [{ status, at, by: { id, name }, reason, convertedCustomerId, convertedErpCustomerId }], updatedAt, version }` · `{ clientId:1 } unique`, `{ branchId:1, createdAt:-1 }`, `{ 'createdBy.id':1, createdAt:-1 }`, `{ status:1, branchId:1 }` (migration `prospects/20261123-0001-prospects-indexes`). Never deleted; never written to the ERP.
+
+### requests [ADDED 2026-11-24, FR-REQ-001..006, ADR-066]
+`{ clientId, type: 'request'|'report'|'inform'|'complaint', priority: 'normal'|'important', title, body, customerId | null, photoMediaIds: [mediaId], branchId, createdBy: { id, name }, createdAt, createdDate (Dhaka), status: 'open'|'in_progress'|'forwarded'|'resolved'|'closed'|'reopened', level: 'area_manager'|'super_admin', currentQueue: 'area_manager'|'super_admin'|'assignee', assignee: { id, name } | null, participantIds: [userId] (creator + every assignee ever: who hears about changes on sync), dueAt | null, resolvedAt | null, resolvedBy | null, resolutionNote | null, closedAt | null, closedDate (Dhaka, bootstrap window) | null, timeline: [{ id, kind: 'created'|'comment'|'forwarded'|'assigned'|'status_changed'|'resolved'|'reopened'|'closed', at, actor: { id, name }, note | null, from: { queue, user } | null, to: { queue, user } | null, status: { from, to } | null, clientId (comments) | null }], updatedAt, version }` · `{ clientId:1 } unique`, `{ branchId:1, status:1, _id:-1 }`, `{ status:1, currentQueue:1, _id:-1 }`, `{ 'createdBy.id':1, _id:-1 }`, `{ 'assignee.id':1, status:1 }`, `{ createdDate:1 }` (migration `requests/20261124-0001-requests-indexes`, indexes only, idempotent). `timeline` is append-only (`$push` only). Never deleted; never sent to the ERP.
 
 ### jobs (scheduler leases, ADR-008/058)
 `{ _id: job name, lastRunKey: 'YYYY-MM-DDTHH:mm' (UTC minute of the last schedule slot claimed), lockedUntil, lastStartedAt, lastFinishedAt, lastError, runs }`. 1.45.0: the key is the slot's minute, not the tick's; only a newer slot can claim it. Existing documents keep working unchanged.

@@ -10,8 +10,8 @@ export const manifest: ModuleManifest = {
   featureFlag: { key: 'module.targets', default: false, description: 'Daily targets', owner: 'field-api' },
   dependsOn: ['audit', 'users', 'branches', 'attendance'],
   permissions: [
-    { key: 'target.view', description: { en: 'View daily targets in scope', bn: 'দৈনিক টার্গেট দেখা' }, defaults: { super_admin: true, branch_manager: true, viewer: true } },
-    { key: 'target.manage', description: { en: 'Set daily targets for staff and branch defaults', bn: 'দৈনিক টার্গেট নির্ধারণ' }, defaults: { super_admin: true, branch_manager: true } },
+    { key: 'target.view', description: { en: 'View daily targets in scope', bn: 'দৈনিক টার্গেট দেখা' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, viewer: true } },
+    { key: 'target.manage', description: { en: 'Set daily targets for staff and branch defaults', bn: 'দৈনিক টার্গেট নির্ধারণ' }, defaults: { super_admin: true, area_manager: true, branch_manager: true } },
   ],
   routes: targetRoutes,
   events: { emits: [], consumes: [] },

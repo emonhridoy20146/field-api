@@ -10,7 +10,7 @@ export const manifest: ModuleManifest = {
   description: 'In-house feature flags, global default OFF with per-branch overrides (ADR-015)',
   dependsOn: ['audit', 'settings'],
   permissions: [
-    { key: 'flag.manage', description: { en: 'Toggle feature flags', bn: 'ফিচার ফ্ল্যাগ চালু/বন্ধ' }, defaults: { super_admin: true } },
+    { key: 'flag.manage', description: { en: 'Toggle feature flags', bn: 'ফিচার ফ্ল্যাগ চালু/বন্ধ' }, defaults: { super_admin: true }, neverFor: ['area_manager'] },
   ],
   routes: flagRoutes,
   events: { emits: ['flag.changed'], consumes: [] },

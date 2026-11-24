@@ -43,7 +43,7 @@ try {
   if (!a || !b) throw new Error('no branches came from the ERP');
 
   const users: [
-    role: 'super_admin' | 'branch_manager' | 'field_staff' | 'viewer',
+    role: 'super_admin' | 'area_manager' | 'branch_manager' | 'field_staff' | 'viewer',
     phone: string,
     code: string,
     branchIds: string[],
@@ -57,6 +57,8 @@ try {
     ['field_staff', '01700000004', 'FS015', [a], 'Sumon Mia', '8'],
     ['field_staff', '01700000005', 'FS101', [b], 'Babul B', '9'],
     ['viewer', '01700000006', 'VW001', [a], 'Auditor'],
+    // 1.48.0 (ADR-065): every branch by role; [a] is only the home branch.
+    ['area_manager', '01700000007', 'AM001', [a], 'Area Manager'],
   ];
   const idOf = new Map<string, string>();
   for (const [role, phone, employeeCode, branchIds, name, erpEmployeeId] of users) {

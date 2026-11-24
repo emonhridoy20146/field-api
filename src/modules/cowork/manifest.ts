@@ -14,8 +14,8 @@ export const manifest: ModuleManifest = {
   dependsOn: ['audit', 'settings', 'users', 'visits', 'attendance'],
   permissions: [
     { key: 'cowork.use', description: { en: 'Ask colleagues to work together and answer such requests', bn: 'সহকর্মীর সাথে যৌথ কাজের অনুরোধ ও উত্তর' }, defaults: { field_staff: true } },
-    { key: 'cowork.view', description: { en: 'View co-work sessions in scope', bn: 'যৌথ কাজের সেশন দেখা' }, defaults: { super_admin: true, branch_manager: true, viewer: true } },
-    { key: 'cowork.manage', description: { en: 'End a co-work session with a reason', bn: 'কারণসহ যৌথ কাজ বন্ধ করা' }, defaults: { super_admin: true, branch_manager: true } },
+    { key: 'cowork.view', description: { en: 'View co-work sessions in scope', bn: 'যৌথ কাজের সেশন দেখা' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, viewer: true } },
+    { key: 'cowork.manage', description: { en: 'End a co-work session with a reason', bn: 'কারণসহ যৌথ কাজ বন্ধ করা' }, defaults: { super_admin: true, area_manager: true, branch_manager: true } },
   ],
   routes: coworkRoutes,
   events: { emits: ['cowork.requested', 'cowork.responded', 'cowork.ended', 'cowork.cancelled'], consumes: ['attendance.event', 'attendance.auto_closed'] },

@@ -6,7 +6,7 @@ import { recordChange } from '../../core/changefeed/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { haversineM } from '../../core/geo/index.js';
 import { addDays, businessDate, dhakaMinuteOfDay, startOfBusinessDay } from '../../core/time/index.js';
-import { branchQuery, canSeeBranch, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
+import { branchQuery, canSeeBranch, hasAllBranches, type AuthUser } from '../../core/security/types.js';
 import { getSetting } from '../settings/index.js';
 import { getUsers } from '../users/index.js';
 import { getCustomerRef, getCustomerRefs, type ActivityPerson, type TimelineItem } from '../customers/index.js';
@@ -36,7 +36,7 @@ let coWorkResolver: CoWorkResolver | null = null;
 export const registerCoWorkResolver = (fn: CoWorkResolver) => void (coWorkResolver = fn);
 
 export function scopeFilter(user: AuthUser): Record<string, unknown> {
-  if (isSuperAdmin(user)) return {};
+  if (hasAllBranches(user)) return {};
   // A partner of a joint visit sees it too (FR-CW-003).
   if (user.role === 'field_staff') return { $or: [{ userId: user.id }, { 'coWork.participantIds': user.id }] };
   return { branchId: { $in: user.branchIds } };
@@ -47,7 +47,7 @@ export function scopeFilter(user: AuthUser): Record<string, unknown> {
  * it. Writing stays with the recorder (`checkout` matches `userId`), never this filter.
  */
 export function readScope(user: AuthUser): Record<string, unknown> {
-  return isSuperAdmin(user) ? {} : { branchId: { $in: user.branchIds } };
+  return hasAllBranches(user) ? {} : { branchId: { $in: user.branchIds } };
 }
 
 function view(v: Lean) {

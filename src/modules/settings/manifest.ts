@@ -10,7 +10,7 @@ export const manifest: ModuleManifest = {
   description: 'Typed org/branch settings, holidays and shifts (FR-SET-*)',
   dependsOn: ['audit'],
   permissions: [
-    { key: 'settings.manage', description: { en: 'Org settings, duty hours, thresholds, holidays', bn: 'সেটিংস, ডিউটি সময়, ছুটি' }, defaults: { super_admin: true } },
+    { key: 'settings.manage', description: { en: 'Org settings, duty hours, thresholds, holidays', bn: 'সেটিংস, ডিউটি সময়, ছুটি' }, defaults: { super_admin: true }, neverFor: ['area_manager'] },
   ],
   routes: settingsRoutes,
   events: { emits: ['settings.changed'], consumes: [] },

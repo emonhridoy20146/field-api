@@ -15,6 +15,8 @@ export interface PermissionDef {
   description: I18n;
   defaults: Partial<Record<Role, boolean>>;
   reserved?: boolean;
+  /** Roles that never hold this key, whatever the overrides say (ADR-065: area managers never manage users, roles, flags or settings). */
+  neverFor?: Role[];
 }
 
 export interface SettingDef {

@@ -12,8 +12,8 @@ export const manifest: ModuleManifest = {
   featureFlag: { key: 'module.assignments', default: false, description: 'Areas and assignments', owner: 'field-api' },
   dependsOn: ['audit', 'users', 'customers'],
   permissions: [
-    { key: 'assignment.view', description: { en: 'View assignments and areas', bn: 'এলাকা ও দায়িত্ব দেখা' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
-    { key: 'assignment.manage', description: { en: 'Assign customers/areas, edit areas', bn: 'গ্রাহক/এলাকা দায়িত্ব দেওয়া' }, defaults: { super_admin: true, branch_manager: true } },
+    { key: 'assignment.view', description: { en: 'View assignments and areas', bn: 'এলাকা ও দায়িত্ব দেখা' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, field_staff: true, viewer: true } },
+    { key: 'assignment.manage', description: { en: 'Assign customers/areas, edit areas', bn: 'গ্রাহক/এলাকা দায়িত্ব দেওয়া' }, defaults: { super_admin: true, area_manager: true, branch_manager: true } },
   ],
   routes: assignmentRoutes,
   events: { emits: ['assignment.changed'], consumes: ['customer.placed'] },

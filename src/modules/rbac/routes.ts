@@ -8,7 +8,7 @@ const change = z.object({ key: z.string(), effect: z.enum(['allow', 'deny', 'inh
 
 export const rbacRoutes = defineRoutes((r) => {
   r.get('/rbac/permissions', { access: perm('rbac.view') }, async () =>
-    s.catalog().map((p) => ({ key: p.key, module: p.module, description: p.description, defaults: p.defaults, reserved: !!p.reserved })),
+    s.catalog().map((p) => ({ key: p.key, module: p.module, description: p.description, defaults: p.defaults, reserved: !!p.reserved, neverFor: p.neverFor ?? [] })),
   );
   r.get('/rbac/users/:userId/effective', { access: perm('rbac.view') }, async (req) => s.explain(requireUser(req), (req.params as { userId: string }).userId));
   r.get('/rbac/overrides/branch/:branchId', { access: perm('rbac.view') }, async (req) => s.listBranchOverrides(requireUser(req), (req.params as { branchId: string }).branchId));

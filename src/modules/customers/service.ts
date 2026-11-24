@@ -7,7 +7,7 @@ import { classifyCoords, haversineM, parseBbox, type LatLng } from '../../core/g
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { formatBdt } from '../../core/money/index.js';
 import { businessDate, diffDays } from '../../core/time/index.js';
-import { branchQuery, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
+import { branchQuery, hasAllBranches, type AuthUser } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { getBranches, getByErpBranchId } from '../branches/index.js';
@@ -102,7 +102,7 @@ export async function wholeBranchIds(branchIds: string[]): Promise<string[]> {
  * work a customer is (Today, targets, handovers); it no longer hides the rest of the branch.
  */
 export async function scopeFilter(user: AuthUser): Promise<Record<string, unknown>> {
-  if (isSuperAdmin(user)) return {};
+  if (hasAllBranches(user)) return {};
   const inBranches = { branchId: { $in: user.branchIds } };
   if (user.role !== 'field_staff') return inBranches;
   const whole = await wholeBranchIds(user.branchIds);

@@ -11,8 +11,8 @@ export const manifest: ModuleManifest = {
   description: 'Permission catalog, overrides and evaluation (FR-RBAC-*)',
   dependsOn: ['audit', 'users'],
   permissions: [
-    { key: 'rbac.view', description: { en: 'View roles, overrides, effective permissions', bn: 'অনুমতি দেখা' }, defaults: { super_admin: true, branch_manager: true } },
-    { key: 'rbac.manage', description: { en: 'Change branch/user permission overrides', bn: 'অনুমতি পরিবর্তন' }, defaults: { super_admin: true } },
+    { key: 'rbac.view', description: { en: 'View roles, overrides, effective permissions', bn: 'অনুমতি দেখা' }, defaults: { super_admin: true, area_manager: true, branch_manager: true } },
+    { key: 'rbac.manage', description: { en: 'Change branch/user permission overrides', bn: 'অনুমতি পরিবর্তন' }, defaults: { super_admin: true }, neverFor: ['area_manager'] },
   ],
   routes: rbacRoutes,
   events: { emits: ['rbac.changed'], consumes: ['user.updated'] },

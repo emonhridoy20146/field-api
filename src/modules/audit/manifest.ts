@@ -9,7 +9,7 @@ export const manifest: ModuleManifest = {
   description: 'Append-only, hash-chained audit log (FR-AUD-*)',
   dependsOn: [],
   permissions: [
-    { key: 'audit.view', description: { en: 'View audit log in scope', bn: 'অডিট লগ দেখা' }, defaults: { super_admin: true, viewer: true } },
+    { key: 'audit.view', description: { en: 'View audit log in scope', bn: 'অডিট লগ দেখা' }, defaults: { super_admin: true, area_manager: true, viewer: true } },
   ],
   routes: auditRoutes,
   migrations: [

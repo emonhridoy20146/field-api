@@ -19,6 +19,9 @@ interface Rule {
   keepActor?: boolean;
 }
 
+/** Recipients the emitting module already worked out (e.g. the request queues, ADR-066); never the actor. */
+const listed = (p: P) => (Array.isArray(p.toUserIds) ? p.toUserIds.map(str) : []);
+
 const managers = (permission: string) => async (p: P) => (str(p.branchId) ? holdersOf(permission, str(p.branchId)) : []);
 /** Every holder of the permission in any branch: for records shared by all branches (map places, ADR-054). */
 const allHolders = (permission: string) => async () => holdersOf(permission, null);
@@ -268,9 +271,75 @@ const RULES: Rule[] = [
     body: (p) => t(`"${str(p.title)}" কাজটি বাতিল করা হয়েছে।`, `"${str(p.title)}" was cancelled.`),
     data: (p) => ({ taskId: str(p.taskId), decision: 'cancelled' }),
   },
+  // 1.48.0 requests / tickets (FR-REQ-005, ADR-066). The requests module names the recipients: the queue (super admin
+  // or area managers, falling back to the super admins), the person it was forwarded or assigned to, or the creator.
+  {
+    event: 'request.created',
+    type: 'request.important',
+    to: (p) => (p.priority === 'important' ? listed(p) : []),
+    title: () => t('জরুরি অনুরোধ', 'Important request'),
+    body: (p) => t(`${str(p.byName)}: ${str(p.title)}`, `${str(p.byName)}: ${str(p.title)}`),
+    data: (p) => ({ requestId: str(p.requestId) }),
+  },
+  {
+    event: 'request.created',
+    type: 'request.created',
+    to: (p) => (p.priority === 'important' ? [] : listed(p)),
+    title: () => t('নতুন অনুরোধ', 'New request'),
+    body: (p) => t(`${str(p.byName)}: ${str(p.title)}`, `${str(p.byName)}: ${str(p.title)}`),
+    data: (p) => ({ requestId: str(p.requestId) }),
+  },
+  {
+    event: 'request.forwarded',
+    type: 'request.forwarded',
+    to: listed,
+    title: () => t('অনুরোধ ফরোয়ার্ড করা হয়েছে', 'Request forwarded to you'),
+    body: (p) => t(`${str(p.byName)}: "${str(p.title)}" — ${str(p.note)}`, `${str(p.byName)}: "${str(p.title)}" — ${str(p.note)}`),
+    data: (p) => ({ requestId: str(p.requestId) }),
+  },
+  {
+    event: 'request.assigned',
+    type: 'request.assigned',
+    to: listed,
+    title: () => t('আপনাকে একটি অনুরোধ দেওয়া হয়েছে', 'Request assigned to you'),
+    body: (p) => t(`${str(p.byName)}: "${str(p.title)}"`, `${str(p.byName)}: "${str(p.title)}"`),
+    data: (p) => ({ requestId: str(p.requestId) }),
+  },
+  {
+    event: 'request.commented',
+    type: 'request.commented',
+    to: listed,
+    title: () => t('অনুরোধে নতুন মন্তব্য', 'New comment on a request'),
+    body: (p) => t(`${str(p.byName)} "${str(p.title)}"-এ মন্তব্য করেছেন।`, `${str(p.byName)} commented on "${str(p.title)}".`),
+    data: (p) => ({ requestId: str(p.requestId) }),
+  },
+  {
+    event: 'request.resolved',
+    type: 'request.resolved',
+    to: listed,
+    title: () => t('আপনার অনুরোধের সমাধান হয়েছে', 'Your request was resolved'),
+    body: (p) => t(`"${str(p.title)}": ${str(p.note)}`, `"${str(p.title)}": ${str(p.note)}`),
+    data: (p) => ({ requestId: str(p.requestId) }),
+  },
+  {
+    event: 'request.reopened',
+    type: 'request.reopened',
+    to: listed,
+    title: () => t('অনুরোধ আবার খোলা হয়েছে', 'Request reopened'),
+    body: (p) => t(`${str(p.byName)}: "${str(p.title)}" — ${str(p.note)}`, `${str(p.byName)}: "${str(p.title)}" — ${str(p.note)}`),
+    data: (p) => ({ requestId: str(p.requestId) }),
+  },
+  {
+    event: 'request.closed',
+    type: 'request.closed',
+    to: listed,
+    title: () => t('অনুরোধ বন্ধ করা হয়েছে', 'Request closed'),
+    body: (p) => t(`"${str(p.title)}" বন্ধ করা হয়েছে।`, `"${str(p.title)}" was closed.`),
+    data: (p) => ({ requestId: str(p.requestId) }),
+  },
 ];
 
-export const CONSUMED_EVENTS = RULES.map((r) => r.event);
+export const CONSUMED_EVENTS = [...new Set(RULES.map((r) => r.event))];
 
 export function subscribe(): void {
   for (const r of RULES)

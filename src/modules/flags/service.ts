@@ -1,7 +1,7 @@
 import { Schema, model } from 'mongoose';
 import { ctx } from '../../core/context/index.js';
 import { AppError, businessRule, notFound } from '../../core/errors/index.js';
-import type { AuthUser } from '../../core/security/types.js';
+import { hasAllBranches, type AuthUser } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { getSetting } from '../settings/index.js';
@@ -61,7 +61,7 @@ export async function isEnabledForUser(key: string, user: AuthUser | null): Prom
   if (!user) return isEnabled(key);
   const s = (await states()).get(key);
   if (!s) return false;
-  if (user.role === 'super_admin') return s.defaultEnabled || s.branchOverrides.some((o) => o.enabled);
+  if (hasAllBranches(user)) return s.defaultEnabled || s.branchOverrides.some((o) => o.enabled);
   for (const b of user.branchIds) if (await isEnabled(key, b)) return true;
   return false;
 }

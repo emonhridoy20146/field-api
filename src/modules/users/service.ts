@@ -4,7 +4,7 @@ import { AppError, businessRule, notFound } from '../../core/errors/index.js';
 import { isDuplicateKey, isOid } from '../../core/db/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { hashPassword, normalizeBdPhone, temporaryPassword, verifyPassword } from '../../core/security/crypto.js';
-import { ROLES, isSuperAdmin, type AuthUser, type Role } from '../../core/security/types.js';
+import { OFFICE_ADMIN_ROLES, ROLES, hasAllBranches, isSuperAdmin, type AuthUser, type Role } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { UserModel } from './models/user.model.js';
@@ -69,13 +69,14 @@ export function checkPasswordPolicy(pw: string, phone: string): void {
 // ---------- scope helpers ----------
 function canManageTarget(actor: AuthUser, target: { role: Role; branchIds: string[] }): boolean {
   if (isSuperAdmin(actor)) return true;
-  // BM (when granted user.manage) may only manage FS/VW in their own branches.
-  if (target.role === 'super_admin' || target.role === 'branch_manager') return false;
+  // Anyone else granted user.manage (a BM by override) may only manage FS/VW in their own branches: never an office
+  // admin role (super admin, area manager, branch manager; ADR-065).
+  if (OFFICE_ADMIN_ROLES.includes(target.role)) return false;
   return target.branchIds.length > 0 && target.branchIds.every((b) => actor.branchIds.includes(b));
 }
 
 function inViewScope(actor: AuthUser, target: { branchIds: string[] }): boolean {
-  return isSuperAdmin(actor) || target.branchIds.some((b) => actor.branchIds.includes(b));
+  return hasAllBranches(actor) || target.branchIds.some((b) => actor.branchIds.includes(b));
 }
 
 // ---------- queries ----------
@@ -108,7 +109,7 @@ export async function getUserInScope(actor: AuthUser, id: string): Promise<UserV
 
 export async function list(actor: AuthUser, q: { branchId?: string; role?: Role; active?: boolean; q?: string; limit: number; cursor?: string }) {
   const filter: Record<string, unknown> = {};
-  if (!isSuperAdmin(actor)) filter.branchIds = q.branchId && actor.branchIds.includes(q.branchId) ? q.branchId : { $in: q.branchId ? [] : actor.branchIds };
+  if (!hasAllBranches(actor)) filter.branchIds = q.branchId && actor.branchIds.includes(q.branchId) ? q.branchId : { $in: q.branchId ? [] : actor.branchIds };
   else if (q.branchId) filter.branchIds = q.branchId;
   if (q.role) filter.role = q.role;
   if (q.active !== undefined) filter.active = q.active;

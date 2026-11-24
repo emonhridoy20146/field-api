@@ -9,8 +9,8 @@ export const manifest: ModuleManifest = {
   description: 'FOS users (FR-USER-*)',
   dependsOn: ['audit'],
   permissions: [
-    { key: 'user.view', description: { en: 'List/view users in scope', bn: 'ব্যবহারকারী দেখা' }, defaults: { super_admin: true, branch_manager: true, viewer: true } },
-    { key: 'user.manage', description: { en: 'Create/edit/deactivate users, reset password', bn: 'ব্যবহারকারী তৈরি/সম্পাদনা/নিষ্ক্রিয়' }, defaults: { super_admin: true } },
+    { key: 'user.view', description: { en: 'List/view users in scope', bn: 'ব্যবহারকারী দেখা' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, viewer: true } },
+    { key: 'user.manage', description: { en: 'Create/edit/deactivate users, reset password', bn: 'ব্যবহারকারী তৈরি/সম্পাদনা/নিষ্ক্রিয়' }, defaults: { super_admin: true }, neverFor: ['area_manager'] },
   ],
   routes: userRoutes,
   events: { emits: ['user.created', 'user.updated', 'user.deactivated', 'user.activated', 'user.password_reset'], consumes: [] },

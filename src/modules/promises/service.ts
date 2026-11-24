@@ -7,7 +7,7 @@ import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { formatBdt } from '../../core/money/index.js';
 import { addDays, businessDate, isIsoDate } from '../../core/time/index.js';
 import type { RequestMeta } from '../../core/http/router.js';
-import { branchQuery, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
+import { branchQuery, hasAllBranches, type AuthUser } from '../../core/security/types.js';
 import * as audit from '../audit/index.js';
 import { raiseInboxItem, resolveInboxItem } from '../inbox/index.js';
 import { getSetting } from '../settings/index.js';
@@ -67,14 +67,14 @@ const named = async (p: Lean) => (await namedAll([p]))[0]!;
 
 /** Writes (cancel) stay with the owner; reads use [readScope]. */
 export function scopeFilter(user: AuthUser): Record<string, unknown> {
-  if (isSuperAdmin(user)) return {};
+  if (hasAllBranches(user)) return {};
   if (user.role === 'field_staff') return { ownerId: user.id };
   return { branchId: { $in: user.branchIds } };
 }
 
 /** Who may READ a promise (FR-ACT-002, ADR-046): staff see every promise of their branches. */
 export function readScope(user: AuthUser): Record<string, unknown> {
-  return isSuperAdmin(user) ? {} : { branchId: { $in: user.branchIds } };
+  return hasAllBranches(user) ? {} : { branchId: { $in: user.branchIds } };
 }
 
 /** Keep the customers overlay (`promised_today` filter) in step with open promises. */

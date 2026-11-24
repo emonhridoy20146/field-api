@@ -4,7 +4,7 @@ import { isOid } from '../../core/db/index.js';
 import { businessRule, notFound } from '../../core/errors/index.js';
 import { inBangladesh } from '../../core/geo/index.js';
 import type { RequestMeta } from '../../core/http/router.js';
-import { isSuperAdmin, type AuthUser } from '../../core/security/types.js';
+import { hasAllBranches, type AuthUser } from '../../core/security/types.js';
 import * as audit from '../audit/index.js';
 import type { ErpBranch } from '../erp-gateway/index.js';
 
@@ -127,7 +127,7 @@ export async function setLocation(
 }
 
 export async function listBranches(user?: AuthUser): Promise<BranchView[]> {
-  const filter = user && !isSuperAdmin(user) ? { _id: { $in: user.branchIds.filter(isOid) } } : {};
+  const filter = user && !hasAllBranches(user) ? { _id: { $in: user.branchIds.filter(isOid) } } : {};
   return (await BranchModel.find(filter).sort({ code: 1 }).lean()).map(view);
 }
 

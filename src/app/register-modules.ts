@@ -36,6 +36,7 @@ import { manifest as tasks } from '../modules/tasks/manifest.js';
 import { manifest as activity } from '../modules/activity/manifest.js';
 import { manifest as places } from '../modules/places/manifest.js';
 import { manifest as prospects } from '../modules/prospects/manifest.js';
+import { manifest as requests } from '../modules/requests/manifest.js';
 import { manifest as microfinance } from '../modules/microfinance/manifest.js';
 
-export const manifests: ModuleManifest[] = [audit, settings, flags, erpGateway, branches, users, rbac, auth, devices, system, customers, tags, assignments, handovers, collections, cash, media, visits, notes, promises, attendance, sync, notifications, inbox, reports, search, location, cowork, targets, tasks, activity, places, prospects, microfinance];
+export const manifests: ModuleManifest[] = [audit, settings, flags, erpGateway, branches, users, rbac, auth, devices, system, customers, tags, assignments, handovers, collections, cash, media, visits, notes, promises, attendance, sync, notifications, inbox, reports, search, location, cowork, targets, tasks, activity, places, prospects, requests, microfinance];
