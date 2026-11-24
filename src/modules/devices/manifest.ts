@@ -18,6 +18,13 @@ export const manifest: ModuleManifest = {
   settings: [
     { key: 'devices.maxPerUser', type: 'int', default: 1, description: 'OD-10' },
     { key: 'devices.bindRoles', type: 'json', default: ['field_staff'] },
+    {
+      key: 'devices.reinstallHintIdleDays',
+      type: 'int',
+      default: 0,
+      description:
+        'FR-AUTH-007 (1.47.0) mark a pending device likelyReinstall when it reports the same model and Android version as the user\'s only active device and that device was not seen for this many days. 0 = off. Only a hint: an admin still approves.',
+    },
   ],
   inboxTypes: [{ type: 'device.approval_requested', severity: 'medium' }],
   migrations: [

@@ -11,6 +11,7 @@ import { changeOwnPassword, findForLogin, getUser, loadAuthUser, markLogin, type
 import { attendanceRequired } from '../attendance/index.js';
 import { effectivePermissions } from '../rbac/index.js';
 import { flagsFor } from '../flags/index.js';
+import { getSetting } from '../settings/index.js';
 import { LoginAttemptModel, SessionModel } from './models/session.model.js';
 
 export type LoginGuard = (ctx: { user: UserView; client: 'app' | 'web'; deviceId: string | null; deviceInfo: DeviceInfo }) => Promise<void>;
@@ -30,16 +31,39 @@ export function registerLoginGuard(g: LoginGuard): void {
 let dummy: Promise<string> | null = null;
 const dummyHash = () => (dummy ??= hashPassword(randomToken()));
 
+/** FR-AUTH-005: an account locks after this many failures in the window. */
 const LOCK_FAILURES = 5;
 const LOCK_WINDOW_MS = 15 * 60_000;
 
-async function lockedUntil(keys: string[]): Promise<Date | null> {
+/**
+ * Time the key unlocks, or null. `threshold` failures inside the window lock the key until the newest of them
+ * is a full window old. A threshold of 0 or less turns the key off.
+ */
+async function lockedUntil(key: string, threshold: number): Promise<Date | null> {
+  if (threshold <= 0) return null;
   const since = new Date(ctx().clock.now().getTime() - LOCK_WINDOW_MS);
-  for (const key of keys) {
-    const fails = await LoginAttemptModel.find({ key, success: false, at: { $gte: since } }).sort({ at: -1 }).limit(LOCK_FAILURES).lean();
-    if (fails.length >= LOCK_FAILURES) return new Date(fails[0]!.at.getTime() + LOCK_WINDOW_MS);
+  const fails = await LoginAttemptModel.find({ key, success: false, at: { $gte: since } }).sort({ at: -1 }).limit(threshold).lean();
+  return fails.length >= threshold ? new Date(fails[0]!.at.getTime() + LOCK_WINDOW_MS) : null;
+}
+
+function lockedError(until: Date, scope: 'account' | 'ip'): AppError {
+  const retryAfterSec = Math.max(1, Math.ceil((until.getTime() - ctx().clock.now().getTime()) / 1000));
+  return new AppError('ACCOUNT_LOCKED', { until: until.toISOString(), retryAfterSec, scope });
+}
+
+/**
+ * 1.47.0 (ADR-064): a user whose IP is locked may still log in from a device or browser that already had a
+ * session of theirs: the app's X-Device-Id of an earlier session, or admin-web's refresh cookie. Staff behind one
+ * office or carrier NAT share an IP, so a stranger's mistakes must not lock them out; an attacker who guesses
+ * passwords across accounts from that IP has neither, so the IP lock still stops them.
+ */
+async function knownClient(userId: string, deviceId: string | null, cookieToken: string | undefined): Promise<boolean> {
+  if (deviceId && (await SessionModel.exists({ userId, deviceId }))) return true;
+  if (cookieToken) {
+    const h = sha256(cookieToken);
+    if (await SessionModel.exists({ userId, $or: [{ refreshTokenHash: h }, { previousTokenHashes: h }] })) return true;
   }
-  return null;
+  return false;
 }
 
 export interface LoginInput {
@@ -47,6 +71,8 @@ export interface LoginInput {
   username?: string | undefined;
   password: string;
   client: 'app' | 'web';
+  /** admin-web's fos_rt cookie, if the browser still has one (only used to recognise a known browser). */
+  cookieToken?: string | undefined;
 }
 
 async function issueTokens(user: UserView, client: 'app' | 'web', meta: RequestMeta, familyId?: string, prev?: { id: string; hashes: string[] }) {
@@ -93,11 +119,18 @@ export async function login(input: LoginInput, meta: RequestMeta, deviceInfo: De
   const ident = input.phone ?? input.username ?? '';
   const acctKey = `acct:${ident.replace(/\s/g, '').toLowerCase()}`;
   const ipKey = `ip:${meta.ip}`;
-  const until = await lockedUntil([acctKey, ipKey]);
-  if (until) throw new AppError('ACCOUNT_LOCKED', { until: until.toISOString() });
+  // FR-AUTH-005: the account lock (5 / 15 min) always applies. The IP lock has a much higher threshold (setting
+  // auth.ipLockFailures, default 50) and does not stop a known device or browser of the user (ADR-064).
+  const acctUntil = await lockedUntil(acctKey, LOCK_FAILURES);
+  if (acctUntil) throw lockedError(acctUntil, 'account');
+  const ipUntil = await lockedUntil(ipKey, await getSetting<number>('auth.ipLockFailures'));
   const found = await findForLogin({ phone: input.phone, username: input.username });
+  if (ipUntil && !(found && (await knownClient(found.view.id, meta.deviceId, input.cookieToken)))) {
+    // Same answer whether or not the user exists or the password is right: no oracle for a locked IP.
+    throw lockedError(ipUntil, 'ip');
+  }
   // Always run one argon2 verification so unknown users take as long as known ones.
-  const ok = await verifyPassword(found?.passwordHash ?? (await dummyHash()), input.password) && !!found;
+  const ok = (await verifyPassword(found?.passwordHash ?? (await dummyHash()), input.password)) && !!found;
   const at = ctx().clock.now();
   if (!found || !ok || !found.view.active) {
     await LoginAttemptModel.insertMany([

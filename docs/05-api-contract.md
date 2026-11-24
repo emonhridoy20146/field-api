@@ -137,7 +137,19 @@ X-Device-Id: 0193a5e2-0000-7000-8000-00000000a001
   "flags": { "module.collections": true, "module.location": false },
   "serverTime": "2026-11-15T03:00:00Z" }
 ```
-Errors: `401 INVALID_CREDENTIALS`, `423 ACCOUNT_LOCKED`, `403 DEVICE_NOT_APPROVED` (FR-AUTH-007), `426 UPGRADE_REQUIRED`.
+Errors: `401 INVALID_CREDENTIALS`, `423 ACCOUNT_LOCKED`, `403 DEVICE_NOT_APPROVED` (FR-AUTH-007), `426 UPGRADE_REQUIRED`. Bodies since 1.47.0 (ADR-064):
+```json
+423 Locked   Retry-After: 840
+{ "type": "https://errors.howlader.app/account-locked", "title": "Account temporarily locked", "status": 423,
+  "code": "ACCOUNT_LOCKED", "requestId": "0193…",
+  "details": { "until": "2026-11-24T04:15:00.000Z", "retryAfterSec": 840, "scope": "account" } }
+
+403 Forbidden
+{ "type": "https://errors.howlader.app/device-not-approved", "title": "Device waiting for manager approval", "status": 403,
+  "code": "DEVICE_NOT_APPROVED", "requestId": "0193…",
+  "details": { "pendingDeviceId": "6742b0…", "deviceId": "a1b2c3d4e5f60718", "status": "pending_approval", "maxActiveDevices": 1 } }
+```
+`scope: account` = 5 wrong passwords for this phone/username in 15 min. `scope: ip` = too many failures from this network (`auth.ipLockFailures`, default 50) and this device/browser never had a session of the user; a known device still logs in.
 
 ### 3.2 Customer list (staff, due today, nearest first)
 `GET /api/v1/customers?filter=due_today,overdue&assignedTo=me&near=22.7101,90.3705&sort=distance&limit=25`
@@ -409,6 +421,16 @@ GET /api/v1/customers?limit=1001  |  ?offset=-1  |  ?offset=1.5              →
 - Every sort ends with `_id`, so pages never overlap or skip a row while the data does not change (rows that change between two calls can move, as with any offset pager). `sort=distance` pages only the nearest 2000 in the radius.
 - `total` (with `includeTotal=true`) is the exact number of matches; it was capped at 10,000 before.
 
+### 3.9j Device approvals (1.47.0, FR-AUTH-007, ADR-064)
+```
+GET  /api/v1/devices?userId=6734a1…   → [ { "id": "6742b0…", "deviceId": "a1b2…", "model": "Redmi 9A", "androidVersion": "android 10",
+                                           "status": "pending_approval", "likelyReinstall": true, … },
+                                         { "id": "6731ff…", "status": "active", "likelyReinstall": false, … } ]
+POST /api/v1/devices/6742b0…/approve  → 200 { "id": "6742b0…", "status": "active" }   (old active phone unbound, its sessions end)
+POST /api/v1/devices/6742b0…/approve  → 200 { "id": "6742b0…", "status": "active" }   (again: nothing changes)
+```
+- `likelyReinstall` is false unless the setting `devices.reinstallHintIdleDays` is above 0: then it is true for a pending device with the same model and Android version as the user's only active device, when that device was not seen for that many days. Only a hint; the admin still approves.
+
 ### 3.10a Pin colours and invoice viewer (1.14.0)
 Yellow and orange pins of credit customers in view:
 ```http
@@ -470,7 +492,7 @@ A call to the guarantor is logged like any contact attempt with `"target": "guar
 | 401 | `REFRESH_REUSED` | Session family revoked → force login. |
 | 403 | `FORBIDDEN` | Missing permission (`details.permission`). |
 | 403 | `FEATURE_DISABLED` | Hide feature; refresh flags. |
-| 403 | `DEVICE_NOT_APPROVED` | Show "waiting for manager approval". |
+| 403 | `DEVICE_NOT_APPROVED` | Show "waiting for manager approval" with `details.pendingDeviceId` and `requestId` (1.47.0). Retrying does not create a new request. |
 | 403 | `PASSWORD_CHANGE_REQUIRED` | Route to change password. |
 | 404 | `NOT_FOUND` | Also used for out-of-scope resources. |
 | 409 | `IDEMPOTENCY_MISMATCH` | Bug or tampering; log, do not retry. |
@@ -481,7 +503,7 @@ A call to the guarantor is logged like any contact attempt with `"target": "guar
 | 413 | `PAYLOAD_TOO_LARGE` | Split batch. |
 | 422 | `OFF_DUTY` | Location outside duty; drop points. |
 | 422 | `BUSINESS_RULE` | `details.rule` (e.g. `PROMISE_DATE_RANGE`, `PROMISE_FOLLOW_UP_INVALID` (1.45.0, `details.reason`), `REASON_REQUIRED`, `LAST_SUPER_ADMIN`, `COWORK_INVALID_INVITEE`, `COWORK_TOO_MANY`, `TARGET_IN_PAST`). |
-| 423 | `ACCOUNT_LOCKED` | `details.until`. |
+| 423 | `ACCOUNT_LOCKED` | `details.until`; since 1.47.0 also `details.retryAfterSec`, `details.scope` (`account` \| `ip`) and `Retry-After`. |
 | 426 | `UPGRADE_REQUIRED` | `details.minVersion`, `details.storeUrl`. |
 | 429 | `RATE_LIMITED` | Honour `Retry-After`. |
 | 502/503 | `ERP_UNAVAILABLE` | Only on live ERP reads (`/refresh`); app keeps cached data. |

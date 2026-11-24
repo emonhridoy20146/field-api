@@ -35,7 +35,7 @@ const loginBody = z
 export const authRoutes = defineRoutes((r) => {
   r.post('/auth/login', { access: 'public' }, async (req, reply) => {
     const body = parse(loginBody, req.body);
-    const out = await s.login(body, requestMeta(req), deviceInfoFromHeaders(req.headers));
+    const out = await s.login({ ...body, cookieToken: req.cookies?.[COOKIE] }, requestMeta(req), deviceInfoFromHeaders(req.headers));
     if (body.client === 'web') {
       setRefreshCookie(reply, out.refreshToken, out.refreshTokenExpiresAt);
       const { refreshToken: _rt, ...rest } = out;

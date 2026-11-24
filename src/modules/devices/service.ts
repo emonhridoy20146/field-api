@@ -44,6 +44,7 @@ const view = (d: Row) => ({
   rooted: !!d.rooted,
   emulator: !!d.emulator,
   status: d.status as 'active' | 'pending_approval' | 'unbound',
+  likelyReinstall: false,
 });
 
 const asSubject = (u: UserView) => ({ id: u.id, role: u.role, branchIds: u.branchIds }) as unknown as AuthUser;
@@ -73,9 +74,32 @@ export async function loginGuard(p: { user: UserView; client: 'app' | 'web'; dev
     await ctx().bus.emit('device.bound', { userId: p.user.id, deviceId: p.deviceId });
     return;
   }
-  await DeviceModel.updateOne({ deviceId: p.deviceId }, { $set: { ...fields, status: 'pending_approval' } }, { upsert: true });
-  await ctx().bus.emit('device.approval_requested', { userId: p.user.id, deviceId: p.deviceId, branchId: fields.branchId });
-  throw new AppError('DEVICE_NOT_APPROVED');
+  const pending = await DeviceModel.findOneAndUpdate(
+    { deviceId: p.deviceId },
+    { $set: { ...fields, status: 'pending_approval' } },
+    { upsert: true, new: true, projection: { _id: 1 } },
+  ).lean();
+  // Ask the managers once per pending device, not on every retry of the login (1.47.0).
+  if (existing?.status !== 'pending_approval' || existing.userId !== p.user.id)
+    await ctx().bus.emit('device.approval_requested', { userId: p.user.id, deviceId: p.deviceId, branchId: fields.branchId });
+  // 1.47.0: `pendingDeviceId` is the id an admin approves (POST /devices/{id}/approve); the app can show it.
+  throw new AppError('DEVICE_NOT_APPROVED', { pendingDeviceId: pending!._id.toHexString(), deviceId: p.deviceId, status: 'pending_approval', maxActiveDevices: max });
+}
+
+const norm = (v: unknown) => (typeof v === 'string' ? v.trim().toLowerCase() : '');
+
+/**
+ * 1.47.0 (ADR-064): a hint for the admin, never an approval. A pending device is "probably a reinstall" when the
+ * user has exactly one active device, both report the same non-empty model and Android version, and the active one
+ * has not been seen for `devices.reinstallHintIdleDays` days (0 = hint off, the default).
+ */
+export function isLikelyReinstall(pending: { model?: unknown; androidVersion?: unknown }, actives: { model?: unknown; androidVersion?: unknown; lastSeenAt?: Date | null }[], idleDays: number, now: Date): boolean {
+  if (idleDays <= 0 || actives.length !== 1) return false;
+  const old = actives[0]!;
+  if (!norm(pending.model) || norm(pending.model) !== norm(old.model)) return false;
+  if (!norm(pending.androidVersion) || norm(pending.androidVersion) !== norm(old.androidVersion)) return false;
+  const seen = old.lastSeenAt ? old.lastSeenAt.getTime() : 0;
+  return now.getTime() - seen >= idleDays * 86400_000;
 }
 
 async function inScope(actor: AuthUser, userId: string): Promise<boolean> {
@@ -89,7 +113,17 @@ export async function list(actor: AuthUser, q: { branchId?: string; userId?: str
   if (!isSuperAdmin(actor)) filter.branchId = q.branchId && actor.branchIds.includes(q.branchId) ? q.branchId : { $in: actor.branchIds };
   else if (q.branchId) filter.branchId = q.branchId;
   const rows = await DeviceModel.find(filter).sort({ updatedAt: -1 }).limit(500).lean();
-  return rows.map((r) => view(r as unknown as Row));
+  const out = rows.map((r) => view(r as unknown as Row));
+  const idleDays = await getSetting<number>('devices.reinstallHintIdleDays');
+  const pendingUsers = [...new Set(rows.filter((r) => r.status === 'pending_approval').map((r) => r.userId))];
+  if (idleDays > 0 && pendingUsers.length) {
+    const actives = await DeviceModel.find({ userId: { $in: pendingUsers }, status: 'active' }).lean();
+    const now = ctx().clock.now();
+    rows.forEach((r, i) => {
+      if (r.status === 'pending_approval') out[i]!.likelyReinstall = isLikelyReinstall(r, actives.filter((a) => a.userId === r.userId), idleDays, now);
+    });
+  }
+  return out;
 }
 
 async function load(actor: AuthUser, id: string) {
@@ -110,17 +144,26 @@ export async function unbind(actor: AuthUser, id: string, reason: string, meta: 
 
 export async function approve(actor: AuthUser, id: string, meta: RequestMeta) {
   const d = await load(actor, id);
-  if (d.status !== 'pending_approval') throw new AppError('INVALID_STATE', { reason: 'NOT_PENDING' });
   const now = ctx().clock.now();
-  // Approving a new device replaces the old one (max 1 by default).
-  const max = await getSetting<number>('devices.maxPerUser');
-  const actives = await DeviceModel.find({ userId: d.userId, status: 'active' }).sort({ lastSeenAt: 1 }).lean();
-  for (const old of actives.slice(0, Math.max(0, actives.length - max + 1))) {
+  // The state change is atomic, so two managers approving at once (or a double click) bind it once; the second
+  // answers the same 200 and changes nothing (1.47.0).
+  const won = await DeviceModel.updateOne({ _id: d._id, status: 'pending_approval' }, { $set: { status: 'active', boundAt: now, unboundAt: null } });
+  if (won.modifiedCount === 0) {
+    const cur = await DeviceModel.findById(d._id, { status: 1 }).lean();
+    if (cur?.status === 'active') return { id, status: 'active' };
+    throw new AppError('INVALID_STATE', { reason: 'NOT_PENDING' });
+  }
+  // The approved device replaces the least recently seen active ones, so the user stays within devices.maxPerUser
+  // (default 1: the old phone is unbound and its sessions end).
+  const max = Math.max(1, await getSetting<number>('devices.maxPerUser'));
+  const others = await DeviceModel.find({ userId: d.userId, status: 'active', _id: { $ne: d._id } }).sort({ lastSeenAt: 1 }).lean();
+  const replaced = others.slice(0, Math.max(0, others.length - max + 1));
+  for (const old of replaced) {
     await DeviceModel.updateOne({ _id: old._id }, { $set: { status: 'unbound', unboundAt: now, fcmToken: null } });
     await revokeForDevice(old.deviceId, 'replaced_by_new_device');
   }
-  await DeviceModel.updateOne({ _id: d._id }, { $set: { status: 'active', boundAt: now } });
-  await audit.record({ actor, action: 'device.approved', entity: 'device', entityId: d.deviceId, branchId: d.branchId ?? null, meta });
+  await audit.record({ actor, action: 'device.approved', entity: 'device', entityId: d.deviceId, branchId: d.branchId ?? null, before: { status: 'pending_approval' }, after: { status: 'active', replacedDeviceIds: replaced.map((o) => o.deviceId) }, meta });
+  for (const old of replaced) await ctx().bus.emit('device.unbound', { userId: old.userId, deviceId: old.deviceId });
   await ctx().bus.emit('device.bound', { userId: d.userId, deviceId: d.deviceId });
   return { id, status: 'active' };
 }

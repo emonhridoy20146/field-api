@@ -55,6 +55,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Extra phone numbers: add several at once, ERP / added marker, kept in FOS (ADR-042, contract 1.23.0) | FR-CUS-016 | ✅ API; screens in admin-web and staff-app follow |
 | This month on a customer (visited, paid, pending, promises) and invoice counts per row and per list (contract 1.24.0) | FR-CUS-017, FR-CUS-018 | ✅ API; screens in admin-web and staff-app follow |
 | Devices binding/remote logout | FR-AUTH-006..008 | ✅ API |
+| Login lock per account, not per office NAT; known device passes an IP lock; clear 423/403 bodies; idempotent device approve; `likelyReinstall` hint (contract 1.47.0, owner report 2026-11-24) | FR-AUTH-005, FR-AUTH-007 | ✅ API (ADR-064); staff-app and admin-web messages/badge follow |
 | Real ERP shape: plan = invoice, rolled lines, late fee, credit sales, ERP removals as reversed, warehouses, ERP employees picker, branch map point, real ERP posting rules (ADR-033, contract 1.13.0). Checked live against a sandbox copy of the ERP with the prototype API (1,441 customers, totals equal to the poisha) | FR-ERP-006, FR-BR-002 | ✅ API · ☐ ERP API installed in production (owner decision, erp-integration-spec v2 §8) |
 
 **Acceptance (all must pass on staging with mock ERP, then with Laravel staging when available):**
