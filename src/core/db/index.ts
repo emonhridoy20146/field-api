@@ -3,8 +3,37 @@ import mongoose, { type ClientSession } from 'mongoose';
 mongoose.set('strictQuery', true);
 mongoose.set('autoIndex', false); // indexes come from migrations
 
-export async function connectMongo(uri: string, dbName: string): Promise<typeof mongoose> {
-  return mongoose.connect(uri, { dbName, serverSelectionTimeoutMS: 10000, retryWrites: true });
+export interface MongoPool {
+  maxPoolSize?: number;
+  maxIdleTimeMS?: number;
+}
+
+/**
+ * Connection options (ADR-063). The pool is bounded per process and idle sockets are closed, because on Vercel
+ * every function instance has its own pool: with the driver default (maxPoolSize 100, no idle timeout) busy hours
+ * reached the Atlas connection limit and the database refused new connections. minPoolSize 0 keeps a frozen or
+ * quiet instance from holding sockets open.
+ */
+export function mongoOptions(dbName: string, pool: MongoPool = {}) {
+  return {
+    dbName,
+    serverSelectionTimeoutMS: 10000,
+    retryWrites: true,
+    maxPoolSize: pool.maxPoolSize ?? 10,
+    minPoolSize: 0,
+    maxIdleTimeMS: pool.maxIdleTimeMS ?? 60000,
+    // A request waits this long for a free connection instead of opening more.
+    waitQueueTimeoutMS: 15000,
+  };
+}
+
+export async function connectMongo(uri: string, dbName: string, pool: MongoPool = {}): Promise<typeof mongoose> {
+  return mongoose.connect(uri, mongoOptions(dbName, pool));
+}
+
+/** The pool settings from the loaded config. */
+export function poolFrom(config: { MONGODB_MAX_POOL_SIZE: number; MONGODB_MAX_IDLE_MS: number }): MongoPool {
+  return { maxPoolSize: config.MONGODB_MAX_POOL_SIZE, maxIdleTimeMS: config.MONGODB_MAX_IDLE_MS };
 }
 
 export async function disconnectMongo(): Promise<void> {

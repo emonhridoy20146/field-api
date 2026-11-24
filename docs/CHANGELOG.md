@@ -3,6 +3,10 @@
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
 ## [Unreleased]
+### Fixed (owner report 2026-11-24: Atlas hit its connection limit and the database stopped answering; ADR-063)
+- **Cause:** no pool options were set, so every process, that is every Vercel function instance, could open up to 100 Mongo connections (the driver default) and never closed idle ones. In busy hours, many instances together reached the Atlas limit (500 on M0).
+- **Fix:** `connectMongo` now uses `mongoOptions()`: `maxPoolSize` 10 (`MONGODB_MAX_POOL_SIZE`, 1–100), `minPoolSize` 0, `maxIdleTimeMS` 60 000 (`MONGODB_MAX_IDLE_MS`), and a 15 s wait for a free connection. The API, worker, CLI and serverless adapter all use it. No contract change.
+- Test: `src/core/__tests__/mongo-pool.test.ts`.
 
 ## [1.46.0] — contract 1.46.0 (customer pages of up to 1000, page jumps)
 ### Added (owner request 2026-11-23: admin customers page with 100 / 500 / 1000 rows and a numbered pager; FR-CUS-022, ADR-062)

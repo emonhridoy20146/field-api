@@ -6,7 +6,7 @@
  */
 import { parseArgs } from 'node:util';
 import { loadConfig } from './core/config/index.js';
-import { connectMongo, disconnectMongo } from './core/db/index.js';
+import { connectMongo, disconnectMongo, poolFrom } from './core/db/index.js';
 import { bootModules } from './app/build-app.js';
 import { createFirstAdmin } from './app/go-live.js';
 
@@ -37,7 +37,7 @@ async function run(argv: string[]): Promise<void> {
   }
 
   const config = loadConfig();
-  await connectMongo(config.MONGODB_URI, config.MONGODB_DB_NAME);
+  await connectMongo(config.MONGODB_URI, config.MONGODB_DB_NAME, poolFrom(config));
   try {
     // Migrations are forward-only and idempotent, so both commands apply them first.
     const ctx = await bootModules({ config, migrate: true });

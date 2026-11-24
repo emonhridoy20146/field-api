@@ -82,6 +82,8 @@ New module: `pnpm new:module <name>`, then follow the checklist in `CLAUDE.md §
 | `COOKIE_DOMAIN` | parent domain for refresh cookie |
 | `MONGODB_URI` | Atlas connection string (SRV) |
 | `MONGODB_DB_NAME` | database name |
+| `MONGODB_MAX_POOL_SIZE` | Mongo connections per process (default 10, 1–100; ADR-063) |
+| `MONGODB_MAX_IDLE_MS` | close a Mongo connection idle this long (default 60000; ADR-063) |
 | `JWT_PRIVATE_KEY` | EdDSA/ES256 private key (PEM, base64) |
 | `JWT_PUBLIC_KEY` | public key |
 | `JWT_KEY_ID` | key id for rotation |

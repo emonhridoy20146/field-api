@@ -1,5 +1,5 @@
 import { loadConfig } from './core/config/index.js';
-import { connectMongo, disconnectMongo } from './core/db/index.js';
+import { connectMongo, disconnectMongo, poolFrom } from './core/db/index.js';
 import { bootModules, buildApp } from './app/build-app.js';
 import { startWorker } from './app/worker.js';
 
@@ -8,7 +8,7 @@ async function main() {
   // `PROCESS_ROLE=worker <cmd>`, and `--env-file=.env` would otherwise set PROCESS_ROLE=api.
   if (process.argv.slice(2).includes('--worker')) process.env.PROCESS_ROLE = 'worker';
   const config = loadConfig();
-  await connectMongo(config.MONGODB_URI, config.MONGODB_DB_NAME);
+  await connectMongo(config.MONGODB_URI, config.MONGODB_DB_NAME, poolFrom(config));
   if (config.PROCESS_ROLE === 'worker') {
     const ctx = await bootModules({ config });
     const w = startWorker(ctx);

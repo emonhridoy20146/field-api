@@ -2,7 +2,7 @@ import { timingSafeEqual, createHash } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { FastifyInstance } from 'fastify';
 import { loadConfig } from '../core/config/index.js';
-import { connectMongo, mongoose } from '../core/db/index.js';
+import { connectMongo, mongoose, poolFrom } from '../core/db/index.js';
 import { dispatchOutbox, type DispatchStats } from '../core/events/outbox.js';
 import { JobScheduler } from '../core/jobs/index.js';
 import type { AppContext } from '../core/context/index.js';
@@ -20,7 +20,7 @@ async function boot(): Promise<{ app: FastifyInstance; ctx: AppContext }> {
   const config = loadConfig();
   // Ephemeral keys would differ per instance, so a token signed by one instance fails on another.
   if (!config.JWT_PRIVATE_KEY || !config.JWT_PUBLIC_KEY) throw new Error('Serverless needs JWT_PRIVATE_KEY and JWT_PUBLIC_KEY (pnpm keys:jwt)');
-  if (mongoose.connection.readyState === 0) await connectMongo(config.MONGODB_URI, config.MONGODB_DB_NAME);
+  if (mongoose.connection.readyState === 0) await connectMongo(config.MONGODB_URI, config.MONGODB_DB_NAME, poolFrom(config));
   const built = await buildApp({ config });
   await built.app.ready();
   return built;
@@ -59,7 +59,7 @@ export async function ensureMongo(
 /** Vercel function body for every API route. */
 export async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const { app, ctx } = await getApp();
-  await ensureMongo(mongoose.connection, () => connectMongo(ctx.config.MONGODB_URI, ctx.config.MONGODB_DB_NAME), (m) => ctx.logger.warn(m));
+  await ensureMongo(mongoose.connection, () => connectMongo(ctx.config.MONGODB_URI, ctx.config.MONGODB_DB_NAME, poolFrom(ctx.config)), (m) => ctx.logger.warn(m));
   app.server.emit('request', req, res);
 }
 
@@ -95,7 +95,7 @@ export async function runCron(opts: { job?: string; budgetMs?: number } = {}): P
   // The budget counts from the start of the call, jobs included: slow jobs leave less time for the outbox, never more.
   const deadline = performance.now() + (opts.budgetMs ?? CRON_BUDGET_MS);
   const { ctx } = await getApp();
-  await ensureMongo(mongoose.connection, () => connectMongo(ctx.config.MONGODB_URI, ctx.config.MONGODB_DB_NAME), (m) => ctx.logger.warn(m));
+  await ensureMongo(mongoose.connection, () => connectMongo(ctx.config.MONGODB_URI, ctx.config.MONGODB_DB_NAME, poolFrom(ctx.config)), (m) => ctx.logger.warn(m));
   return cronTick(new JobScheduler(ctx.manifests.flatMap((m) => m.jobs ?? [])), { deadline, ...(opts.job ? { job: opts.job } : {}) });
 }
 
