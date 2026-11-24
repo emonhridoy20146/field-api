@@ -20,6 +20,11 @@ const schema = z
     COOKIE_DOMAIN: z.string().optional(),
     MONGODB_URI: z.string().default('mongodb://localhost:27017/?replicaSet=rs0'),
     MONGODB_DB_NAME: z.string().default('field_ops'),
+    // ADR-063: each process (each Vercel function instance) keeps at most this many Mongo connections, and
+    // closes one idle for this long. The driver default (100, never idle-closed) let busy hours open hundreds of
+    // connections across instances and hit the Atlas connection limit.
+    MONGODB_MAX_POOL_SIZE: z.coerce.number().int().min(1).max(100).default(10),
+    MONGODB_MAX_IDLE_MS: z.coerce.number().int().min(1000).default(60000),
     JWT_PRIVATE_KEY: z.string().optional(),
     JWT_PUBLIC_KEY: z.string().optional(),
     JWT_KEY_ID: z.string().default('dev'),
