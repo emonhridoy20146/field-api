@@ -20,8 +20,8 @@ export const manifest: ModuleManifest = {
   featureFlag: { key: 'module.location', default: false, description: 'Duty-hours location tracking', owner: 'field-api' },
   dependsOn: ['settings', 'users', 'rbac', 'attendance', 'customers', 'visits', 'collections'],
   permissions: [
-    { key: 'location.view', description: { en: 'Latest location map', bn: 'সর্বশেষ অবস্থানের ম্যাপ' }, defaults: { super_admin: true, branch_manager: true } },
-    { key: 'location.history.view', description: { en: 'Route history and stops', bn: 'রুটের ইতিহাস ও বিরতি' }, defaults: { super_admin: true, branch_manager: true } },
+    { key: 'location.view', description: { en: 'Latest location map', bn: 'সর্বশেষ অবস্থানের ম্যাপ' }, defaults: { super_admin: true, area_manager: true, branch_manager: true } },
+    { key: 'location.history.view', description: { en: 'Route history and stops', bn: 'রুটের ইতিহাস ও বিরতি' }, defaults: { super_admin: true, area_manager: true, branch_manager: true } },
   ],
   routes: locationRoutes,
   events: { emits: ['location.mock_detected', 'location.tracking_lost'], consumes: [] },

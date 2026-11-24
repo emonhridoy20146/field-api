@@ -21,11 +21,13 @@ export type Source = 'role' | 'branch' | 'user' | 'super_admin' | 'reserved';
 /**
  * 02-requirements §3.3: user override → branch override (user's role, any of user's branches;
  * deny wins when branches disagree) → role default. Super admin allows everything except reserved keys.
- * Reserved keys (microfinance.*) are never granted, whatever the overrides say.
+ * Reserved keys (microfinance.*) are never granted, whatever the overrides say; nor is a key to a role in its `neverFor`.
  */
 export function evaluate(subject: Subject, def: PermissionDef, overrides: Override[]): { allowed: boolean; source: Source } {
   if (def.reserved) return { allowed: false, source: 'reserved' };
   if (subject.role === 'super_admin') return { allowed: true, source: 'super_admin' };
+  // ADR-065: a key closed to the role (area managers never manage users, roles, flags or settings) ignores every override.
+  if (def.neverFor?.includes(subject.role)) return { allowed: false, source: 'role' };
   const user = overrides.find((o) => o.level === 'user' && o.userId === subject.id && o.key === def.key);
   if (user) return { allowed: user.effect === 'allow', source: 'user' };
   const branch = overrides.filter(

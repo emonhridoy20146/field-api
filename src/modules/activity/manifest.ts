@@ -11,7 +11,7 @@ export const manifest: ModuleManifest = {
   // New modules start OFF (CLAUDE.md §5).
   featureFlag: { key: 'module.activity', default: false, description: 'Staff activity feed', owner: 'field-api' },
   dependsOn: ['users', 'customers'],
-  permissions: [{ key: 'activity.view', description: { en: 'See the staff activity feed in scope', bn: 'কর্মীদের কাজের ফিড দেখা' }, defaults: { super_admin: true, branch_manager: true, viewer: true } }],
+  permissions: [{ key: 'activity.view', description: { en: 'See the staff activity feed in scope', bn: 'কর্মীদের কাজের ফিড দেখা' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, viewer: true } }],
   routes: activityRoutes,
   events: { emits: [], consumes: CONSUMED_EVENTS },
   migrations: [

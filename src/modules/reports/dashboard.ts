@@ -7,6 +7,7 @@ import { visitDashboardStats, visitsByUser } from '../visits/index.js';
 import { promiseDashboardStats } from '../promises/index.js';
 import { coworkSessionCount } from '../cowork/index.js';
 import { prospectDashboardStats } from '../prospects/index.js';
+import { OPEN_REQUEST_STATUSES, requestDashboardStats } from '../requests/index.js';
 import { datesOf, linkTo, monthStart, previousMonth, rate, topBy, type DashboardLink, type DashboardRange } from './domain/dashboard.js';
 
 const TOP = 5;
@@ -159,6 +160,18 @@ export async function dashboardStats(user: AuthUser, x: DashboardInputs) {
     openNow: { count: pro.openNow, link: proLink({}) },
   };
 
+  // Requests / tickets (1.48.0, FR-REQ-005): not resolved or closed now, whatever the range; GET /requests applies the
+  // caller's request scope itself, so the links carry only the branch and the filters.
+  const open = OPEN_REQUEST_STATUSES.join(',');
+  const reqLink = (q: Record<string, string>) => linkTo('/requests', { ...b, status: open, ...q });
+  const rq = on['module.requests'] ? await requestDashboardStats(user, branchId) : { areaManagerQueue: 0, superAdminQueue: 0, assigned: 0, importantOpen: 0 };
+  const requestStats = {
+    areaManagerQueue: { count: rq.areaManagerQueue, link: reqLink({ queue: 'area_manager' }) },
+    superAdminQueue: { count: rq.superAdminQueue, link: reqLink({ queue: 'super_admin' }) },
+    assigned: { count: rq.assigned, link: reqLink({ queue: 'assignee' }) },
+    importantOpen: { count: rq.importantOpen, link: reqLink({ priority: 'important' }) },
+  };
+
   return {
     range: x.range,
     collections,
@@ -172,5 +185,6 @@ export async function dashboardStats(user: AuthUser, x: DashboardInputs) {
     cashInHand,
     coworkStats,
     prospectStats,
+    requestStats,
   };
 }

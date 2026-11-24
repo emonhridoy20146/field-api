@@ -13,16 +13,16 @@ export const manifest: ModuleManifest = {
   featureFlag: { key: 'module.places', default: false, description: 'Map places (text markers on the map)', owner: 'field-api' },
   dependsOn: ['audit', 'rbac', 'users', 'branches'],
   permissions: [
-    { key: 'place.view', description: { en: 'See map places (all branches)', bn: 'ম্যাপে জায়গার নাম দেখা (সব শাখা)' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
+    { key: 'place.view', description: { en: 'See map places (all branches)', bn: 'ম্যাপে জায়গার নাম দেখা (সব শাখা)' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, field_staff: true, viewer: true } },
     {
       key: 'place.create',
       description: { en: 'Add a place to the map, edit own places, ask for a place to be moved', bn: 'ম্যাপে জায়গা যোগ, নিজের জায়গা সম্পাদনা, সরানোর অনুরোধ' },
-      defaults: { super_admin: true, branch_manager: true, field_staff: true },
+      defaults: { super_admin: true, area_manager: true, branch_manager: true, field_staff: true },
     },
     {
       key: 'place.manage',
       description: { en: 'Edit, move or delete any place; approve or reject move requests', bn: 'যেকোনো জায়গা সম্পাদনা, সরানো, মুছে ফেলা; সরানোর অনুরোধ অনুমোদন' },
-      defaults: { super_admin: true, branch_manager: true },
+      defaults: { super_admin: true, area_manager: true, branch_manager: true },
     },
   ],
   routes: placesRoutes,

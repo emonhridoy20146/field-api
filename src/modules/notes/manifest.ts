@@ -19,8 +19,8 @@ export const manifest: ModuleManifest = {
   featureFlag: { key: 'module.notes', default: false, description: 'Notes and contact attempts', owner: 'field-api' },
   dependsOn: ['users', 'customers'],
   permissions: [
-    { key: 'note.create', description: { en: 'Add notes', bn: 'নোট যোগ' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
-    { key: 'note.view', description: { en: 'View notes in scope', bn: 'নোট দেখা' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
+    { key: 'note.create', description: { en: 'Add notes', bn: 'নোট যোগ' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, field_staff: true } },
+    { key: 'note.view', description: { en: 'View notes in scope', bn: 'নোট দেখা' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, field_staff: true, viewer: true } },
   ],
   routes: noteRoutes,
   events: { emits: ['note.created'], consumes: [] },

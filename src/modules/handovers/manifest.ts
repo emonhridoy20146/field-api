@@ -12,8 +12,8 @@ export const manifest: ModuleManifest = {
   featureFlag: { key: 'module.handovers', default: false, description: 'Handovers', owner: 'field-api' },
   dependsOn: ['audit', 'rbac', 'users', 'customers', 'assignments'],
   permissions: [
-    { key: 'handover.create', description: { en: 'Create a handover between staff', bn: 'হস্তান্তর তৈরি' }, defaults: { super_admin: true, branch_manager: true } },
-    { key: 'handover.request', description: { en: 'Request handover of own customers (FR-HO-007, P4)', bn: 'নিজের গ্রাহক হস্তান্তরের অনুরোধ' }, defaults: { super_admin: true, branch_manager: true } },
+    { key: 'handover.create', description: { en: 'Create a handover between staff', bn: 'হস্তান্তর তৈরি' }, defaults: { super_admin: true, area_manager: true, branch_manager: true } },
+    { key: 'handover.request', description: { en: 'Request handover of own customers (FR-HO-007, P4)', bn: 'নিজের গ্রাহক হস্তান্তরের অনুরোধ' }, defaults: { super_admin: true, area_manager: true, branch_manager: true } },
   ],
   routes: handoverRoutes,
   events: {

@@ -15,8 +15,8 @@ export const manifest: ModuleManifest = {
   featureFlag: { key: 'module.promises', default: false, description: 'Promises to pay', owner: 'field-api' },
   dependsOn: ['settings', 'users', 'customers', 'handovers', 'audit', 'inbox'],
   permissions: [
-    { key: 'promise.create', description: { en: 'Record/update promise-to-pay', bn: 'প্রতিশ্রুতি রেকর্ড' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
-    { key: 'promise.view', description: { en: 'View promises in scope', bn: 'প্রতিশ্রুতি দেখা' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
+    { key: 'promise.create', description: { en: 'Record/update promise-to-pay', bn: 'প্রতিশ্রুতি রেকর্ড' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, field_staff: true } },
+    { key: 'promise.view', description: { en: 'View promises in scope', bn: 'প্রতিশ্রুতি দেখা' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, field_staff: true, viewer: true } },
   ],
   routes: promiseRoutes,
   events: { emits: ['promise.created', 'promise.kept', 'promise.broken', 'promise.due', 'promise.follow_up_overdue'], consumes: ['customer.payments_synced', 'handover.accepted'] },

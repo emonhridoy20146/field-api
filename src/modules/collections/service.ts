@@ -10,7 +10,7 @@ import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { haversineM } from '../../core/geo/index.js';
 import { formatBdt } from '../../core/money/index.js';
 import { addDays, businessDate } from '../../core/time/index.js';
-import { branchQuery, canSeeBranch, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
+import { branchQuery, canSeeBranch, hasAllBranches, type AuthUser } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { getSetting } from '../settings/index.js';
@@ -134,14 +134,14 @@ const viewOne = async (c: Lean) => (await views([c]))[0]!;
 
 /** The write scope: field staff change only their own collections (reads use [readScope], ADR-046). */
 export function scopeFilter(user: AuthUser): Record<string, unknown> {
-  if (isSuperAdmin(user)) return {};
+  if (hasAllBranches(user)) return {};
   if (user.role === 'field_staff') return { collectorId: user.id };
   return { branchId: { $in: user.branchIds } };
 }
 
 /** Who may READ a collection (FR-ACT-002, ADR-046): staff see every collection of their branches, with the collector's name. Void and resolve keep `scopeFilter`. */
 export function readScope(user: AuthUser): Record<string, unknown> {
-  return isSuperAdmin(user) ? {} : { branchId: { $in: user.branchIds } };
+  return hasAllBranches(user) ? {} : { branchId: { $in: user.branchIds } };
 }
 
 async function load(user: AuthUser, id: string, scope: (u: AuthUser) => Record<string, unknown> = scopeFilter): Promise<Lean> {

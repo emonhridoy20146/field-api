@@ -2,7 +2,7 @@ import { Schema, model } from 'mongoose';
 import { ctx } from '../../core/context/index.js';
 import { AppError, notFound } from '../../core/errors/index.js';
 import { isOid } from '../../core/db/index.js';
-import { isSuperAdmin, type AuthUser } from '../../core/security/types.js';
+import { hasAllBranches, type AuthUser } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { getUser, type UserView } from '../users/index.js';
@@ -104,13 +104,13 @@ export function isLikelyReinstall(pending: { model?: unknown; androidVersion?: u
 
 async function inScope(actor: AuthUser, userId: string): Promise<boolean> {
   const u = await getUser(userId);
-  return !!u && (isSuperAdmin(actor) || u.branchIds.some((b) => actor.branchIds.includes(b)));
+  return !!u && (hasAllBranches(actor) || u.branchIds.some((b) => actor.branchIds.includes(b)));
 }
 
 export async function list(actor: AuthUser, q: { branchId?: string; userId?: string }) {
   const filter: Record<string, unknown> = {};
   if (q.userId) filter.userId = q.userId;
-  if (!isSuperAdmin(actor)) filter.branchId = q.branchId && actor.branchIds.includes(q.branchId) ? q.branchId : { $in: actor.branchIds };
+  if (!hasAllBranches(actor)) filter.branchId = q.branchId && actor.branchIds.includes(q.branchId) ? q.branchId : { $in: actor.branchIds };
   else if (q.branchId) filter.branchId = q.branchId;
   const rows = await DeviceModel.find(filter).sort({ updatedAt: -1 }).limit(500).lean();
   const out = rows.map((r) => view(r as unknown as Row));

@@ -22,6 +22,7 @@
 | Role key | Description | Scope |
 |---|---|---|
 | `super_admin` | Owner / head office | All branches. Implicitly holds every permission except reserved namespaces (`microfinance.*`) until the microfinance flag and legal sign-off exist. Cannot be locked out: at least one active super admin must always exist. |
+| `area_manager` **[ADDED 2026-11-24]** | "Secretary-style" second-most-powerful admin (1.48.0, ADR-065): sees all the work, resolves most things, forwards to the super admin | **All branches**, like the super admin (role-level rule in `core/security` `ALL_BRANCH_ROLES`, so new branches are covered without editing the user). `branchIds[0]` is only the home branch (where their own records belong). Holds the catalog defaults in the AM column, and never `user.manage`, `rbac.manage`, `flag.manage`, `settings.manage` (no override can grant them). Not device-bound by default (`devices.bindRoles` stays `["field_staff"]`). |
 | `branch_manager` | Manages one or more branches | `user.branchIds[]` |
 | `field_staff` | Collects and visits | Every customer of their branches (one or more) since 1.19.0 (FR-CUS-015); only the ones assigned to them where a branch sets `customers.staffVisibility = assigned` |
 | `viewer` **[ADDED]** | Read-only (e.g. accounts, auditor) | `user.branchIds[]` or all |
@@ -32,78 +33,82 @@ A user has exactly **one role** and one or more `branchIds`. Effective permissio
 
 ### 3.1 Keys
 
-Defaults: SA = super_admin, BM = branch_manager, FS = field_staff, VW = viewer. ● = granted by default, ○ = not granted by default (toggleable).
+Defaults: SA = super_admin, AM = area_manager (1.48.0), BM = branch_manager, FS = field_staff, VW = viewer. ● = granted by default, ○ = not granted by default (toggleable), — = never (reserved, or `neverFor` the role: no override can grant it, ADR-065).
 
-| Key | Meaning | SA | BM | FS | VW | Module |
-|---|---|---|---|---|---|---|
-| `user.view` | List/view users in scope | ● | ● | ○ | ● | users |
-| `user.manage` | Create/edit/deactivate users, reset password, in scope (BM cannot create SA/BM) | ● | ○ | ○ | ○ | users |
-| `rbac.view` | View roles, overrides, effective permissions | ● | ● | ○ | ○ | rbac |
-| `rbac.manage` | Change branch/user permission overrides | ● | ○ | ○ | ○ | rbac |
-| `branch.view` | View branches | ● | ● | ● | ● | branches |
-| `settings.manage` | Org settings, duty hours, thresholds, holidays | ● | ○ | ○ | ○ | settings |
-| `erp.sync` | "Sync from ERP": pull the latest customer data from the ERP now (1.17.0) | ● | ● | ○ | ○ | erp-gateway |
-| `flag.manage` | Toggle feature flags (global / per branch) | ● | ○ | ○ | ○ | flags |
-| `device.manage` | View devices, revoke sessions, unbind device | ● | ● | ○ | ○ | devices |
-| `customer.view` | View customers in scope (list, detail, plan, schedule, payments) | ● | ● | ● | ● | customers |
-| `customer.export` | Export customer lists | ● | ● | ○ | ○ | customers |
-| `customer.phone.manage` | Add or remove extra phone numbers of a customer (1.23.0; kept in FOS, never sent to the ERP) | ● | ● | ● | ○ | customers |
-| `customer.location.propose` | Propose a corrected pin | ● | ● | ● | ○ | customers |
-| `customer.location.approve` | Approve/reject pin corrections; set a pin on the map (1.11.0); delete a pin (1.17.0) | ● | ● | ○ | ○ | customers |
-| `tag.view` | See bad-customer suggestion, tag and history | ● | ● | ● | ● | tags |
-| `tag.set` | Tag/untag (reason required) | ● | ● | ● | ○ | tags |
-| `tag.approve` | Review queue: approve/revert staff-set tags, act on "balance cleared" prompts | ● | ● | ○ | ○ | tags |
-| `collection.record` | Record a field collection | ● | ● | ● | ○ | collections |
-| `collection.view` | View collections in scope (the branch for FS) | ● | ● | ● | ● | collections |
-| `collection.void` | Void a collection **not yet posted** to ERP (reason required) | ● | ● | ○ | ○ | collections |
-| `collection.withdraw` | Withdraw (delete) your own **cash** collection until it is deposited (the row is kept as voided) | ● | ● | ● | ○ | collections |
-| `collection.edit` | Correct the amount, note or payer of your own cash collection until it is deposited and before the ERP was sent it | ● | ● | ● | ○ | collections |
-| `collection.resolve` | Resolve conflicts | ● | ● | ○ | ○ | collections |
-| `cash.view` | View cash positions (own only for FS) | ● | ● | ● | ● | cash |
-| `cash.deposit.record` | Record a deposit | ● | ● | ● | ○ | cash |
-| `cash.deposit.verify` | Verify/reject deposits | ● | ● | ○ | ○ | cash |
-| `cash.deposit.delete` | Delete a pending or verified deposit (reason required; the row is kept as deleted) | ● | ● | ○ | ○ | cash |
-| `cash.limit.manage` | Set cash-on-hand limits per user/branch | ● | ○ | ○ | ○ | cash |
-| `assignment.view` | View assignments and areas | ● | ● | ● | ● | assignments |
-| `assignment.manage` | Assign customers/areas, edit areas | ● | ● | ○ | ○ | assignments |
-| `handover.create` | Create a handover between staff | ● | ● | ○ | ○ | handovers |
-| `handover.request` **[ADDED]** | Staff requests handover of own customers (needs manager approval) | ● | ● | ○ | ○ | handovers |
-| `visit.record` | Check in / out at a customer | ● | ● | ● | ○ | visits |
-| `visit.view` | View visits in scope | ● | ● | ● | ● | visits |
-| `note.create` | Add notes | ● | ● | ● | ○ | notes |
-| `note.view` | View notes in scope | ● | ● | ● | ● | notes |
-| `promise.create` | Record/update promise-to-pay | ● | ● | ● | ○ | promises |
-| `promise.view` | View promises in scope | ● | ● | ● | ● | promises |
-| `attendance.record` | Own work-in/out and breaks | ○ | ○ | ● | ○ | attendance |
-| `attendance.view` | View attendance of others in scope | ● | ● | ○ | ● | attendance |
-| `attendance.manage` | Corrections, leave approval, shift assignment | ● | ● | ○ | ○ | attendance |
-| `attendance.exempt` | Does not do attendance: hidden in the staff app (`attendanceRequired: false`), never counted present, late or absent (1.45.0, FR-ATT-014) | ● | ○ | ○ | ○ | attendance |
-| `location.view` | Latest location map | ● | ● | ○ | ○ | location |
-| `location.history.view` | Route history and stops | ● | ● | ○ | ○ | location |
-| `report.view` | Reports and dashboards in scope | ● | ● | ○ | ● | reports |
-| `report.export` | Export reports (CSV/XLSX/PDF) | ● | ● | ○ | ○ | reports |
-| `prospect.create` | Record a possible customer (app offline or admin) and see the ones you recorded (1.45.0, FR-PRO-001) | ● | ● | ● | ○ | prospects |
-| `prospect.view` | List and view possible customers in scope (1.45.0) | ● | ● | ○ | ● | prospects |
-| `prospect.manage` | Edit, change status, mark converted, re-open possible customers (1.45.0) | ● | ● | ○ | ○ | prospects |
-| `notification.broadcast` **[ADDED]** | Send announcements to staff in scope | ● | ● | ○ | ○ | notifications |
-| `audit.view` | View audit log in scope | ● | ○ | ○ | ● | audit |
-| `media.delete` **[ADDED 2026-11-22]** | Delete photos: all photos of previous months (typed confirmation), or one staff member's attendance photos of a day (1.37.0; the media row stays as a log) | ● | ○ | ○ | ○ | media |
-| `cowork.use` **[ADDED]** | Ask colleagues to work together, accept, leave | ○ | ○ | ● | ○ | cowork |
-| `cowork.view` **[ADDED]** | See co-work sessions in scope | ● | ● | ○ | ● | cowork |
-| `cowork.manage` **[ADDED]** | End a co-work session with a reason (1.34.0; the row is kept as ended) | ● | ● | ○ | ○ | cowork |
-| `target.view` **[ADDED]** | See daily targets in scope | ● | ● | ○ | ● | targets |
-| `target.manage` **[ADDED]** | Set daily targets for staff and branch defaults | ● | ● | ○ | ○ | targets |
-| `task.view` **[ADDED]** | See staff tasks in scope | ● | ● | ○ | ● | tasks |
-| `task.manage` **[ADDED]** | Give tasks to staff with a note; edit, cancel, verify or reject a resolve request | ● | ● | ○ | ○ | tasks |
-| `task.work` **[ADDED]** | See own tasks and ask for them to be resolved | ○ | ○ | ● | ○ | tasks |
-| `inbox.view` **[ADDED]** | "Needs attention" exceptions inbox | ● | ● | ○ | ○ | inbox |
-| `activity.view` **[ADDED 2026-11-21]** | See the staff activity feed in scope (collections, visits, promises, pins as they happen) | ● | ● | ○ | ● | activity |
-| `place.view` **[ADDED 2026-11-22]** | See map places (text markers) of all branches (1.38.0; all branches since 1.42.0, ADR-054) | ● | ● | ● | ● | places |
-| `place.create` **[ADDED 2026-11-22]** | Put a place on the map, change the name, icon and note of own places, ask for a place to be moved (1.38.0) | ● | ● | ● | ○ | places |
-| `place.manage` **[ADDED 2026-11-22]** | Change, move or delete any place in scope; approve or reject move requests (1.38.0) | ● | ● | ○ | ○ | places |
-| `leave.request` **[ADDED]** | Request leave | ○ | ○ | ● | ○ | attendance |
-| `microfinance.view` | **RESERVED** — not grantable until MF-001 unblocked | — | — | — | — | microfinance |
-| `microfinance.manage` | **RESERVED** | — | — | — | — | microfinance |
+| Key | Meaning | SA | AM | BM | FS | VW | Module |
+|---|---|---|---|---|---|---|---|
+| `user.view` | List/view users in scope | ● | ● | ● | ○ | ● | users |
+| `user.manage` | Create/edit/deactivate users, reset password, in scope (only a super admin creates or manages SA/AM/BM) | ● | — | ○ | ○ | ○ | users |
+| `rbac.view` | View roles, overrides, effective permissions | ● | ● | ● | ○ | ○ | rbac |
+| `rbac.manage` | Change branch/user permission overrides | ● | — | ○ | ○ | ○ | rbac |
+| `branch.view` | View branches | ● | ● | ● | ● | ● | branches |
+| `settings.manage` | Org settings, duty hours, thresholds, holidays | ● | — | ○ | ○ | ○ | settings |
+| `erp.sync` | "Sync from ERP": pull the latest customer data from the ERP now (1.17.0) | ● | ● | ● | ○ | ○ | erp-gateway |
+| `flag.manage` | Toggle feature flags (global / per branch) | ● | — | ○ | ○ | ○ | flags |
+| `device.manage` | View devices, revoke sessions, unbind device | ● | ● | ● | ○ | ○ | devices |
+| `customer.view` | View customers in scope (list, detail, plan, schedule, payments) | ● | ● | ● | ● | ● | customers |
+| `customer.export` | Export customer lists | ● | ● | ● | ○ | ○ | customers |
+| `customer.phone.manage` | Add or remove extra phone numbers of a customer (1.23.0; kept in FOS, never sent to the ERP) | ● | ● | ● | ● | ○ | customers |
+| `customer.location.propose` | Propose a corrected pin | ● | ● | ● | ● | ○ | customers |
+| `customer.location.approve` | Approve/reject pin corrections; set a pin on the map (1.11.0); delete a pin (1.17.0) | ● | ● | ● | ○ | ○ | customers |
+| `tag.view` | See bad-customer suggestion, tag and history | ● | ● | ● | ● | ● | tags |
+| `tag.set` | Tag/untag (reason required) | ● | ● | ● | ● | ○ | tags |
+| `tag.approve` | Review queue: approve/revert staff-set tags, act on "balance cleared" prompts | ● | ● | ● | ○ | ○ | tags |
+| `collection.record` | Record a field collection | ● | ● | ● | ● | ○ | collections |
+| `collection.view` | View collections in scope (the branch for FS) | ● | ● | ● | ● | ● | collections |
+| `collection.void` | Void a collection **not yet posted** to ERP (reason required) | ● | ● | ● | ○ | ○ | collections |
+| `collection.withdraw` | Withdraw (delete) your own **cash** collection until it is deposited (the row is kept as voided) | ● | ● | ● | ● | ○ | collections |
+| `collection.edit` | Correct the amount, note or payer of your own cash collection until it is deposited and before the ERP was sent it | ● | ● | ● | ● | ○ | collections |
+| `collection.resolve` | Resolve conflicts | ● | ● | ● | ○ | ○ | collections |
+| `cash.view` | View cash positions (own only for FS) | ● | ● | ● | ● | ● | cash |
+| `cash.deposit.record` | Record a deposit | ● | ● | ● | ● | ○ | cash |
+| `cash.deposit.verify` | Verify/reject deposits | ● | ● | ● | ○ | ○ | cash |
+| `cash.deposit.delete` | Delete a pending or verified deposit (reason required; the row is kept as deleted) | ● | ● | ● | ○ | ○ | cash |
+| `cash.limit.manage` | Set cash-on-hand limits per user/branch | ● | ○ | ○ | ○ | ○ | cash |
+| `assignment.view` | View assignments and areas | ● | ● | ● | ● | ● | assignments |
+| `assignment.manage` | Assign customers/areas, edit areas | ● | ● | ● | ○ | ○ | assignments |
+| `handover.create` | Create a handover between staff | ● | ● | ● | ○ | ○ | handovers |
+| `handover.request` **[ADDED]** | Staff requests handover of own customers (needs manager approval) | ● | ● | ● | ○ | ○ | handovers |
+| `visit.record` | Check in / out at a customer | ● | ● | ● | ● | ○ | visits |
+| `visit.view` | View visits in scope | ● | ● | ● | ● | ● | visits |
+| `note.create` | Add notes | ● | ● | ● | ● | ○ | notes |
+| `note.view` | View notes in scope | ● | ● | ● | ● | ● | notes |
+| `promise.create` | Record/update promise-to-pay | ● | ● | ● | ● | ○ | promises |
+| `promise.view` | View promises in scope | ● | ● | ● | ● | ● | promises |
+| `attendance.record` | Own work-in/out and breaks | ○ | ○ | ○ | ● | ○ | attendance |
+| `attendance.view` | View attendance of others in scope | ● | ● | ● | ○ | ● | attendance |
+| `attendance.manage` | Corrections, leave approval, shift assignment | ● | ● | ● | ○ | ○ | attendance |
+| `attendance.exempt` | Does not do attendance: hidden in the staff app (`attendanceRequired: false`), never counted present, late or absent (1.45.0, FR-ATT-014) | ● | ● | ○ | ○ | ○ | attendance |
+| `location.view` | Latest location map | ● | ● | ● | ○ | ○ | location |
+| `location.history.view` | Route history and stops | ● | ● | ● | ○ | ○ | location |
+| `report.view` | Reports and dashboards in scope | ● | ● | ● | ○ | ● | reports |
+| `report.export` | Export reports (CSV/XLSX/PDF) | ● | ● | ● | ○ | ○ | reports |
+| `prospect.create` | Record a possible customer (app offline or admin) and see the ones you recorded (1.45.0, FR-PRO-001) | ● | ● | ● | ● | ○ | prospects |
+| `prospect.view` | List and view possible customers in scope (1.45.0) | ● | ● | ● | ○ | ● | prospects |
+| `prospect.manage` | Edit, change status, mark converted, re-open possible customers (1.45.0) | ● | ● | ● | ○ | ○ | prospects |
+| `notification.broadcast` **[ADDED]** | Send announcements to staff in scope | ● | ● | ● | ○ | ○ | notifications |
+| `audit.view` | View audit log in scope | ● | ● | ○ | ○ | ● | audit |
+| `media.delete` **[ADDED 2026-11-22]** | Delete photos: all photos of previous months (typed confirmation), or one staff member's attendance photos of a day (1.37.0; the media row stays as a log) | ● | ○ | ○ | ○ | ○ | media |
+| `cowork.use` **[ADDED]** | Ask colleagues to work together, accept, leave | ○ | ○ | ○ | ● | ○ | cowork |
+| `cowork.view` **[ADDED]** | See co-work sessions in scope | ● | ● | ● | ○ | ● | cowork |
+| `cowork.manage` **[ADDED]** | End a co-work session with a reason (1.34.0; the row is kept as ended) | ● | ● | ● | ○ | ○ | cowork |
+| `target.view` **[ADDED]** | See daily targets in scope | ● | ● | ● | ○ | ● | targets |
+| `target.manage` **[ADDED]** | Set daily targets for staff and branch defaults | ● | ● | ● | ○ | ○ | targets |
+| `task.view` **[ADDED]** | See staff tasks in scope | ● | ● | ● | ○ | ● | tasks |
+| `task.manage` **[ADDED]** | Give tasks to staff with a note; edit, cancel, verify or reject a resolve request | ● | ● | ● | ○ | ○ | tasks |
+| `task.work` **[ADDED]** | See own tasks and ask for them to be resolved | ○ | ○ | ○ | ● | ○ | tasks |
+| `inbox.view` **[ADDED]** | "Needs attention" exceptions inbox | ● | ● | ● | ○ | ○ | inbox |
+| `activity.view` **[ADDED 2026-11-21]** | See the staff activity feed in scope (collections, visits, promises, pins as they happen) | ● | ● | ● | ○ | ● | activity |
+| `place.view` **[ADDED 2026-11-22]** | See map places (text markers) of all branches (1.38.0; all branches since 1.42.0, ADR-054) | ● | ● | ● | ● | ● | places |
+| `place.create` **[ADDED 2026-11-22]** | Put a place on the map, change the name, icon and note of own places, ask for a place to be moved (1.38.0) | ● | ● | ● | ● | ○ | places |
+| `place.manage` **[ADDED 2026-11-22]** | Change, move or delete any place in scope; approve or reject move requests (1.38.0) | ● | ● | ● | ○ | ○ | places |
+| `leave.request` **[ADDED]** | Request leave | ○ | ○ | ○ | ● | ○ | attendance |
+| `request.create` **[ADDED 2026-11-24]** | Send a request / report / inform / complaint (app offline or admin); see the ones you sent and the ones assigned to you; comment on them (1.48.0, FR-REQ-001) | ● | ● | ● | ● | ○ | requests |
+| `request.view` **[ADDED 2026-11-24]** | List and view requests in scope and comment on them (1.48.0) | ● | ● | ● | ○ | ● | requests |
+| `request.manage` **[ADDED 2026-11-24]** | Work the area manager queue: forward, assign, resolve, close, reopen requests (1.48.0) | ● | ● | ○ | ○ | ○ | requests |
+| `request.important.manage` **[ADDED 2026-11-24]** | Work the super admin queue: receive important requests, move, resolve or close requests at super admin level (1.48.0, ADR-066) | ● | ○ | ○ | ○ | ○ | requests |
+| `microfinance.view` | **RESERVED** — not grantable until MF-001 unblocked | — | — | — | — | — | microfinance |
+| `microfinance.manage` | **RESERVED** | — | — | — | — | — | microfinance |
 
 Rules:
 - Every key is declared in exactly one module manifest (`permissions[]`). CI fails if a key is declared twice or used (`requirePermission('x')`) but not declared.
@@ -114,9 +119,10 @@ Rules:
 - **Branch override:** `{ branchId, key, effect: allow|deny }` applies to all users of a role in that branch (`role` field required).
 - **User override:** `{ userId, key, effect: allow|deny }`.
 - Overrides cannot grant `microfinance.*` (reserved) nor allow a BM to manage SA accounts.
+- Overrides cannot grant a key to a role in its `neverFor` (1.48.0, ADR-065): an `allow` is 422 `BUSINESS_RULE` `PERMISSION_NOT_GRANTABLE`, and evaluation ignores any stored one.
 
 ### 3.3 Evaluation order
-`effective(user, key)` = first match of: user override → branch override (for the user's role, any of the user's branches; **deny wins** if branches disagree) → role default. `super_admin` short-circuits to allow (except reserved). Result is cached per user for 60 s and invalidated by `rbac.changed` event.
+`effective(user, key)` = first match of: user override → branch override (for the user's role, any of the user's branches; **deny wins** if branches disagree) → role default. `super_admin` short-circuits to allow (except reserved). A key whose `neverFor` lists the user's role is denied before any override (1.48.0). Result is cached per user for 60 s and invalidated by `rbac.changed` event.
 
 ## 4. Functional requirements
 
@@ -152,6 +158,7 @@ Rules:
 | ID | Requirement | Status | Phase | Repos | Test |
 |---|---|---|---|---|---|
 | FR-USER-001 | CRUD users: name (Bangla + English), phone, role, branchIds, employeeCode, `erpEmployeeId` (optional), photo, active flag. | active | P0 | A W | I E |
+| FR-USER-003 **[ADDED 2026-11-24]** | Role `area_manager` (1.48.0, ADR-065): only a super admin creates one or changes a user to or from it (`POST /users`, `PATCH /users/{id}` role); an area manager gets 403 on user create, edit, role change, password reset and deactivate, and on feature flags, settings and permission overrides; scope is every branch. | active | P1 | A W | U I |
 | FR-USER-002 | Deactivation revokes sessions, blocks login, and triggers a handover reminder if the user still holds assignments. | active | P0 | A W | I |
 | FR-BR-001 | Branches mirrored from Laravel (`erpBranchId`, code, name bn/en, district, address, lat/lng). Read-only in FOS except local extras (duty hours override, cash limit default). The ERP has no Bangla name, district or coordinates; warehouses are mirrored too (ADR-033). | active | P0 | A W | C I |
 | FR-BR-002 | Branch map point set in FOS (`PUT /branches/{id}/location`, `settings.manage`, inside Bangladesh, audited); ERP sync never clears it. Used for map centring and the "far from branch" data-quality check. | active | P1 | A W | I |
@@ -331,6 +338,17 @@ Rules:
 | FR-PRO-002 | The office lists possible customers in scope with filters (from/to, createdBy, status, branch, q) and pagination, edits them and moves status `new → contacted → dropped`; every status change is kept in `history`; audited. | active | P1 | A W | I |
 | FR-PRO-003 | Conversion and re-entry: the office marks a prospect converted and links it to an existing FOS customer or an ERP customer code (`convertedAt`, `convertedBy`); a converted or dropped prospect can be re-opened, or a new prospect created from an old one (`fromProspectId`). Counts on the dashboard (FR-DSH-002). | active | P1 | A W | I |
 
+### 4.9e Requests / tickets **[ADDED 2026-11-24, owner request]** (module `requests`, flag `module.requests`, ADR-066)
+
+| ID | Requirement | Status | Phase | Repos | Test |
+|---|---|---|---|---|---|
+| FR-REQ-001 | Staff send a request / report / inform / complaint (type, priority normal or important, title, body, optional customer in scope, optional photos they uploaded, optional due time) offline-first from the app (sync mutation `request`, idempotent by clientId) or from admin-web (`POST /requests`). Branch = the creator's home branch (office users may pick one in scope). | active | P1 | A M W | U I |
+| FR-REQ-002 | Routing: `important` waits in the super admin queue, `normal` in the area manager queue. The queues are permissions (`request.important.manage`, `request.manage`), not roles. | active | P1 | A W M | U I |
+| FR-REQ-003 | Actions: comment (anyone who sees it; idempotent; sync mutation `request_comment`), forward (to a queue or a person, note required), assign (to a person), resolve (note required), reopen (resolved or closed only), close. Status `open | in_progress | forwarded | resolved | closed | reopened`. | active | P1 | A W M | U I |
+| FR-REQ-004 | Who acts: area managers (`request.manage`) resolve, forward, assign, close and reopen what is at area manager level; only `request.important.manage` (super admin) acts on what is at super admin level; the assignee may resolve; the creator may reopen or withdraw their own; forward/assign targets are active users who work with requests. Scope: `request.view` = branch scope (all branches for super admin and area manager); `request.create` only = own and assigned now. Out of scope = 404. | active | P1 | A W M | U I |
+| FR-REQ-005 | Notifications: new important → super admins; new normal → area managers (super admins when there is none); forwarded / assigned → the target; resolved / closed → the creator; comment → creator and assignee; reopened → the queue or assignee. Inbox item `request.important` while an item waits in the super admin queue. Dashboard `requestStats` (open by queue, important open) with links. | active | P1 | A W M | U I |
+| FR-REQ-006 | Trace: an append-only timeline (created, comment, forwarded {from, to, note}, assigned, resolved {note}, reopened, closed) with actor and time on every entry, and an audit entry for every action. The app pulls its own and assigned requests with the timeline (sync entity `request`). | active | P1 | A W M | U I |
+
 ### 4.10 Attendance (module `attendance`)
 
 | ID | Requirement | Status | Phase | Repos | Test |
@@ -403,9 +421,9 @@ Rules:
 
 | ID | Requirement | Status | Phase | Repos | Test |
 |---|---|---|---|---|---|
-| FR-AUD-001 | Append-only audit log for: money (collections, voids, resolutions, deposits), location edits (pin corrections, attendance corrections), handovers, tags, permission and role changes, settings and flag changes (incl. branch map points, `branch.location_set`), customer phone numbers added or removed in FOS (`customer.phone.added` / `customer.phone.removed`), photo deletions (`media.purged`, `attendance.photos_deleted`, 1.37.0), map places (`place.created/edited/moved/move_requested/move_approved/move_rejected/deleted`, 1.38.0), logins/failed logins, exports, device unbinds. | active | P0 | A | U I |
+| FR-AUD-001 | Append-only audit log for: money (collections, voids, resolutions, deposits), location edits (pin corrections, attendance corrections), handovers, tags, permission and role changes, settings and flag changes (incl. branch map points, `branch.location_set`), customer phone numbers added or removed in FOS (`customer.phone.added` / `customer.phone.removed`), photo deletions (`media.purged`, `attendance.photos_deleted`, 1.37.0), map places (`place.created/edited/moved/move_requested/move_approved/move_rejected/deleted`, 1.38.0), requests (`request.created/commented/forwarded/assigned/resolved/reopened/closed`, 1.48.0), logins/failed logins, exports, device unbinds. | active | P0 | A | U I |
 | FR-AUD-002 | Entry: `actorId`, `actorRole`, `action`, `entity`, `entityId`, `branchId`, `before`, `after`, `reason`, `ip`, `userAgent`/`deviceId`, `at`, `requestId`, hash chain (`prevHash`) for tamper evidence. | active | P0 | A | U |
-| FR-AUD-003 | Audit viewer with filters (actor, action, entity, date) and diff view. | active | P1 | A W | E |
+| FR-AUD-003 | Audit viewer with filters (actor, action, entity, date) and diff view. 1.48.0: `GET /audit` `from` / `to` also take inclusive Asia/Dhaka business dates (YYYY-MM-DD), combined with every other filter; a date-time is still an exact instant. | active | P1 | A W | I E |
 | FR-AUD-004 | Audit log cannot be modified or deleted through the API; retention 8 years for money, 3 years other (OD-09). | active | P0 | A | I |
 
 ### 4.16 Sync (module `sync`)

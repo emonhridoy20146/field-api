@@ -15,7 +15,7 @@ export const manifest: ModuleManifest = {
     {
       key: 'branch.view',
       description: { en: 'View branches', bn: 'শাখা দেখা' },
-      defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true },
+      defaults: { super_admin: true, area_manager: true, branch_manager: true, field_staff: true, viewer: true },
     },
   ],
   routes: branchRoutes,

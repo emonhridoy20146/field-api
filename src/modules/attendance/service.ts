@@ -4,7 +4,7 @@ import { AppError, businessRule, notFound } from '../../core/errors/index.js';
 import { isDuplicateKey, isOid, newId, withTransaction, type LeanDoc, type LooseObject } from '../../core/db/index.js';
 import { recordChange } from '../../core/changefeed/index.js';
 import { addDays, businessDate, dhakaInstant, isIsoDate } from '../../core/time/index.js';
-import { branchQuery, canSeeBranch, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
+import { branchQuery, canSeeBranch, hasAllBranches, type AuthUser } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { getSetting, isHoliday, resolveShift, type ShiftView } from '../settings/index.js';
@@ -355,7 +355,7 @@ export async function allOnDutyNow(): Promise<{ userId: string; branchId: string
 
 async function staffInScope(user: AuthUser, branchId?: string, userId?: string): Promise<UserView[]> {
   if (branchId && !canSeeBranch(user, branchId)) return [];
-  const staff = await listByRole(['field_staff'], branchId ? [branchId] : isSuperAdmin(user) ? undefined : user.branchIds);
+  const staff = await listByRole(['field_staff'], branchId ? [branchId] : hasAllBranches(user) ? undefined : user.branchIds);
   return withoutExempt(userId ? staff.filter((s) => s.id === userId) : staff);
 }
 

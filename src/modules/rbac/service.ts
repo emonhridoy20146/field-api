@@ -5,7 +5,7 @@ import { isOid, withTransaction } from '../../core/db/index.js';
 import { nextSeq, CounterModel } from '../../core/changefeed/index.js';
 import type { PermissionDef } from '../../core/module/types.js';
 import type { AuthUser, Role } from '../../core/security/types.js';
-import { canSeeBranch, isSuperAdmin } from '../../core/security/types.js';
+import { ALL_BRANCH_ROLES, ROLES, canSeeBranch, hasAllBranches } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { getUser, listByRole } from '../users/index.js';
@@ -64,7 +64,7 @@ export async function permissionsVersion(): Promise<number> {
 
 export async function explain(actor: AuthUser, userId: string) {
   const u = await getUser(userId);
-  if (!u || (!isSuperAdmin(actor) && !u.branchIds.some((b) => actor.branchIds.includes(b)))) throw notFound('user');
+  if (!u || (!hasAllBranches(actor) && !u.branchIds.some((b) => actor.branchIds.includes(b)))) throw notFound('user');
   const ov = await overridesFor(u);
   return catalog().map((d) => ({ key: d.key, ...evaluate(u, d, ov) }));
 }
@@ -74,23 +74,25 @@ export interface OverrideChange {
   effect: 'allow' | 'deny' | 'inherit';
 }
 
-function checkKeys(changes: OverrideChange[]) {
+function checkKeys(changes: OverrideChange[], role: Role) {
   const cat = new Map(catalog().map((d) => [d.key, d]));
   for (const c of changes) {
     const d = cat.get(c.key);
     if (!d) throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'changes', message: `Unknown permission ${c.key}` }] });
     if (d.reserved && c.effect === 'allow') throw businessRule('RESERVED_PERMISSION', { key: c.key });
+    // ADR-065: evaluation ignores it anyway; refusing says so instead of storing an allow that never works.
+    if (d.neverFor?.includes(role) && c.effect === 'allow') throw businessRule('PERMISSION_NOT_GRANTABLE', { key: c.key, role });
   }
 }
 
 async function applyChanges(
   actor: AuthUser,
-  scope: { level: 'branch'; branchId: string; role: Role } | { level: 'user'; userId: string; branchId: string | null },
+  scope: { level: 'branch'; branchId: string; role: Role } | { level: 'user'; userId: string; branchId: string | null; role: Role },
   changes: OverrideChange[],
   reason: string,
   meta: RequestMeta,
 ) {
-  checkKeys(changes);
+  checkKeys(changes, scope.role);
   const baseFilter = scope.level === 'branch' ? { level: 'branch', branchId: scope.branchId, role: scope.role } : { level: 'user', userId: scope.userId };
   await withTransaction(async (session) => {
     for (const c of changes) {
@@ -130,15 +132,16 @@ export async function setUserOverrides(actor: AuthUser, userId: string, changes:
   const u = await getUser(userId);
   if (!u) throw notFound('user');
   if (u.role === 'super_admin') throw businessRule('SUPER_ADMIN_NOT_OVERRIDABLE');
-  await applyChanges(actor, { level: 'user', userId, branchId: u.branchIds[0] ?? null }, changes, reason, meta);
+  await applyChanges(actor, { level: 'user', userId, branchId: u.branchIds[0] ?? null, role: u.role }, changes, reason, meta);
   return { ok: true };
 }
 
 /** Users who hold a key within a branch (for notifications/inbox routing, e.g. tag.approve holders). */
 /** Active users holding `key` in `branchId`, plus super admins; `null` = every branch (shared records, ADR-054). */
 export async function holdersOf(key: string, branchId: string | null): Promise<string[]> {
-  const candidates = await listByRole(['super_admin', 'branch_manager', 'viewer', 'field_staff'], branchId === null ? undefined : [branchId]);
-  const sas = await listByRole(['super_admin']);
+  const candidates = await listByRole(ROLES, branchId === null ? undefined : [branchId]);
+  // Every-branch roles hold their permissions in every branch, whatever their home branch (ADR-065).
+  const sas = await listByRole([...ALL_BRANCH_ROLES]);
   const all = new Map([...candidates, ...sas].map((u) => [u.id, u]));
   const out: string[] = [];
   for (const u of all.values()) if ((await effectivePermissions(u)).has(key)) out.push(u.id);

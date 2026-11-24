@@ -7,7 +7,7 @@ import { recordChange } from '../../core/changefeed/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import { addDays, businessDate, isIsoDate } from '../../core/time/index.js';
-import { branchQuery, canSeeBranch, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
+import { branchQuery, canSeeBranch, hasAllBranches, type AuthUser } from '../../core/security/types.js';
 import * as audit from '../audit/index.js';
 import { can } from '../rbac/index.js';
 import { getBranch } from '../branches/index.js';
@@ -150,18 +150,18 @@ const auditView = (p: Lean) => ({
  * prospect.create (field staff) sees the ones they created.
  */
 async function readFilter(user: AuthUser): Promise<Record<string, unknown>> {
-  if (await can(user, VIEW)) return isSuperAdmin(user) ? {} : { branchId: { $in: user.branchIds } };
+  if (await can(user, VIEW)) return hasAllBranches(user) ? {} : { branchId: { $in: user.branchIds } };
   return { 'createdBy.id': user.id };
 }
 
 /** A single prospect: prospect.view in scope, or its creator. Out of scope is 404. */
 async function itemFilter(user: AuthUser): Promise<Record<string, unknown>> {
   if (!(await can(user, VIEW))) return { 'createdBy.id': user.id };
-  return isSuperAdmin(user) ? {} : { $or: [{ branchId: { $in: user.branchIds } }, { 'createdBy.id': user.id }] };
+  return hasAllBranches(user) ? {} : { $or: [{ branchId: { $in: user.branchIds } }, { 'createdBy.id': user.id }] };
 }
 
 /** Office writes (prospect.manage): the caller's branches. */
-const manageFilter = (user: AuthUser): Record<string, unknown> => (isSuperAdmin(user) ? {} : { branchId: { $in: user.branchIds } });
+const manageFilter = (user: AuthUser): Record<string, unknown> => (hasAllBranches(user) ? {} : { branchId: { $in: user.branchIds } });
 
 async function loadFor(filter: Record<string, unknown>, id: string): Promise<Lean> {
   if (!isOid(id)) throw notFound('prospect');

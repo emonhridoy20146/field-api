@@ -431,6 +431,45 @@ POST /api/v1/devices/6742b0…/approve  → 200 { "id": "6742b0…", "status": "
 ```
 - `likelyReinstall` is false unless the setting `devices.reinstallHintIdleDays` is above 0: then it is true for a pending device with the same model and Android version as the user's only active device, when that device was not seen for that many days. Only a hint; the admin still approves.
 
+### 3.9k Area manager (1.48.0, FR-USER-003, ADR-065)
+```
+POST /api/v1/users  (super admin)  { "name": { "en": "Area Manager", "bn": "এরিয়া ম্যানেজার" }, "phone": "01700000007",
+                                     "role": "area_manager", "branchIds": ["6731…"], "employeeCode": "AM001" }
+→ 201 { "user": { "role": "area_manager", "branchIds": ["6731…"], … }, "temporaryPassword": "…" }
+POST /api/v1/users/6734…/reset-password  (area manager) → 403 { "code": "FORBIDDEN", "details": { "permission": "user.manage" } }
+PUT  /api/v1/rbac/overrides/user/<areaManagerId> { "changes": [ { "key": "user.manage", "effect": "allow" } ], "reason": "…" }
+→ 422 { "code": "BUSINESS_RULE", "details": { "rule": "PERMISSION_NOT_GRANTABLE", "key": "user.manage", "role": "area_manager" } }
+GET  /api/v1/rbac/permissions → [ { "key": "settings.manage", "defaults": { "super_admin": true }, "neverFor": ["area_manager"], … }, … ]
+```
+- Scope is every branch (like the super admin); `branchIds[0]` is only the home branch. Permissions: the AM column of 02-requirements §3.1. Not device-bound (`devices.bindRoles` stays `["field_staff"]`).
+
+### 3.9l Requests / tickets (1.48.0, FR-REQ-001..006, ADR-066)
+```
+POST /api/v1/requests  (or sync mutation `request`)
+{ "clientId": "5f0c…", "type": "complaint", "priority": "important", "title": "Customer threatened me",
+  "body": "At the bazaar shop, 11:00", "customerId": "6741…", "photoMediaIds": ["6750…"] }
+→ 201 { "id": "6760…", "status": "open", "level": "super_admin", "currentQueue": "super_admin", "assignee": null,
+        "timeline": [ { "id": "…", "kind": "created", "at": "2026-11-24T05:00:00.000Z", "actor": { "id": "6734…", "name": "Rakib Hasan" },
+                        "note": null, "from": null, "to": { "queue": "super_admin", "user": null }, "status": { "from": null, "to": "open" } } ], … }
+POST /api/v1/requests/6760…/assign   { "userId": "6735…", "note": "Visit with him tomorrow" }
+→ 200 { "status": "in_progress", "currentQueue": "assignee", "level": "super_admin", "assignee": { "id": "6735…", "name": "Sumon Mia" }, … }
+POST /api/v1/requests/6760…/comment  { "clientId": "8a1e…", "text": "Going at 10" }        (or sync mutation `request_comment`
+                                                                                          { "requestClientId": "5f0c…", "clientId": "8a1e…", "text": "…" })
+POST /api/v1/requests/6760…/resolve  { "note": "Spoke with the customer and his family" }  → 200 { "status": "resolved", … }
+POST /api/v1/requests/6760…/forward  { "queue": "area_manager", "note": "…" }             → 409 INVALID_STATE (reason REQUEST_RESOLVED)
+GET  /api/v1/requests?status=open,in_progress,forwarded,reopened&queue=area_manager&from=2026-11-01&to=2026-11-24
+→ 200 { "items": [ … ], "nextCursor": null, "total": 3, "counts": { "open": 2, "in_progress": 0, "forwarded": 1, "resolved": 4, "closed": 1, "reopened": 0 } }
+```
+- `level` = who is responsible (set by priority, changed by forwarding to a queue); `currentQueue` = where it waits now. At `super_admin` level only `request.important.manage` moves, resolves or closes it (else 403 FORBIDDEN `details.permission = request.important.manage`); the assignee may resolve; the creator may reopen or close their own.
+- `409 INVALID_STATE` `details.reason`: `REQUEST_RESOLVED`, `REQUEST_CLOSED`, `REQUEST_OPEN` (reopen of an open request), `REQUEST_CHANGED` (lost a race: read again). `422 BUSINESS_RULE` `REQUEST_INVALID_TARGET` (forward/assign to an unknown or inactive user, or one without request.create / request.manage).
+- Dashboard: `requestStats { areaManagerQueue, superAdminQueue, assigned, importantOpen }`, each `{ count, link }` to `GET /requests`.
+
+### 3.9m Audit log by Dhaka date (1.48.0, FR-AUD-003)
+```
+GET /api/v1/audit?from=2026-11-24&to=2026-11-24&action=request.*&branchId=6731…
+```
+- A date is inclusive Asia/Dhaka: `from` = 00:00 Dhaka (18:00 UTC the day before), `to` = the end of that Dhaka day. A date-time is still an exact instant. `from` after `to`, or anything else → 400.
+
 ### 3.10a Pin colours and invoice viewer (1.14.0)
 Yellow and orange pins of credit customers in view:
 ```http
@@ -502,7 +541,7 @@ A call to the guarantor is logged like any contact attempt with `"target": "guar
 | 412 | `PRECONDITION_FAILED` | Reload and retry edit. |
 | 413 | `PAYLOAD_TOO_LARGE` | Split batch. |
 | 422 | `OFF_DUTY` | Location outside duty; drop points. |
-| 422 | `BUSINESS_RULE` | `details.rule` (e.g. `PROMISE_DATE_RANGE`, `PROMISE_FOLLOW_UP_INVALID` (1.45.0, `details.reason`), `REASON_REQUIRED`, `LAST_SUPER_ADMIN`, `COWORK_INVALID_INVITEE`, `COWORK_TOO_MANY`, `TARGET_IN_PAST`). |
+| 422 | `BUSINESS_RULE` | `details.rule` (e.g. `PROMISE_DATE_RANGE`, `PROMISE_FOLLOW_UP_INVALID` (1.45.0, `details.reason`), `REASON_REQUIRED`, `LAST_SUPER_ADMIN`, `COWORK_INVALID_INVITEE`, `COWORK_TOO_MANY`, `TARGET_IN_PAST`, `PERMISSION_NOT_GRANTABLE` (1.48.0, `details.key`, `details.role`), `REQUEST_INVALID_TARGET` (1.48.0)). |
 | 423 | `ACCOUNT_LOCKED` | `details.until`; since 1.47.0 also `details.retryAfterSec`, `details.scope` (`account` \| `ip`) and `Retry-After`. |
 | 426 | `UPGRADE_REQUIRED` | `details.minVersion`, `details.storeUrl`. |
 | 429 | `RATE_LIMITED` | Honour `Retry-After`. |

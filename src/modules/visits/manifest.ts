@@ -13,8 +13,8 @@ export const manifest: ModuleManifest = {
   featureFlag: { key: 'module.visits', default: false, description: 'Visits', owner: 'field-api' },
   dependsOn: ['settings', 'users', 'customers'],
   permissions: [
-    { key: 'visit.record', description: { en: 'Check in / out at a customer', bn: 'গ্রাহকের কাছে ভিজিট রেকর্ড' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
-    { key: 'visit.view', description: { en: 'View visits in scope', bn: 'ভিজিট দেখা' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
+    { key: 'visit.record', description: { en: 'Check in / out at a customer', bn: 'গ্রাহকের কাছে ভিজিট রেকর্ড' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, field_staff: true } },
+    { key: 'visit.view', description: { en: 'View visits in scope', bn: 'ভিজিট দেখা' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, field_staff: true, viewer: true } },
   ],
   routes: visitRoutes,
   events: { emits: ['visit.recorded'], consumes: [] },

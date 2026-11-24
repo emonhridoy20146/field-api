@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { ctx } from '../../core/context/index.js';
 import { canonicalJson } from '../../core/idempotency/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
-import { branchQuery, type AuthUser } from '../../core/security/types.js';
+import { branchQuery, hasAllBranches, type AuthUser } from '../../core/security/types.js';
 import { AuditLogModel } from './models/audit-log.model.js';
 
 const headSchema = new Schema({ _id: String, seq: Number, hash: String }, { collection: 'audit_head', versionKey: false });
@@ -112,7 +112,7 @@ export interface AuditQuery {
 
 export async function list(user: AuthUser, q: AuditQuery) {
   const filter: Record<string, unknown> = {};
-  if (user.role !== 'super_admin') Object.assign(filter, branchQuery(user, q.branchId));
+  if (!hasAllBranches(user)) Object.assign(filter, branchQuery(user, q.branchId));
   else if (q.branchId) filter.branchId = q.branchId;
   if (q.actorId) filter.actorId = q.actorId;
   if (q.action) filter.action = q.action.endsWith('*') ? { $regex: `^${q.action.slice(0, -1).replace(/[.]/g, '\\.')}` } : q.action;
@@ -161,7 +161,7 @@ export interface AuditReportRow {
  */
 export async function reportRows(user: AuthUser, q: { branchId?: string | undefined; from: Date; to: Date }, limit: number): Promise<AuditReportRow[]> {
   const filter: Record<string, unknown> = { at: { $gte: q.from, $lte: q.to } };
-  if (user.role !== 'super_admin') Object.assign(filter, branchQuery(user, q.branchId));
+  if (!hasAllBranches(user)) Object.assign(filter, branchQuery(user, q.branchId));
   else if (q.branchId) filter.branchId = q.branchId;
   const rows = await AuditLogModel.find(filter).sort({ seq: 1 }).limit(limit).lean();
   return rows.map((r) => ({ at: r.at, actorName: r.actorName ?? '', actorRole: r.actorRole ?? '', action: r.action, entity: r.entity, entityId: r.entityId ?? '', branchId: r.branchId ?? '', reason: r.reason ?? '', requestId: r.requestId ?? '' }));

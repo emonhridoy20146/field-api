@@ -8,16 +8,17 @@
 import { readFileSync } from 'node:fs';
 import { collectRoutes, manifests } from './lib/routes.js';
 
-const ROLES = ['super_admin', 'branch_manager', 'field_staff', 'viewer'] as const;
+const ROLES = ['super_admin', 'area_manager', 'branch_manager', 'field_staff', 'viewer'] as const;
 const errors: string[] = [];
 const notes: string[] = [];
 
 const declared = new Map<
   string,
-  { module: string; defaults: Record<string, boolean | undefined>; reserved: boolean }
+  { module: string; defaults: Record<string, boolean | undefined>; reserved: boolean; neverFor: string[] }
 >();
 for (const m of manifests)
-  for (const p of m.permissions) declared.set(p.key, { module: m.name, defaults: p.defaults, reserved: !!p.reserved });
+  for (const p of m.permissions)
+    declared.set(p.key, { module: m.name, defaults: p.defaults, reserved: !!p.reserved, neverFor: p.neverFor ?? [] });
 
 const routes = await collectRoutes();
 const used = new Set<string>();
@@ -29,15 +30,15 @@ for (const r of routes) {
   }
 }
 
-// docs table rows: | `key` **[ADDED]** | description | SA | BM | FS | VW | module |
+// docs table rows: | `key` **[ADDED]** | description | SA | AM | BM | FS | VW | module | (AM since 1.48.0; — = never, `neverFor`)
 const doc = readFileSync(new URL('../docs/02-requirements.md', import.meta.url), 'utf8');
 const documented = new Map<string, { marks: string[]; module: string }>();
 for (const line of doc.split('\n')) {
   const m =
-    /^\|\s*`([a-z_.]+)`[^|]*\|[^|]*\|\s*([●○—])\s*\|\s*([●○—])\s*\|\s*([●○—])\s*\|\s*([●○—])\s*\|\s*([a-z-]+)\s*\|/.exec(
+    /^\|\s*`([a-z_.]+)`[^|]*\|[^|]*\|\s*([●○—])\s*\|\s*([●○—])\s*\|\s*([●○—])\s*\|\s*([●○—])\s*\|\s*([●○—])\s*\|\s*([a-z-]+)\s*\|/.exec(
       line,
     );
-  if (m) documented.set(m[1]!, { marks: [m[2]!, m[3]!, m[4]!, m[5]!], module: m[6]! });
+  if (m) documented.set(m[1]!, { marks: [m[2]!, m[3]!, m[4]!, m[5]!, m[6]!], module: m[7]! });
 }
 if (documented.size < 20) errors.push('could not read the permission catalog from docs/02-requirements.md §3.1');
 
@@ -55,6 +56,12 @@ for (const [key, d] of declared) {
     const inDocs = row.marks[i] === '●';
     if (inDocs !== !!d.defaults[role])
       errors.push(`permission ${key}: default for ${role} is ${!!d.defaults[role]} in code but ${inDocs} in docs`);
+    const never = d.neverFor.includes(role);
+    if (never !== (row.marks[i] === '—'))
+      errors.push(
+        `permission ${key}: ${role} is ${never ? '' : 'not '}in neverFor in code but marked ${row.marks[i]} in docs`,
+      );
+    if (never && d.defaults[role]) errors.push(`permission ${key}: ${role} is both granted by default and in neverFor`);
   });
 }
 for (const [key, row] of documented) {

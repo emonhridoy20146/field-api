@@ -47,6 +47,9 @@ const RAISE: Raise[] = [
   // 1.42.0 (ADR-054): places belong to no branch, so the item goes to every `place.manage` holder.
   { event: 'place.move_requested', type: 'place.move_request', permission: 'place.manage', id: (p) => `${str(p.placeId)}:${str(p.requestClientId)}`, entity: 'place', summary: (p) => t(`জায়গা সরানোর অনুরোধ: ${str(p.name)}`, `Place move request: ${str(p.name)}`), link: () => '/places/move-requests' },
   { event: 'task.resolve_requested', type: 'task.resolve_requested', id: (p) => str(p.taskId), entity: 'task', summary: (p) => t(`কাজ যাচাইয়ের অপেক্ষায়: ${str(p.title)}`, `Task waiting for verification: ${str(p.title)}`), link: () => '/tasks?status=resolve_requested' },
+  // 1.48.0 (FR-REQ-005, ADR-066): a request waits in the super admin queue. No branch: it goes to every
+  // `request.important.manage` holder (and the every-branch roles), not to the branch managers of the creator's branch.
+  { event: 'request.top_waiting', type: 'request.important', permission: 'request.important.manage', id: (p) => str(p.requestId), entity: 'request', summary: (p) => t(`সুপার অ্যাডমিনের অপেক্ষায় অনুরোধ: ${str(p.title)}`, `Request waiting for the super admin: ${str(p.title)}`), link: (p) => `/requests/${str(p.requestId)}` },
 ];
 
 /** Events that close an item without a human: [event, item type, id from payload]. */
@@ -75,6 +78,7 @@ const RESOLVE: [string, string, (p: P) => string][] = [
   ['task.rejected', 'task.resolve_requested', (p) => str(p.taskId)],
   ['task.cancelled', 'task.resolve_requested', (p) => str(p.taskId)],
   ['place.move_decided', 'place.move_request', (p) => `${str(p.placeId)}:${str(p.requestClientId)}`],
+  ['request.top_cleared', 'request.important', (p) => str(p.requestId)],
 ];
 
 export const CONSUMED_EVENTS = [...new Set([...RAISE.map((r) => r.event), ...RESOLVE.map((r) => r[0])])];

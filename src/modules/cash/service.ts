@@ -6,7 +6,7 @@ import { recordChange } from '../../core/changefeed/index.js';
 import { payloadHash, withIdempotency } from '../../core/idempotency/index.js';
 import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import { businessDate, isIsoDate } from '../../core/time/index.js';
-import { branchQuery, canSeeBranch, isSuperAdmin, type AuthUser } from '../../core/security/types.js';
+import { branchQuery, canSeeBranch, hasAllBranches, type AuthUser } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { getSetting } from '../settings/index.js';
@@ -87,7 +87,7 @@ export async function positionOf(userId: string) {
 
 export async function branchPositions(user: AuthUser, branchId?: string) {
   if (branchId && !canSeeBranch(user, branchId)) return [];
-  const branches = branchId ? [branchId] : isSuperAdmin(user) ? undefined : user.branchIds;
+  const branches = branchId ? [branchId] : hasAllBranches(user) ? undefined : user.branchIds;
   const staff = await listByRole(['field_staff'], branches);
   const scoped = user.role === 'field_staff' ? staff.filter((u) => u.id === user.id) : staff;
   return (await positions(scoped)).sort((a, b) => b.onHandPoisha - a.onHandPoisha);

@@ -12,9 +12,9 @@ export const manifest: ModuleManifest = {
   featureFlag: { key: 'module.tags', default: false, description: 'Bad-customer tagging', owner: 'field-api' },
   dependsOn: ['audit', 'settings', 'rbac', 'users', 'customers'],
   permissions: [
-    { key: 'tag.view', description: { en: 'See bad-customer suggestion, tag and history', bn: 'খারাপ গ্রাহক ট্যাগ ও ইতিহাস দেখা' }, defaults: { super_admin: true, branch_manager: true, field_staff: true, viewer: true } },
-    { key: 'tag.set', description: { en: 'Tag/untag a customer (reason required)', bn: 'গ্রাহক ট্যাগ/আনট্যাগ (কারণসহ)' }, defaults: { super_admin: true, branch_manager: true, field_staff: true } },
-    { key: 'tag.approve', description: { en: 'Review staff tags and balance-cleared prompts', bn: 'ট্যাগ পর্যালোচনা ও অনুমোদন' }, defaults: { super_admin: true, branch_manager: true } },
+    { key: 'tag.view', description: { en: 'See bad-customer suggestion, tag and history', bn: 'খারাপ গ্রাহক ট্যাগ ও ইতিহাস দেখা' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, field_staff: true, viewer: true } },
+    { key: 'tag.set', description: { en: 'Tag/untag a customer (reason required)', bn: 'গ্রাহক ট্যাগ/আনট্যাগ (কারণসহ)' }, defaults: { super_admin: true, area_manager: true, branch_manager: true, field_staff: true } },
+    { key: 'tag.approve', description: { en: 'Review staff tags and balance-cleared prompts', bn: 'ট্যাগ পর্যালোচনা ও অনুমোদন' }, defaults: { super_admin: true, area_manager: true, branch_manager: true } },
   ],
   routes: tagRoutes,
   events: { emits: ['tag.changed', 'tag.review_requested', 'tag.review_decided'], consumes: ['customer.balance_cleared'] },

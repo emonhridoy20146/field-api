@@ -18,7 +18,7 @@ export const manifest: ModuleManifest = {
   description: 'Notification center, push with quiet hours, broadcasts (FR-NOT-001..005)',
   featureFlag: { key: 'module.notifications', default: false, description: 'Notifications and announcements', owner: 'field-api' },
   dependsOn: ['audit', 'settings', 'users', 'devices', 'rbac'],
-  permissions: [{ key: 'notification.broadcast', description: { en: 'Send announcements to staff in scope', bn: 'কর্মীদের ঘোষণা পাঠানো' }, defaults: { super_admin: true, branch_manager: true } }],
+  permissions: [{ key: 'notification.broadcast', description: { en: 'Send announcements to staff in scope', bn: 'কর্মীদের ঘোষণা পাঠানো' }, defaults: { super_admin: true, area_manager: true, branch_manager: true } }],
   routes: notificationRoutes,
   events: { emits: [], consumes: CONSUMED_EVENTS },
   settings: [{ key: 'notifications.quietHours', type: 'json', default: { start: '21:00', end: '08:00' }, exposeToApp: true, description: 'FR-NOT-004 no push in this Dhaka window except critical types' }],

@@ -9,7 +9,7 @@ export const manifest: ModuleManifest = {
   description: '"Needs attention" exceptions inbox fed by domain events (FR-INB-001)',
   featureFlag: { key: 'module.inbox', default: false, description: 'Exceptions inbox', owner: 'field-api' },
   dependsOn: ['audit', 'rbac'],
-  permissions: [{ key: 'inbox.view', description: { en: '"Needs attention" exceptions inbox', bn: 'জরুরি বিষয়ের ইনবক্স' }, defaults: { super_admin: true, branch_manager: true } }],
+  permissions: [{ key: 'inbox.view', description: { en: '"Needs attention" exceptions inbox', bn: 'জরুরি বিষয়ের ইনবক্স' }, defaults: { super_admin: true, area_manager: true, branch_manager: true } }],
   routes: inboxRoutes,
   events: { emits: [], consumes: CONSUMED_EVENTS },
   inboxTypes: [

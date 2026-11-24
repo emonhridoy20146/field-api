@@ -4,6 +4,7 @@ import { ctx } from '../../core/context/index.js';
 import { defineRoutes, hasPermission, requestMeta, requireUser } from '../../core/http/router.js';
 import { parse } from '../../core/http/index.js';
 import { AppError } from '../../core/errors/index.js';
+import { sharesBranch } from '../../core/security/types.js';
 import { getUser } from '../users/index.js';
 import * as s from './service.js';
 
@@ -73,7 +74,7 @@ export const authRoutes = defineRoutes((r) => {
     if (q.userId && q.userId !== user.id) {
       if (!(await hasPermission(req, 'device.manage'))) throw new AppError('FORBIDDEN', { permission: 'device.manage' });
       const target = await getUser(q.userId);
-      if (!target || (user.role !== 'super_admin' && !target.branchIds.some((b) => user.branchIds.includes(b)))) return [];
+      if (!target || !sharesBranch(user, target)) return [];
       return s.listSessions(q.userId, user.sessionId);
     }
     return s.listSessions(user.id, user.sessionId);

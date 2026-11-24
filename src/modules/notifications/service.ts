@@ -7,7 +7,7 @@ import { decodeCursor, encodeCursor } from '../../core/http/index.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import type { I18n } from '../../core/module/types.js';
 import { dhakaMinuteOfDay } from '../../core/time/index.js';
-import { canSeeBranch, isSuperAdmin, type AuthUser, type Role } from '../../core/security/types.js';
+import { ROLES, canSeeBranch, hasAllBranches, type AuthUser, type Role } from '../../core/security/types.js';
 import * as audit from '../audit/index.js';
 import { getSetting } from '../settings/index.js';
 import { getUsers, listByRole } from '../users/index.js';
@@ -112,7 +112,7 @@ export async function markAllRead(user: AuthUser): Promise<void> {
 const i18n = z.object({ bn: z.string().trim().min(1).max(500), en: z.string().trim().max(500).default('') });
 export const broadcastSchema = z.object({
   branchIds: z.array(z.string().max(64)).max(100).optional(),
-  roles: z.array(z.enum(['super_admin', 'branch_manager', 'field_staff', 'viewer'])).max(4).optional(),
+  roles: z.array(z.enum(ROLES as [Role, ...Role[]])).max(ROLES.length).optional(),
   title: i18n,
   body: i18n.extend({ bn: z.string().trim().min(1).max(2000), en: z.string().trim().max(2000).default('') }),
   requireAck: z.boolean().default(false),
@@ -147,7 +147,7 @@ export async function createBroadcast(actor: AuthUser, input: z.infer<typeof bro
   // Target branches: asked ones must be visible; default is everything the sender can see.
   const asked = input.branchIds?.length ? input.branchIds : null;
   if (asked && !asked.every((b) => canSeeBranch(actor, b))) throw notFound('branch');
-  const branchIds = asked ?? (isSuperAdmin(actor) ? null : actor.branchIds);
+  const branchIds = asked ?? (hasAllBranches(actor) ? null : actor.branchIds);
   const roles = (input.roles?.length ? input.roles : ['field_staff']) as Role[];
   const recipients = (await listByRole(roles, branchIds ?? undefined)).map((u) => u.id).filter((id) => id !== actor.id);
   if (!recipients.length) throw new AppError('BUSINESS_RULE', { rule: 'NO_RECIPIENTS' });
@@ -164,7 +164,7 @@ export async function createBroadcast(actor: AuthUser, input: z.infer<typeof bro
 /** Senders see what they can manage; everyone else sees broadcasts addressed to them. */
 export async function listBroadcasts(user: AuthUser, canSend: boolean, q: { limit: number; cursor?: string | undefined }) {
   const cur = decodeCursor<{ id: string }>(q.cursor);
-  const scope = canSend ? (isSuperAdmin(user) ? {} : { $or: [{ createdBy: user.id }, { branchIds: { $in: user.branchIds } }, { recipientIds: user.id }] }) : { recipientIds: user.id };
+  const scope = canSend ? (hasAllBranches(user) ? {} : { $or: [{ createdBy: user.id }, { branchIds: { $in: user.branchIds } }, { recipientIds: user.id }] }) : { recipientIds: user.id };
   const rows = (await BroadcastModel.find({ ...scope, ...(cur ? { _id: { $lt: cur.id } } : {}) }).sort({ _id: -1 }).limit(q.limit + 1).lean()) as Lean[];
   const items = rows.slice(0, q.limit);
   const names = await getUsers(items.map((b) => b.createdBy));
@@ -196,7 +196,7 @@ export async function ack(user: AuthUser, id: string, at?: Date): Promise<void> 
 
 /** Who got a broadcast and who has read it (1.12.0). Same scope as the sender's list; else 404. */
 export async function recipients(user: AuthUser, id: string) {
-  const scope = isSuperAdmin(user) ? {} : { $or: [{ createdBy: user.id }, { branchIds: { $in: user.branchIds } }] };
+  const scope = hasAllBranches(user) ? {} : { $or: [{ createdBy: user.id }, { branchIds: { $in: user.branchIds } }] };
   const b = isOid(id) ? ((await BroadcastModel.findOne({ _id: id, ...scope }).lean()) as Lean | null) : null;
   if (!b) throw notFound('broadcast');
   const ids = b.recipientIds as string[];

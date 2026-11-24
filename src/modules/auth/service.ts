@@ -4,7 +4,7 @@ import { AppError, notFound } from '../../core/errors/index.js';
 import { isOid } from '../../core/db/index.js';
 import { hashPassword, randomToken, sha256, verifyPassword } from '../../core/security/crypto.js';
 import { signAccessToken } from '../../core/security/jwt.js';
-import type { AuthUser } from '../../core/security/types.js';
+import { sharesBranch, type AuthUser } from '../../core/security/types.js';
 import type { RequestMeta } from '../../core/http/router.js';
 import * as audit from '../audit/index.js';
 import { changeOwnPassword, findForLogin, getUser, loadAuthUser, markLogin, type UserView } from '../users/index.js';
@@ -232,7 +232,7 @@ export async function revokeSession(actor: AuthUser, sessionId: string, canManag
   if (!s) throw notFound('session');
   if (s.userId !== actor.id) {
     const target = await getUser(s.userId);
-    const inScope = target && (actor.role === 'super_admin' || target.branchIds.some((b) => actor.branchIds.includes(b)));
+    const inScope = target && sharesBranch(actor, target);
     if (!canManageOthers || !inScope) throw notFound('session');
   }
   await revoke(sessionId, s.userId === actor.id ? 'self_revoked' : 'admin_revoked');
