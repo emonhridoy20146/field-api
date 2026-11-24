@@ -54,7 +54,9 @@ const schema = z
     SENTRY_DSN: z.string().optional(),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
     TZ_BUSINESS: z.literal('Asia/Dhaka').default('Asia/Dhaka'),
-    TRUST_PROXY: bool.default('false'),
+    // Unset = true on Vercel (its edge overwrites X-Forwarded-For with the client IP), false elsewhere. Without it
+    // every request seems to come from Vercel's proxy, so all staff would share one login-throttle IP (ADR-064).
+    TRUST_PROXY: z.preprocess(blank, bool.optional()),
   })
   .superRefine((env, ctx) => {
     // Production must never run with dev conveniences (ephemeral keys, mock ERP).
@@ -70,6 +72,7 @@ const schema = z
   })
   .transform((env) => ({
     ...env,
+    TRUST_PROXY: env.TRUST_PROXY ?? !!env.VERCEL,
     PUBLIC_BASE_URL: env.PUBLIC_BASE_URL ?? (env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}` : 'http://localhost:4000'),
   }));
 

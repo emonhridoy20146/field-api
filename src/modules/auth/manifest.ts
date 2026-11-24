@@ -9,8 +9,17 @@ export const manifest: ModuleManifest = {
   version: '1.0.0',
   core: true,
   description: 'Login, rotating refresh tokens, password change, sessions (FR-AUTH-*)',
-  dependsOn: ['audit', 'users', 'rbac', 'flags', 'attendance'],
+  dependsOn: ['audit', 'users', 'rbac', 'flags', 'attendance', 'settings'],
   permissions: [],
+  settings: [
+    {
+      key: 'auth.ipLockFailures',
+      type: 'int',
+      default: 50,
+      description:
+        'FR-AUTH-005 failed logins from one IP in 15 min before that IP is locked for 15 min (0 = no IP lock). A known device or browser of the user still logs in (ADR-064). The account lock stays at 5.',
+    },
+  ],
   routes: authRoutes,
   events: { emits: ['auth.login', 'auth.login_failed', 'auth.session_revoked'], consumes: ['user.deactivated', 'user.password_reset'] },
   migrations: [

@@ -27,14 +27,14 @@ Indexes: `{ phone: 1 } unique`, `{ username: 1 } unique sparse`, `{ employeeCode
 Indexes: `{ refreshTokenHash: 1 } unique`, `{ userId: 1, revokedAt: 1 }`, TTL `{ expiresAt: 1 } expireAfterSeconds: 0`.
 
 ### login_attempts
-`{ key: 'acct:+8801…'|'ip:1.2.3.4', at, success }` · TTL 1 day on `at`.
+`{ key: 'acct:+8801…'|'ip:1.2.3.4', at, success }` · TTL 1 day on `at`. Account lock: 5 failures / 15 min; IP lock: setting `auth.ipLockFailures` (default 50) / 15 min, passed by a device or browser that has a `sessions` row of the user (1.47.0, ADR-064). The IP is the client IP (`X-Forwarded-For` when `TRUST_PROXY`, default on Vercel).
 
 ### permission_overrides
 `{ _id, level: 'branch'|'user', branchId?, role?, userId?, key, effect: 'allow'|'deny', reason, setBy, setAt }`
 Indexes: `{ level:1, userId:1, key:1 } unique partial(level='user')`, `{ level:1, branchId:1, role:1, key:1 } unique partial(level='branch')`.
 
 ### devices
-`{ _id, deviceId (app install UUID), userId, model, manufacturer, androidVersion, appVersion, boundAt, unboundAt, lastSeenAt, rooted, emulator, fcmToken }`
+`{ _id, deviceId (app install UUID; since the ANDROID_ID builds stable per phone), userId, branchId, model, manufacturer, androidVersion, appVersion, status: 'active'|'pending_approval'|'unbound', boundAt, unboundAt, lastSeenAt, rooted, emulator, fcmToken }` · `likelyReinstall` in the API is computed when listing, not stored (1.47.0). No migration.
 Indexes: `{ deviceId: 1 } unique`, `{ userId: 1, unboundAt: 1 }`.
 
 ## 2. Reference data

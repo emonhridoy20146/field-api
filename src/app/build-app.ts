@@ -156,7 +156,7 @@ export async function buildApp(opts: BuildOptions): Promise<Built> {
       req.log.error({ err }, 'unhandled error');
       e = new AppError('INTERNAL');
     }
-    if (e.code === 'RATE_LIMITED' && e.details?.retryAfterSec) reply.header('Retry-After', String(e.details.retryAfterSec));
+    if ((e.code === 'RATE_LIMITED' || e.code === 'ACCOUNT_LOCKED') && e.details?.retryAfterSec) reply.header('Retry-After', String(e.details.retryAfterSec));
     reply.status(e.status).type('application/problem+json').send(toProblem(e, lang, String(req.id)));
   });
 
