@@ -418,6 +418,29 @@ export async function setAsideReturnedPlans(): Promise<number> {
   return n;
 }
 
+/**
+ * 1.52.0 follow-up migration (FR-TAG-010, ADR-070): staff-app schema 20 stores `tag.reasonCode`, but phones only
+ * learn it when the customer next comes through the feed. Send every tagged customer through the change feed once,
+ * to the same audience as a tag change, so phones fill in the reason colour with an ordinary delta (no resync floor:
+ * that would make every device re-bootstrap every entity). Only `tagged` customers carry a reasonCode in the sync
+ * payload, so the rest would bring nothing new. Re-running is harmless: devices just reload the same customers.
+ */
+export async function refeedTaggedCustomers(): Promise<number> {
+  let n = 0;
+  let feed: ChangeInput[] = [];
+  const cursor = CustomerModel.find({ 'fos.tag.state': 'tagged' }).select({ _id: 1, branchId: 1, 'fos.assigneeId': 1 }).sort({ _id: 1 }).lean().cursor();
+  for await (const c of cursor as AsyncIterable<Doc>) {
+    feed.push(await customerFeed(c._id.toHexString(), c.branchId, [c.fos?.assigneeId]));
+    n++;
+    if (feed.length === 1000) {
+      await recordChanges(feed);
+      feed = [];
+    }
+  }
+  await recordChanges(feed);
+  return n;
+}
+
 /** erpPlanIds of the customer's returned invoices, so a phone that already holds one deletes it (1.50.0). */
 const returnedPlanIds = (c: Doc): string[] => ((c.returnedPlans ?? []) as LooseObject[]).map((p) => String(p.erpPlanId));
 

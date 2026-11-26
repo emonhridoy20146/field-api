@@ -3,6 +3,13 @@
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
 ## [Unreleased]
+### Added — tag reasons reach phones that already hold the customer (owner request 2026-11-26, staff-app schema 20; FR-TAG-010, ADR-070)
+- **Migration `customers/20261126-0002-refeed-tagged-customers`** (forward-only, idempotent, runs once on deploy): one change-feed entry per tagged customer, same audience as a tag change. Phones get those customers once more as ordinary `customer` upserts on `GET /sync/pull`, now with `tag.reasonCode` stored. No resync floor, no `410 CURSOR_EXPIRED`, no bootstrap, outbox untouched; customers only.
+- Contract unchanged (1.52.0): no schema or description change.
+### Tests
+- `test/integration/tag-reason-refeed.test.ts`: migration is registered and skipped on later boots; a device whose cursor predates it gets its tagged customers with `tag.reasonCode` (200, no 410, customers only), then only deltas again; scope per branch; a device that bootstrapped after it gets nothing extra; 401 without a token; OpenAPI conformance of every pull page.
+### Notes for the clients
+- staff-app: nothing to do; the next pull after deploy carries the tagged customers in scope.
 ### Added — contract 1.52.0 (owner request 2026-11-26: bad-tag red border with a colour per reason in every list; FR-TAG-009)
 - **`MapPin.tag`** (`GET /customers/map` pins): `TagSummary` `{ state, severity, reasonCode }`; `severity`/`reasonCode` only when `state` is `tagged`. `MapPin.tagged` is unchanged. Clusters unchanged.
 - **Global search** (`GET /search`): customer items now carry `tag` (same `TagSummary`). The result item schema is now named `SearchResult` (same fields as before plus `tag`). User and receipt items have no `tag`.

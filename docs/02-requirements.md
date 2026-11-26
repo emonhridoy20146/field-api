@@ -223,6 +223,7 @@ Rules:
 | FR-TAG-006 | Tag history view (immutable events). | active | P1 | A W M | I E |
 | FR-TAG-007 | Optional approval mode (`tags.requireApproval`, default OFF): staff-set tag becomes `pending` until approved by `tag.approve`. | active | P1 | A W M | I E |
 | FR-TAG-008 **[ADDED]** | Severity level on tag: `watch` / `bad` / `legal` (legal = handed to recovery/legal team). | proposed | P1 | A W M | U I |
+| FR-TAG-010 **[ADDED 2026-11-26]** | Phones that stored customers before staff-app schema 20 (`tag_reason_code`) receive `tag.reasonCode` for every tagged customer once after deploy, without a reset: migration `customers/20261126-0002-refeed-tagged-customers` sends each tagged customer through the change feed as an ordinary delta (ADR-070). | active | P1 | M | I |
 | FR-TAG-009 **[ADDED 2026-11-26]** | Every customer list in admin-web and the staff app shows a bad-tagged customer (tagged, severity `bad`/`legal`) with a red border, a distinct colour per reason code. The API gives the tag summary (`state`, `severity`, `reasonCode`) on list rows, map pins (`MapPin.tag`) and customer hits of global search (1.52.0), scope applied as for the rows themselves. | active | P1 | A W M | I |
 
 ### 4.6 Collections (module `collections`)
