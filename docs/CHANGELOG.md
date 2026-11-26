@@ -3,6 +3,16 @@
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
 ## [Unreleased]
+### Changed — contract 1.51.0 (owner request 2026-11-26: only the super admin may use the staff app on several phones; FR-AUTH-007, ADR-069)
+- **Who is device-bound:** on `client: app` every role is bound except the roles in the new setting **`devices.multiDeviceRoles`** (json array of role names, validated, default `["super_admin"]`). Area managers, branch managers and viewers are now bound like field staff (`devices.maxPerUser` 1; approval with `device.manage`); a role added later is bound without a settings edit. Web logins stay unbound. Applies on deploy (new key, so the default is used; no migration, no settings edit).
+- **`devices.bindRoles` deprecated:** still defined and returned by `GET /settings`, no longer read.
+- **Users who already use two phones:** the phone they log in with after deploy keeps its place; their other active device rows beyond `devices.maxPerUser` (created by push-token registration while the role was not bound) are unbound, their sessions and tracking tokens end (audit `device.unbound`, reason `device_limit`), and the next login there is 403 `DEVICE_NOT_APPROVED` (pending).
+- **Logout** revokes only the tracking tokens of this session and this device (was: all of the user's). A super admin's other phones keep their sessions and tracking tokens. Rotation was already per device.
+- Contract: descriptions of `POST /auth/login`, `POST /auth/logout`, `POST /location/tracking-token`; no schema change. 1.50.0 is used by another change.
+### Tests
+- `test/integration/device-bind-roles.test.ts`: default setting, super admin on three phones, area manager / branch manager / viewer / field staff second phone pending, web never bound, manager phone approved with `device.manage`, a listed role is unbound, unknown role 400, a branch manager with two pre-deploy active phones, super admin per-phone tracking-token rotation and logout on one phone. `area-manager.test.ts` updated to the new rule; unit `devices/__tests__/bound.test.ts`.
+### Notes for the clients
+- staff-app: no change needed (the 403 `DEVICE_NOT_APPROVED` screen now also shows for managers and viewers). admin-web: if the settings screen lists keys explicitly, add `devices.multiDeviceRoles` (multi-select of roles) and hide or label `devices.bindRoles` as deprecated.
 ### Changed — contract 1.50.0 (owner request 2026-11-26: returned invoices must not be shown; FR-CUS-023, ADR-068)
 - **Mapper:** an ERP invoice with status `returned` keeps plan `status: closed` (enum meanings unchanged) and now carries `returned: true`, so FOS can tell a return from a paid-off or not-collectable invoice. Nothing is written to the ERP.
 - **Stored apart:** `customers.upsertFromErp` puts returned plans in `erp_customers.returnedPlans` and the rest in `plans`; `derived` is computed from `plans` only. So every client read leaves them out: customer list (`invoiceCount`, `openInvoices`, `invoiceTotals`, `invoiceKind` filter), customer detail `plans`, invoice-number search (`q`, #46) and global search, counts/KPIs built on plans, and the sync `customer` item (bootstrap and pull). The customer stays, also when all of their invoices were returned.
