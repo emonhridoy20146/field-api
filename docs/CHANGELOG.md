@@ -10,6 +10,8 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 - Scope unchanged: both come from the already scoped customer queries, so out-of-scope customers (and their tags) are never returned. No new permission, no data change, no migration.
 ### Tests
 - `test/integration/tag-summary.test.ts`: pins and search hits carry severity/reasonCode for tagged, `pending` without them in approval mode, `none` when untagged, out-of-scope customer of another branch absent for a branch manager, 401 without a token, 400 bad query; OpenAPI conformance of both responses.
+### Fixed (tests only)
+- **Random 401s in `area-manager.test.ts` and lost IP locks in `login-lock.test.ts`:** tests freeze the app clock at 2026-11-15, but MongoDB's TTL monitor deletes by wall-clock time about every 60 s. Since the real date passed the frozen date plus the TTL, a monitor pass during a test deleted web sessions (`sessions.expiresAt` = frozen now + 12 h) and failed `login_attempts` (1 day TTL). `test/helpers/global-setup.ts` now sets `ttlMonitorEnabled: false` on the test server (memory server and `TEST_MONGODB_URI`). Reproduced deterministically with `ttlMonitorSleepSecs=1` (both tests fail before, pass after). No app code or TTL index changed.
 ### Notes for the clients
 - admin-web and staff-app: draw the red border from `tag.state === 'tagged' && tag.severity !== 'watch'`, colour by `tag.reasonCode`, on map pins and search results too. Older servers omit `tag` on these: fall back to `tagged` (pins) or no border (search).
 ### Changed — contract 1.51.0 (owner request 2026-11-26: only the super admin may use the staff app on several phones; FR-AUTH-007, ADR-069)
