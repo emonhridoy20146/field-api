@@ -259,6 +259,31 @@ describe('ERP field API v1 mappers (contract fixtures)', () => {
     expect(c.plans.map((p) => p.status)).toEqual(['closed', 'cancelled', 'completed']);
   });
 
+  it('1.50.0: a returned invoice is flagged returned and stays closed; paid-off, draft and cancelled are not flagged', () => {
+    const c = mapCustomer(
+      customer({
+        invoices: [
+          invoice({ id: 1, status: 'returned', collectable: false }),
+          invoice({ id: 2, status: 'RETURNED', amount_due: '0.00', collectable: false }),
+          invoice({ id: 3, amount_due: '0.00', collectable: false }),
+          invoice({ id: 4, status: 'draft' }),
+          invoice({ id: 5, status: 'cancelled', collectable: false }),
+          invoice({ id: 6, sale_type: 'cash', amount_due: '500.00' }),
+        ],
+      }),
+    );
+    expect(c.plans.map((p) => [p.erpPlanId, p.status, p.returned])).toEqual([
+      ['1', 'closed', true],
+      ['2', 'closed', true],
+      ['3', 'completed', undefined],
+      ['4', 'closed', undefined],
+      ['5', 'cancelled', undefined],
+      ['6', 'closed', undefined],
+    ]);
+    expect(c.plans[0]!.invoiceStatus).toBe('returned');
+    expect('returned' in c.plans[2]!).toBe(false);
+  });
+
   it('guarantor: newest open plan first, else the default guarantor; never more than name/phone at customer level', () => {
     const withPlan = mapCustomer(
       customer({

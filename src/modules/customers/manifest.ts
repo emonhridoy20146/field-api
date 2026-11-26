@@ -5,7 +5,7 @@ import { indexMigration } from '../../core/db/migrations.js';
 import { raiseResyncFloor } from '../../core/changefeed/index.js';
 import type { ErpCustomer } from '../erp-gateway/index.js';
 import { customerRoutes } from './routes.js';
-import { branchProposalsSnapshot, markMissing, recomputeAllDerived, proposalSyncLoad, refeedBranches, syncLoad, syncSnapshot, upsertFromErp } from './service.js';
+import { branchProposalsSnapshot, markMissing, recomputeAllDerived, proposalSyncLoad, refeedBranches, setAsideReturnedPlans, syncLoad, syncSnapshot, upsertFromErp } from './service.js';
 import { listBranches } from '../branches/index.js';
 
 export const manifest: ModuleManifest = {
@@ -80,6 +80,8 @@ export const manifest: ModuleManifest = {
     ]),
     // 1.14.0 (ADR-035): fill derived.missedCount (pin colours) for customers cached before it existed.
     { id: '20261118-0001-derive-missed-installments', up: async () => void (await recomputeAllDerived()) },
+    // 1.50.0 (FR-CUS-023, ADR-068): returned invoices cached in `plans` move to `returnedPlans`; phones get the update.
+    { id: '20261126-0001-set-aside-returned-plans', up: async () => void (await setAsideReturnedPlans()) },
   ],
   async init() {
     // ADR-038: phones that took their snapshot when staff saw only assigned customers reload once.

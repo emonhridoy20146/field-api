@@ -221,6 +221,8 @@ POST /api/v1/sync/push
   "target": { "businessDate": "2026-11-15", "amountPoisha": 2000000, "visits": 12, "source": "branch", "workingDay": true },
   "serverTime": "2026-11-15T05:20:03Z" }
 ```
+Returned invoices (1.50.0, FR-CUS-023): a `customer` item's `plans` is the complete list FOS shows and never holds an invoice returned in the ERP; `returnedPlanIds` names those invoices so a device that stored one earlier deletes it (with its schedule and any local invoice view), e.g. `"plans": [{ "erpPlanId": "40012", "status": "completed", … }, { "erpPlanId": "40013", "status": "active", … }], "returnedPlanIds": ["40011"]`. The customer itself is never deleted for this. `GET /customers/{id}` carries the same field.
+
 `410 CURSOR_EXPIRED` → client calls `GET /sync/bootstrap` (full scope snapshot, paged). Sent for a cursor ahead of the feed, older than the 30-day window, or below a resync floor: the server raises one when it widens what devices may hold (1.20.1: branch-wide customers, ADR-038), so devices that took their snapshot under the old rule reload once.
 
 ### 3.6 Resolve a conflict (manager)

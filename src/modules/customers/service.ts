@@ -18,6 +18,7 @@ import { badges, deriveCustomer, isBadTag, payState, worstPayState, worstStatus,
 import { MAX_EXTRA_PHONES, mergePhones, normalizeMobile, planAdd, type ExtraPhone, type PhoneInput } from './domain/phones.js';
 import { paidThisMonthFilter, type PaidThisMonth } from './domain/paid-month.js';
 import { paidByOfMonth, type ActivityPerson, type MonthCollectionRef, type MonthPaymentRef } from './domain/activity-by.js';
+import { mergeReturned, splitReturned } from './domain/returned.js';
 import { QUALITY_ISSUES, findIssues, sharedPhones, type Finding, type QualityInput } from './domain/quality.js';
 import { CustomerModel, LocationProposalModel } from './models/customer.model.js';
 
@@ -301,7 +302,9 @@ export async function upsertFromErp(c: ErpCustomer, fetchedAt: Date): Promise<st
   }
   const prev = (await CustomerModel.findOne({ erpCustomerId: c.erpCustomerId }).lean()) as Doc | null;
   const loc = locationFields(c, prev?.fos?.locationOverride ?? null);
-  const derived = derivedFor(c.plans, today());
+  // FR-CUS-023 (ADR-068): returned invoices are kept apart, so no client read, count or search sees them.
+  const { visible: plans, returned: returnedPlans } = splitReturned(c.plans);
+  const derived = derivedFor(plans, today());
   const set: Record<string, unknown> = {
     branchId: branch.id,
     erpBranchId: c.erpBranchId,
@@ -317,7 +320,8 @@ export async function upsertFromErp(c: ErpCustomer, fetchedAt: Date): Promise<st
     erpLocation: c.lat !== null && c.lng !== null ? { lat: c.lat, lng: c.lng } : null,
     locationStatus: loc.locationStatus,
     locationSource: loc.locationSource,
-    plans: c.plans,
+    plans,
+    returnedPlans,
     recentPayments: c.recentPayments,
     derived,
     erpStatus: c.status,
@@ -386,6 +390,36 @@ export async function recomputeAllDerived(): Promise<number> {
   }
   return n;
 }
+
+/**
+ * 1.50.0 migration (FR-CUS-023, ADR-068): plans cached before 1.50.0 still hold returned invoices in `plans`.
+ * Move them to `returnedPlans`, re-derive from what is left and send the customer through the change feed so
+ * phones that hold the returned invoice replace the customer and drop it. Idempotent: a second run finds nothing.
+ */
+export async function setAsideReturnedPlans(): Promise<number> {
+  const date = today();
+  let n = 0;
+  const cursor = CustomerModel.find({
+    $or: [{ 'plans.returned': true }, { 'plans.invoiceStatus': { $regex: /^\s*returned\s*$/i } }],
+  })
+    .lean()
+    .cursor();
+  for await (const c of cursor as AsyncIterable<Doc>) {
+    const { visible, returned } = splitReturned((c.plans ?? []) as ErpCustomer['plans']);
+    if (!returned.length) continue;
+    const returnedPlans = mergeReturned((c.returnedPlans ?? []) as ErpCustomer['plans'], returned);
+    await CustomerModel.updateOne(
+      { _id: c._id },
+      { $set: { plans: visible, returnedPlans, derived: derivedFor(visible, date) }, $inc: { version: 1 } },
+    );
+    await recordChange(await customerFeed(c._id.toHexString(), c.branchId, [c.fos?.assigneeId]));
+    n++;
+  }
+  return n;
+}
+
+/** erpPlanIds of the customer's returned invoices, so a phone that already holds one deletes it (1.50.0). */
+const returnedPlanIds = (c: Doc): string[] => ((c.returnedPlans ?? []) as LooseObject[]).map((p) => String(p.erpPlanId));
 
 // ---------------- FOS overlay updates (from other modules' events) ----------------
 
@@ -973,7 +1007,7 @@ async function detailsOf(rows: Doc[], user: AuthUser): Promise<Record<string, un
       return await detailFrom(c, items[i]!, user, lookup);
     } catch (err) {
       ctx().logger.warn({ err, customerId: c._id.toHexString() }, 'customer detail for sync failed; sending list data only');
-      return { ...items[i]!, ...phonesView(c), plans: [], payments: [], pendingCollections: [], recentNotes: [], lastVisit: null, badSuggestion: null, version: c.version ?? 1 };
+      return { ...items[i]!, ...phonesView(c), plans: [], returnedPlanIds: returnedPlanIds(c), payments: [], pendingCollections: [], recentNotes: [], lastVisit: null, badSuggestion: null, version: c.version ?? 1 };
     }
   });
 }
@@ -995,6 +1029,8 @@ async function detailFrom(c: Doc, item: Awaited<ReturnType<typeof listItems>>[nu
     ...phonesView(c),
     ...(c.guarantor ? { guarantor: c.guarantor } : {}),
     plans: (c.plans ?? []).map((p: LooseObject) => planView(p, dPlans.get(p.erpPlanId), branchIdOf)),
+    // 1.50.0 (FR-CUS-023): invoices returned in the ERP are never in `plans`; the phone deletes these ids.
+    returnedPlanIds: returnedPlanIds(c),
     payments: (c.recentPayments ?? []).map((p: LooseObject) => ({
       erpPaymentId: p.erpPaymentId,
       date: p.date,
