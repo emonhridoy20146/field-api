@@ -174,7 +174,7 @@ describe('what an area manager does', () => {
     expect(dash.status).toBe(200);
   });
 
-  it('1.51.0 (ADR-068): web is never bound; in the app the first phone binds and a second phone waits for approval', async () => {
+  it('1.51.0 (ADR-069): web is never bound; in the app the first phone binds and a second phone waits for approval', async () => {
     expect((await login(t.app, AM, { client: 'web' })).accessToken).toBeTruthy();
     expect((await login(t.app, AM, { client: 'web' })).accessToken).toBeTruthy();
     expect((await login(t.app, AM, { client: 'app', deviceId: 'am-phone-1' })).accessToken).toBeTruthy();

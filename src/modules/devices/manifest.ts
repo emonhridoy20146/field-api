@@ -10,7 +10,7 @@ export const manifest: ModuleManifest = {
   name: 'devices',
   version: '1.0.0',
   description: 'Device binding, approval and remote unbind (FR-AUTH-007) [ADDED]',
-  featureFlag: { key: 'module.devices', default: false, description: 'One active device per app user, except the roles in devices.multiDeviceRoles (ADR-068)', owner: 'field-api' },
+  featureFlag: { key: 'module.devices', default: false, description: 'One active device per app user, except the roles in devices.multiDeviceRoles (ADR-069)', owner: 'field-api' },
   dependsOn: ['audit', 'users', 'flags', 'settings', 'auth'],
   permissions: [
     { key: 'device.manage', description: { en: 'View devices, revoke sessions, unbind device', bn: 'ডিভাইস ব্যবস্থাপনা' }, defaults: { super_admin: true, area_manager: true, branch_manager: true } },
@@ -24,14 +24,14 @@ export const manifest: ModuleManifest = {
       type: 'json',
       default: ['super_admin'],
       description:
-        'FR-AUTH-007 (1.51.0, ADR-068) roles that may use the staff app on several phones at once. Every other role, including roles added later, is device-bound in the app (devices.maxPerUser). Web logins are never bound.',
+        'FR-AUTH-007 (1.51.0, ADR-069) roles that may use the staff app on several phones at once. Every other role, including roles added later, is device-bound in the app (devices.maxPerUser). Web logins are never bound.',
       schema: z.array(z.enum(ROLES as [Role, ...Role[]])).max(ROLES.length),
     },
     {
       key: 'devices.bindRoles',
       type: 'json',
       default: ['field_staff'],
-      description: 'Deprecated in 1.51.0 (ADR-068): no longer read. Binding is every role not in devices.multiDeviceRoles. Kept only so old clients can still read it.',
+      description: 'Deprecated in 1.51.0 (ADR-069): no longer read. Binding is every role not in devices.multiDeviceRoles. Kept only so old clients can still read it.',
     },
     {
       key: 'devices.reinstallHintIdleDays',

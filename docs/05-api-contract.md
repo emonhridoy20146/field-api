@@ -221,6 +221,8 @@ POST /api/v1/sync/push
   "target": { "businessDate": "2026-11-15", "amountPoisha": 2000000, "visits": 12, "source": "branch", "workingDay": true },
   "serverTime": "2026-11-15T05:20:03Z" }
 ```
+Returned invoices (1.50.0, FR-CUS-023): a `customer` item's `plans` is the complete list FOS shows and never holds an invoice returned in the ERP; `returnedPlanIds` names those invoices so a device that stored one earlier deletes it (with its schedule and any local invoice view), e.g. `"plans": [{ "erpPlanId": "40012", "status": "completed", … }, { "erpPlanId": "40013", "status": "active", … }], "returnedPlanIds": ["40011"]`. The customer itself is never deleted for this. `GET /customers/{id}` carries the same field.
+
 `410 CURSOR_EXPIRED` → client calls `GET /sync/bootstrap` (full scope snapshot, paged). Sent for a cursor ahead of the feed, older than the 30-day window, or below a resync floor: the server raises one when it widens what devices may hold (1.20.1: branch-wide customers, ADR-038), so devices that took their snapshot under the old rule reload once.
 
 ### 3.6 Resolve a conflict (manager)
@@ -430,7 +432,7 @@ GET  /api/v1/devices?userId=6734a1…   → [ { "id": "6742b0…", "deviceId": "
 POST /api/v1/devices/6742b0…/approve  → 200 { "id": "6742b0…", "status": "active" }   (old active phone unbound, its sessions end)
 POST /api/v1/devices/6742b0…/approve  → 200 { "id": "6742b0…", "status": "active" }   (again: nothing changes)
 ```
-Who is bound (1.51.0, ADR-068): on `client: app`, every role **except** the roles in setting `devices.multiDeviceRoles` (default `["super_admin"]`); a role added later is bound without editing the setting. `client: web` is never bound. `devices.bindRoles` is deprecated (still listed by `GET /settings`, no longer read).
+Who is bound (1.51.0, ADR-069): on `client: app`, every role **except** the roles in setting `devices.multiDeviceRoles` (default `["super_admin"]`); a role added later is bound without editing the setting. `client: web` is never bound. `devices.bindRoles` is deprecated (still listed by `GET /settings`, no longer read).
 ```
 PATCH /api/v1/settings { "changes": { "devices.multiDeviceRoles": ["super_admin"] }, "reason": "…" }   (array of role names; unknown role → 400)
 POST  /api/v1/auth/login  (branch manager, 2nd phone)  → 403 { "code": "DEVICE_NOT_APPROVED", "details": { "pendingDeviceId": "…", "status": "pending_approval", "maxActiveDevices": 1 } }
@@ -449,7 +451,7 @@ PUT  /api/v1/rbac/overrides/user/<areaManagerId> { "changes": [ { "key": "user.m
 → 422 { "code": "BUSINESS_RULE", "details": { "rule": "PERMISSION_NOT_GRANTABLE", "key": "user.manage", "role": "area_manager" } }
 GET  /api/v1/rbac/permissions → [ { "key": "settings.manage", "defaults": { "super_admin": true }, "neverFor": ["area_manager"], … }, … ]
 ```
-- Scope is every branch (like the super admin); `branchIds[0]` is only the home branch. Permissions: the AM column of 02-requirements §3.1. Device-bound in the staff app since 1.51.0 (ADR-068: every role except `devices.multiDeviceRoles`, default `["super_admin"]`); web logins are not bound.
+- Scope is every branch (like the super admin); `branchIds[0]` is only the home branch. Permissions: the AM column of 02-requirements §3.1. Device-bound in the staff app since 1.51.0 (ADR-069: every role except `devices.multiDeviceRoles`, default `["super_admin"]`); web logins are not bound.
 
 ### 3.9l Requests / tickets (1.48.0, FR-REQ-001..006, ADR-066)
 ```

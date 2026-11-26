@@ -3,7 +3,7 @@
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
 ## [Unreleased]
-### Changed — contract 1.51.0 (owner request 2026-11-26: only the super admin may use the staff app on several phones; FR-AUTH-007, ADR-068)
+### Changed — contract 1.51.0 (owner request 2026-11-26: only the super admin may use the staff app on several phones; FR-AUTH-007, ADR-069)
 - **Who is device-bound:** on `client: app` every role is bound except the roles in the new setting **`devices.multiDeviceRoles`** (json array of role names, validated, default `["super_admin"]`). Area managers, branch managers and viewers are now bound like field staff (`devices.maxPerUser` 1; approval with `device.manage`); a role added later is bound without a settings edit. Web logins stay unbound. Applies on deploy (new key, so the default is used; no migration, no settings edit).
 - **`devices.bindRoles` deprecated:** still defined and returned by `GET /settings`, no longer read.
 - **Users who already use two phones:** the phone they log in with after deploy keeps its place; their other active device rows beyond `devices.maxPerUser` (created by push-token registration while the role was not bound) are unbound, their sessions and tracking tokens end (audit `device.unbound`, reason `device_limit`), and the next login there is 403 `DEVICE_NOT_APPROVED` (pending).
@@ -13,6 +13,18 @@ All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.
 - `test/integration/device-bind-roles.test.ts`: default setting, super admin on three phones, area manager / branch manager / viewer / field staff second phone pending, web never bound, manager phone approved with `device.manage`, a listed role is unbound, unknown role 400, a branch manager with two pre-deploy active phones, super admin per-phone tracking-token rotation and logout on one phone. `area-manager.test.ts` updated to the new rule; unit `devices/__tests__/bound.test.ts`.
 ### Notes for the clients
 - staff-app: no change needed (the 403 `DEVICE_NOT_APPROVED` screen now also shows for managers and viewers). admin-web: if the settings screen lists keys explicitly, add `devices.multiDeviceRoles` (multi-select of roles) and hide or label `devices.bindRoles` as deprecated.
+### Changed — contract 1.50.0 (owner request 2026-11-26: returned invoices must not be shown; FR-CUS-023, ADR-068)
+- **Mapper:** an ERP invoice with status `returned` keeps plan `status: closed` (enum meanings unchanged) and now carries `returned: true`, so FOS can tell a return from a paid-off or not-collectable invoice. Nothing is written to the ERP.
+- **Stored apart:** `customers.upsertFromErp` puts returned plans in `erp_customers.returnedPlans` and the rest in `plans`; `derived` is computed from `plans` only. So every client read leaves them out: customer list (`invoiceCount`, `openInvoices`, `invoiceTotals`, `invoiceKind` filter), customer detail `plans`, invoice-number search (`q`, #46) and global search, counts/KPIs built on plans, and the sync `customer` item (bootstrap and pull). The customer stays, also when all of their invoices were returned.
+- **Added `CustomerDetail.returnedPlanIds`** (also on the sync `customer` item): erpPlanIds of returned invoices, so a phone that stored one before 1.50.0 deletes it. Descriptions of `Plan.status` and `SyncChange.data` updated.
+- ERP payments of a returned invoice are unchanged (OD-38, default: keep).
+### Migrations
+- `customers/20261126-0001-set-aside-returned-plans` (forward-only, idempotent): moves returned plans cached before 1.50.0 (flag or stored `invoiceStatus`) out of `plans`, re-derives, bumps `version` and writes a change-feed entry per customer so phones get the update on their next `/sync/pull`.
+### Tests
+- `src/modules/erp-gateway/__tests__/mappers.test.ts` (returned flag, status still closed; paid-off, draft, cancelled, cash not flagged), `src/modules/customers/__tests__/returned.test.ts` (split / merge), `test/integration/returned-invoices.test.ts` (list counts and totals, detail, search, bootstrap, migration + pull, second run no-op, ERP refresh keeps it hidden, 401 / out-of-scope 404, paid-off invoice still shown and searchable).
+### Notes for the clients
+- staff-app: on every `customer` upsert (pull and bootstrap) replace the customer's stored plans with `plans` and delete any stored plan whose id is in `returnedPlanIds` (with its schedule rows); never delete the customer for it. An older server omits `returnedPlanIds`: treat as empty.
+- admin-web: nothing required; returned invoices simply no longer arrive. `returnedPlanIds` may be ignored.
 
 ### Fixed — contract 1.49.0 (owner report 2026-11-26: live location not shown when the staff app is closed; FR-LOC-013, ADR-067)
 - **Cause:** the staff app's native foreground service keeps posting `/location/points` after the app is closed, with the access token the Dart side stored. Access tokens live 15 minutes and nothing refreshes them while the app is closed, so uploads were 401 after ~15 minutes, points stayed on the phone and the admin map froze. The native side must not refresh (refresh rotation + reuse detection would log the user out).

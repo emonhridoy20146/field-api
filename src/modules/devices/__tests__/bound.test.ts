@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isDeviceBound } from '../service.js';
 
-describe('isDeviceBound (FR-AUTH-007, 1.51.0, ADR-068)', () => {
+describe('isDeviceBound (FR-AUTH-007, 1.51.0, ADR-069)', () => {
   it('every role except the multi-device roles is bound', () => {
     const multi = ['super_admin'];
     expect(isDeviceBound('super_admin', multi)).toBe(false);

@@ -6,7 +6,7 @@ import { createSystemUser, type UserView } from '../../src/modules/users/index.j
 import { clearSettingsCache } from '../../src/modules/settings/index.js';
 
 /**
- * 1.51.0 (FR-AUTH-007, ADR-068, owner request 2026-11-26): in the staff app every role is device-bound except the
+ * 1.51.0 (FR-AUTH-007, ADR-069, owner request 2026-11-26): in the staff app every role is device-bound except the
  * roles in `devices.multiDeviceRoles` (default super_admin). Web logins are never bound. A super admin on several
  * phones keeps a session and a tracking token per phone; logout on one phone ends only that phone's.
  */
@@ -38,7 +38,7 @@ async function setMultiDeviceRoles(roles: string[]) {
   clearSettingsCache();
 }
 
-describe('who is device-bound in the app (ADR-068)', () => {
+describe('who is device-bound in the app (ADR-069)', () => {
   it('the default setting is ["super_admin"] and the old devices.bindRoles is still readable', async () => {
     const sa = await as(t, s.sa.phone, 'sa-settings');
     const r = await sa.get('/settings');

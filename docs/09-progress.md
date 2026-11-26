@@ -25,6 +25,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 |---|---|---|
 | ERP read sync (customers/plans/schedule/payments), status derivation, freshness | FR-ERP-001..005, FR-CUS-001..007, FR-CUS-010 | ✅ API |
 | Customer list/detail/map (both clients) | FR-CUS-* | ✅ API |
+| Returned invoices hidden everywhere, customer kept (`returnedPlans`, `returnedPlanIds`; owner request 2026-11-26, contract 1.50.0) | FR-CUS-023 | ✅ API (ADR-068); staff-app: delete plans named in `returnedPlanIds`; admin-web: nothing required |
 | Assignments, areas, bulk assign | FR-ASG-* | ✅ API |
 | Handovers incl. temporary cover | FR-HO-001..006 | ✅ API |
 | Collections offline + idempotency + receipt blocks + ERP posting + conflicts | FR-COL-001..011, 013 | ✅ API |
@@ -75,7 +76,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 | Spike: background location engine on 4 OEMs (Xiaomi, Samsung, Oppo/Realme, Vivo) | ADR-009 | ☐ |
 | Duty-only adaptive tracking, filters, offline queue, heartbeat | FR-LOC-001..004, 010, 011 | ◐ server ✅ (ingest, duty check, filters, sampling config, heartbeat, tracking-stopped watchdog); app side in staff-app |
 | Live location while the app is closed: tracking token for the native service (`POST /location/tracking-token`, `Authorization: Tracking` on `/location/points`; owner report 2026-11-26, contract 1.49.0) | FR-LOC-013 | ✅ API (ADR-067); staff-app: issue/store/rotate the token, native service sends it |
-| Only the super admin uses the staff app on several phones; every other role is device-bound (`devices.multiDeviceRoles`, default `["super_admin"]`); logout ends only that phone's session and tracking token (owner request 2026-11-26, contract 1.51.0) | FR-AUTH-007 | ✅ API (ADR-068); admin-web: show the new setting; staff-app: no change needed |
+| Only the super admin uses the staff app on several phones; every other role is device-bound (`devices.multiDeviceRoles`, default `["super_admin"]`); logout ends only that phone's session and tracking token (owner request 2026-11-26, contract 1.51.0) | FR-AUTH-007 | ✅ API (ADR-069); admin-web: show the new setting; staff-app: no change needed |
 | Mock-location detection | FR-LOC-005 | ◐ server ✅ (flag stored, inbox once per staff and day); detection itself in staff-app |
 | Latest-location map, route history, stops | FR-LOC-006..008 | ✅ API (with visit/collection overlay, stop ↔ visit link, today's totals on the marker); screens in admin-web |
 | Visit suggestion from dwell | FR-VIS-005 | ☐ |

@@ -50,7 +50,7 @@ const view = (d: Row) => ({
 const asSubject = (u: UserView) => ({ id: u.id, role: u.role, branchIds: u.branchIds }) as unknown as AuthUser;
 
 /**
- * 1.51.0 (ADR-068): in the staff app every role is device-bound except the roles listed in
+ * 1.51.0 (ADR-069): in the staff app every role is device-bound except the roles listed in
  * `devices.multiDeviceRoles` (default super_admin). A role added later is bound without editing the setting.
  */
 export function isDeviceBound(role: string, multiDeviceRoles: readonly string[]): boolean {
@@ -95,7 +95,7 @@ export async function loginGuard(p: { user: UserView; client: 'app' | 'web'; dev
 }
 
 /**
- * 1.51.0 (ADR-068): a user whose role was not bound before (area / branch manager, viewer) may already have several
+ * 1.51.0 (ADR-069): a user whose role was not bound before (area / branch manager, viewer) may already have several
  * "active" rows, made by the push-token registration of each phone. The phone they log in with keeps its place;
  * the others beyond devices.maxPerUser (least recently seen first) are unbound and their sessions end, so their next
  * login needs approval like a field staff's new phone. Also settles a lowered devices.maxPerUser.

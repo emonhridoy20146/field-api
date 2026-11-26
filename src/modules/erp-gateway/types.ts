@@ -137,6 +137,12 @@ export interface ErpPlan {
   penaltyEnabled?: boolean;
   /** ERP penalty rate as stored (e.g. "0.0200"), display only. */
   penaltyRate?: string | null;
+  /**
+   * 1.50.0 (FR-CUS-023, ADR-068): the invoice was returned in the ERP. `status` stays `closed` (its /api/v1
+   * meaning is unchanged); this keeps a return apart from a paid-off or not-collectable invoice so FOS can hide
+   * it from every client. Absent = not returned.
+   */
+  returned?: true;
 }
 
 export type PaymentMethod = 'cash' | 'bkash' | 'nagad' | 'rocket' | 'bank_transfer' | 'other_mobile';
