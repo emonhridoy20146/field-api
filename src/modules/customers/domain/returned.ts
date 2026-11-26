@@ -41,3 +41,48 @@ export function mergeReturned<T extends ReturnablePlan>(already: T[], found: T[]
   for (const p of found) byId.set(p.erpPlanId, p);
   return [...byId.values()];
 }
+
+// ---------------- 1.53.0 (FR-CUS-024, ADR-071 amends ADR-068): returned invoices are shown, never counted ----------------
+
+/** The ERP payment fields the returned-payment rule reads (the cached `recentPayments` of the customer). */
+export interface ReturnablePayment {
+  erpPlanId?: string | null;
+  returned?: boolean;
+}
+
+/**
+ * A payment belongs to a returned invoice when the ERP posted it against one (`erpPlanId`, the ERP
+ * `sales_invoice_id`, is one of the customer's returned invoices) or it was flagged so when stored. A payment
+ * without an invoice cannot be tied to one and is never treated as returned (it keeps counting, as before 1.53.0).
+ */
+export function isReturnedPayment(p: ReturnablePayment, returnedIds: ReadonlySet<string>): boolean {
+  if (p.returned === true) return true;
+  return typeof p.erpPlanId === 'string' && p.erpPlanId !== '' && returnedIds.has(p.erpPlanId);
+}
+
+/**
+ * Stores the rule on each cached payment (`returned: true`) so the Mongo filter "paid this month" can leave these
+ * payments out without knowing the invoices. Recomputed from scratch on every ERP read: a flag from an earlier read
+ * is dropped when the invoice is no longer returned. Order and every other field are kept.
+ */
+export function markReturnedPayments<T extends ReturnablePayment>(payments: T[], returnedIds: ReadonlySet<string>): T[] {
+  return payments.map((p) => {
+    const { returned: _old, ...rest } = p;
+    const tied = typeof p.erpPlanId === 'string' && p.erpPlanId !== '' && returnedIds.has(p.erpPlanId);
+    return (tied ? { ...rest, returned: true } : rest) as T;
+  });
+}
+
+/** erpPlanIds of the returned invoices (as strings). */
+export const returnedIdSet = (returnedPlans: { erpPlanId?: unknown }[] | null | undefined): Set<string> =>
+  new Set((returnedPlans ?? []).map((p) => String(p.erpPlanId)));
+
+/**
+ * The marker lists use for a customer with returned invoices. `invoiceCount` is the customer's shown invoices as
+ * counted for the list (`invoiceCount.total`: cancelled ones not counted). `onlyReturned` = the customer has
+ * invoices and every one of them was returned: clients show a "returned product customer" marker and do not open
+ * the row. A customer with no invoice at all is not `onlyReturned`.
+ */
+export function returnedMarker(returnedCount: number, shownInvoiceCount: number): { returnedInvoiceCount: number; onlyReturned: boolean } {
+  return { returnedInvoiceCount: returnedCount, onlyReturned: returnedCount > 0 && shownInvoiceCount === 0 };
+}

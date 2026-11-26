@@ -18,7 +18,7 @@ import { badges, deriveCustomer, isBadTag, payState, worstPayState, worstStatus,
 import { MAX_EXTRA_PHONES, mergePhones, normalizeMobile, planAdd, type ExtraPhone, type PhoneInput } from './domain/phones.js';
 import { paidThisMonthFilter, type PaidThisMonth } from './domain/paid-month.js';
 import { paidByOfMonth, type ActivityPerson, type MonthCollectionRef, type MonthPaymentRef } from './domain/activity-by.js';
-import { mergeReturned, splitReturned } from './domain/returned.js';
+import { isReturnedPayment, markReturnedPayments, mergeReturned, returnedIdSet, returnedMarker, splitReturned } from './domain/returned.js';
 import { QUALITY_ISSUES, findIssues, sharedPhones, type Finding, type QualityInput } from './domain/quality.js';
 import { CustomerModel, LocationProposalModel } from './models/customer.model.js';
 
@@ -253,7 +253,10 @@ export async function assignmentStateOfBranch(
   }));
 }
 
-/** Sum of non-reversed ERP payments on a plan between two business dates (promise evaluation). Display/evaluation only. */
+/**
+ * Sum of non-reversed ERP payments on a plan between two business dates (promise evaluation). Display/evaluation only.
+ * 1.53.0 (FR-CUS-024): payments of a returned invoice never count; a payment without an invoice still does.
+ */
 export async function erpPaidBetween(
   customerId: string,
   erpPlanId: string | null,
@@ -261,10 +264,11 @@ export async function erpPaidBetween(
   to: string,
 ): Promise<number> {
   if (!isOid(customerId)) return 0;
-  const c = (await CustomerModel.findById(customerId).select('recentPayments').lean()) as Doc | null;
+  const c = (await CustomerModel.findById(customerId).select({ recentPayments: 1, 'returnedPlans.erpPlanId': 1 }).lean()) as Doc | null;
+  const returned = returnedIdSet(c?.returnedPlans);
   let sum = 0;
   for (const p of (c?.recentPayments ?? []) as LooseObject[])
-    if (!p.reversed && p.date >= from && p.date <= to && (!erpPlanId || !p.erpPlanId || p.erpPlanId === erpPlanId))
+    if (!p.reversed && !isReturnedPayment(p, returned) && p.date >= from && p.date <= to && (!erpPlanId || !p.erpPlanId || p.erpPlanId === erpPlanId))
       sum += p.amountPoisha;
   return sum;
 }
@@ -305,6 +309,8 @@ export async function upsertFromErp(c: ErpCustomer, fetchedAt: Date): Promise<st
   // FR-CUS-023 (ADR-068): returned invoices are kept apart, so no client read, count or search sees them.
   const { visible: plans, returned: returnedPlans } = splitReturned(c.plans);
   const derived = derivedFor(plans, today());
+  // 1.53.0 (FR-CUS-024): payments of a returned invoice are kept and shown, flagged so no month total counts them.
+  const recentPayments = markReturnedPayments(c.recentPayments, returnedIdSet(returnedPlans));
   const set: Record<string, unknown> = {
     branchId: branch.id,
     erpBranchId: c.erpBranchId,
@@ -322,7 +328,7 @@ export async function upsertFromErp(c: ErpCustomer, fetchedAt: Date): Promise<st
     locationSource: loc.locationSource,
     plans,
     returnedPlans,
-    recentPayments: c.recentPayments,
+    recentPayments,
     derived,
     erpStatus: c.status,
     erpUpdatedAt: c.updatedAt,
@@ -355,7 +361,7 @@ export async function upsertFromErp(c: ErpCustomer, fetchedAt: Date): Promise<st
       areaCode: c.areaCode,
       isNew: !prev,
     });
-  await ctx().bus.emit('customer.payments_synced', { customerId: id, payments: c.recentPayments });
+  await ctx().bus.emit('customer.payments_synced', { customerId: id, payments: recentPayments });
   const feed = [await customerFeed(id, branch.id, [doc.fos?.assigneeId])];
   // Moved to another branch: the old branch's devices drop it (their loader finds it out of scope).
   if (prev?.branchId && prev.branchId !== branch.id) feed.push(await customerFeed(id, prev.branchId, [], { reason: 'out_of_scope' }));
@@ -441,8 +447,40 @@ export async function refeedTaggedCustomers(): Promise<number> {
   return n;
 }
 
+/**
+ * 1.53.0 migration (FR-CUS-024, ADR-071): customers with a returned invoice now carry `returnedPlans`,
+ * `returnedInvoiceCount` and `onlyReturned`, and their payments of a returned invoice are flagged so "paid this
+ * month" leaves them out. Flag the cached payments (the next ERP read does the same), bump `version` and send each
+ * such customer through the change feed once, so phones get the new fields as ordinary deltas (no resync floor).
+ * Idempotent: a second run writes the same flags and only re-sends the same customers.
+ */
+export async function showReturnedPlans(): Promise<number> {
+  let n = 0;
+  let feed: ChangeInput[] = [];
+  const cursor = CustomerModel.find({ 'returnedPlans.0': { $exists: true } })
+    .select({ _id: 1, branchId: 1, 'fos.assigneeId': 1, recentPayments: 1, 'returnedPlans.erpPlanId': 1 })
+    .sort({ _id: 1 })
+    .lean()
+    .cursor();
+  for await (const c of cursor as AsyncIterable<Doc>) {
+    const recentPayments = markReturnedPayments((c.recentPayments ?? []) as LooseObject[], returnedIdSet(c.returnedPlans));
+    await CustomerModel.updateOne({ _id: c._id }, { $set: { recentPayments }, $inc: { version: 1 } });
+    feed.push(await customerFeed(c._id.toHexString(), c.branchId, [c.fos?.assigneeId]));
+    n++;
+    if (feed.length === 1000) {
+      await recordChanges(feed);
+      feed = [];
+    }
+  }
+  await recordChanges(feed);
+  return n;
+}
+
 /** erpPlanIds of the customer's returned invoices, so a phone that already holds one deletes it (1.50.0). */
 const returnedPlanIds = (c: Doc): string[] => ((c.returnedPlans ?? []) as LooseObject[]).map((p) => String(p.erpPlanId));
+
+/** 1.53.0 (FR-CUS-024): list marker for customers with returned invoices (list, map pin, search, sync item). */
+const returnedMarkerOf = (c: Doc) => returnedMarker(((c.returnedPlans ?? []) as unknown[]).length, invoiceCount(c).total);
 
 // ---------------- FOS overlay updates (from other modules' events) ----------------
 
@@ -591,16 +629,19 @@ function invoiceCount(c: Doc): { total: number; open: number } {
  */
 function monthActivity(c: Doc, x: ListExtras, date: string) {
   const month = date.slice(0, 7);
+  // 1.53.0 (FR-CUS-024): money paid to a returned invoice is never counted in the customer's month.
+  const returned = returnedIdSet(c.returnedPlans);
+  const counted = ((c.recentPayments ?? []) as LooseObject[]).filter((p) => !isReturnedPayment(p, returned));
   let paid = 0;
   let lastPaidDate: string | null = null;
-  for (const p of (c.recentPayments ?? []) as LooseObject[]) {
+  for (const p of counted) {
     if (p.reversed || typeof p.date !== 'string' || !p.date.startsWith(month)) continue;
     paid += p.amountPoisha ?? 0;
     if (!lastPaidDate || p.date > lastPaidDate) lastPaidDate = p.date;
   }
   // 1.44.0 (FR-CUS-021): the names behind the numbers below.
   const visitedBy = x.monthVisits?.by ?? [];
-  const paidBy = paidByOfMonth(month, (c.recentPayments ?? []) as MonthPaymentRef[], x.monthCollections ?? []);
+  const paidBy = paidByOfMonth(month, counted as MonthPaymentRef[], x.monthCollections ?? []);
   return {
     month,
     visitCount: x.monthVisits?.count ?? 0,
@@ -662,6 +703,8 @@ async function listItems(rows: Doc[], user: AuthUser, near: LatLng | null) {
       missedCount: missedOf(c),
       openInvoices: openInvoices(c),
       invoiceCount: invoiceCount(c),
+      // 1.53.0 (FR-CUS-024): marks customers with returned invoices; onlyReturned rows are not opened by clients.
+      ...returnedMarkerOf(c),
       activity: monthActivity(c, x, date),
       tag: tagView(c),
       openPromise: x.openPromise ?? null,
@@ -772,6 +815,8 @@ async function buildFilter(user: AuthUser, q: ListQuery): Promise<Record<string,
         { code: rx },
         { erpCustomerId: term },
         { 'plans.invoiceNo': invoiceRx },
+        // 1.53.0 (FR-CUS-024): a returned invoice number finds its customer too (the row carries the marker).
+        { 'returnedPlans.invoiceNo': invoiceRx },
         ...(digits.length >= 4 ? [{ phones: { $regex: digits.slice(-10) } }, { 'fos.extraPhones.number': { $regex: digits.slice(-10) } }] : []),
       ],
     });
@@ -808,6 +853,8 @@ export const LIST_PROJECTION = {
   'plans.status': 1,
   'plans.kind': 1,
   'plans.outstandingPoisha': 1,
+  // 1.53.0: returnedInvoiceCount / onlyReturned and leaving returned-invoice payments out of the month.
+  'returnedPlans.erpPlanId': 1,
   'derived.totalOutstandingPoisha': 1,
   'derived.overdue': 1,
   'derived.daysOverdue': 1,
@@ -988,7 +1035,8 @@ type ErpBranchLookup = (erpBranchId: string) => Promise<{ id: string } | null>;
 
 async function invoiceBranchIds(c: Doc, lookup: ErpBranchLookup = getByErpBranchId): Promise<Map<string, string>> {
   const out = new Map<string, string>();
-  const erpIds = [...new Set(((c.plans ?? []) as LooseObject[]).map((p) => p.erpBranchId as string).filter(Boolean))];
+  const all = [...((c.plans ?? []) as LooseObject[]), ...((c.returnedPlans ?? []) as LooseObject[])];
+  const erpIds = [...new Set(all.map((p) => p.erpBranchId as string).filter(Boolean))];
   for (const e of erpIds) {
     if (e === c.erpBranchId && c.branchId) out.set(e, c.branchId as string);
     else {
@@ -1028,6 +1076,53 @@ function fmtDate(d: string, lang: 'bn' | 'en') {
   });
 }
 
+/** One cached ERP payment as the API shows it. */
+function paymentView(p: LooseObject, returned: ReadonlySet<string>) {
+  return {
+    erpPaymentId: p.erpPaymentId,
+    date: p.date,
+    amountPoisha: p.amountPoisha,
+    method: p.method,
+    source: p.source,
+    receiptNo: p.receiptNo ?? '',
+    reversed: !!p.reversed,
+    ...(p.erpPlanId ? { erpPlanId: p.erpPlanId } : {}),
+    ...(p.methodLabel ? { methodLabel: p.methodLabel } : {}),
+    ...(p.collectorName ? { collectorName: p.collectorName } : {}),
+    // 1.44.0: the ERP referrer employee's name (null when the payment has no employee, ADR-049)
+    referrerName: p.collectorEmployeeId ? (p.referrerName ?? p.collectorName ?? null) : null,
+    ...(p.advance ? { advance: true } : {}),
+    ...(p.discountPoisha ? { discountPoisha: p.discountPoisha } : {}),
+    // 1.53.0 (FR-CUS-024): paid to a returned invoice — shown, never counted.
+    ...(isReturnedPayment(p, returned) ? { returned: true } : {}),
+  };
+}
+
+/**
+ * 1.53.0 (FR-CUS-024): a returned invoice as the API shows it: the Plan shape with `returned: true` and
+ * `collectable: false`. Like every closed invoice it has no derived schedule state (nothing is due, missed or
+ * overdue on it). `payments` = the ERP payments posted against it: the cached recent payments, then any payment
+ * the ERP only reports through the schedule allocations (summed over the lines it paid).
+ */
+function returnedPlanView(p: LooseObject, payments: ReturnType<typeof paymentView>[], branchIdOf: Map<string, string>) {
+  const own = payments.filter((x) => x.erpPlanId === p.erpPlanId);
+  const seen = new Set(own.map((x) => x.erpPaymentId));
+  const allocated = new Map<string, { erpPaymentId: string; date: string; amountPoisha: number; receiptNo: string; erpPlanId: string; returned: true }>();
+  for (const l of (p.schedule ?? []) as LooseObject[])
+    for (const x of (l.payments ?? []) as LooseObject[]) {
+      if (!x.erpPaymentId || seen.has(x.erpPaymentId)) continue;
+      const cur = allocated.get(x.erpPaymentId);
+      if (cur) cur.amountPoisha += x.amountPoisha ?? 0;
+      else allocated.set(x.erpPaymentId, { erpPaymentId: x.erpPaymentId, date: x.date ?? '', amountPoisha: x.amountPoisha ?? 0, receiptNo: x.receiptNo ?? '', erpPlanId: p.erpPlanId, returned: true });
+    }
+  return {
+    ...planView(p, undefined, branchIdOf),
+    returned: true,
+    collectable: false,
+    payments: [...own.map((x) => ({ ...x, returned: true as const })), ...allocated.values()],
+  };
+}
+
 async function detailOf(c: Doc, user: AuthUser) {
   const [item] = await listItems([c], user, null);
   return detailFrom(c, item!, user);
@@ -1047,13 +1142,15 @@ async function detailsOf(rows: Doc[], user: AuthUser): Promise<Record<string, un
       return await detailFrom(c, items[i]!, user, lookup);
     } catch (err) {
       ctx().logger.warn({ err, customerId: c._id.toHexString() }, 'customer detail for sync failed; sending list data only');
-      return { ...items[i]!, ...phonesView(c), plans: [], returnedPlanIds: returnedPlanIds(c), payments: [], pendingCollections: [], recentNotes: [], lastVisit: null, badSuggestion: null, version: c.version ?? 1 };
+      return { ...items[i]!, ...phonesView(c), plans: [], returnedPlanIds: returnedPlanIds(c), returnedPlans: [], payments: [], pendingCollections: [], recentNotes: [], lastVisit: null, badSuggestion: null, version: c.version ?? 1 };
     }
   });
 }
 
 async function detailFrom(c: Doc, item: Awaited<ReturnType<typeof listItems>>[number], user: AuthUser, lookup?: ErpBranchLookup) {
   const branchIdOf = await invoiceBranchIds(c, lookup);
+  const returned = returnedIdSet(c.returnedPlans);
+  const payments = ((c.recentPayments ?? []) as LooseObject[]).map((p) => paymentView(p, returned));
   const dPlans = new Map<string, LooseObject>(
     (c.derived?.plans ?? []).map((p: LooseObject) => [p.erpPlanId, p]),
   );
@@ -1069,24 +1166,11 @@ async function detailFrom(c: Doc, item: Awaited<ReturnType<typeof listItems>>[nu
     ...phonesView(c),
     ...(c.guarantor ? { guarantor: c.guarantor } : {}),
     plans: (c.plans ?? []).map((p: LooseObject) => planView(p, dPlans.get(p.erpPlanId), branchIdOf)),
-    // 1.50.0 (FR-CUS-023): invoices returned in the ERP are never in `plans`; the phone deletes these ids.
+    // 1.50.0 (FR-CUS-023): invoices returned in the ERP are never in `plans`; a 1.50 phone deletes these ids.
     returnedPlanIds: returnedPlanIds(c),
-    payments: (c.recentPayments ?? []).map((p: LooseObject) => ({
-      erpPaymentId: p.erpPaymentId,
-      date: p.date,
-      amountPoisha: p.amountPoisha,
-      method: p.method,
-      source: p.source,
-      receiptNo: p.receiptNo ?? '',
-      reversed: !!p.reversed,
-      ...(p.erpPlanId ? { erpPlanId: p.erpPlanId } : {}),
-      ...(p.methodLabel ? { methodLabel: p.methodLabel } : {}),
-      ...(p.collectorName ? { collectorName: p.collectorName } : {}),
-      // 1.44.0: the ERP referrer employee's name (null when the payment has no employee, ADR-049)
-      referrerName: p.collectorEmployeeId ? (p.referrerName ?? p.collectorName ?? null) : null,
-      ...(p.advance ? { advance: true } : {}),
-      ...(p.discountPoisha ? { discountPoisha: p.discountPoisha } : {}),
-    })),
+    // 1.53.0 (FR-CUS-024): the returned invoices themselves, shown flagged and never counted.
+    returnedPlans: ((c.returnedPlans ?? []) as LooseObject[]).map((p) => returnedPlanView(p, payments, branchIdOf)),
+    payments,
     ...(c.detailedAddress ? { detailedAddress: c.detailedAddress } : {}),
     ...(c.directions ? { directions: c.directions } : {}),
     ...(c.erpRisk ? { erpRisk: c.erpRisk } : {}),
@@ -1134,18 +1218,21 @@ export async function timeline(user: AuthUser, id: string, limit: number, cursor
   const before = decodeCursor<{ before: string }>(cursor)?.before ?? null;
   const beforeDate = before ? new Date(before) : null;
   const items: TimelineItem[] = [];
+  const returnedIds = returnedIdSet(c.returnedPlans);
   for (const p of (c.recentPayments ?? []) as LooseObject[]) {
     const at = new Date(`${p.date}T12:00:00+06:00`);
     if (beforeDate && at >= beforeDate) continue;
+    // 1.53.0 (FR-CUS-024): a payment to a returned invoice is shown, marked, and carries `data.returned`.
+    const ret = isReturnedPayment(p, returnedIds);
     items.push({
       kind: 'erp_payment',
       at: at.toISOString(),
       summary: {
-        en: `${formatBdt(p.amountPoisha)} paid (${p.source}${p.reversed ? ', reversed' : ''})`,
-        bn: `${formatBdt(p.amountPoisha, 'bn')} পরিশোধ (${p.source === 'office' ? 'অফিস' : 'মাঠ'}${p.reversed ? ', বাতিল' : ''})`,
+        en: `${formatBdt(p.amountPoisha)} paid (${p.source}${p.reversed ? ', reversed' : ''}${ret ? ', returned invoice' : ''})`,
+        bn: `${formatBdt(p.amountPoisha, 'bn')} পরিশোধ (${p.source === 'office' ? 'অফিস' : 'মাঠ'}${p.reversed ? ', বাতিল' : ''}${ret ? ', ফেরত চালান' : ''})`,
       },
       refId: p.erpPaymentId,
-      data: { receiptNo: p.receiptNo, method: p.method, reversed: !!p.reversed },
+      data: { receiptNo: p.receiptNo, method: p.method, reversed: !!p.reversed, ...(p.erpPlanId ? { erpPlanId: p.erpPlanId } : {}), ...(ret ? { returned: true } : {}) },
     });
   }
   const proposals = await LocationProposalModel.find({
@@ -1205,7 +1292,7 @@ export async function map(
       },
     },
   });
-  const rows = (await CustomerModel.find(filter).select('name location derived fos').limit(5000).lean()) as Doc[];
+  const rows = (await CustomerModel.find(filter).select('name location derived fos plans.status returnedPlans.erpPlanId').limit(5000).lean()) as Doc[];
   const date = today();
   const pins = rows.map((c) => ({
     id: c._id.toHexString(),
@@ -1218,6 +1305,8 @@ export async function map(
     tag: tagSummaryOf(tagView(c)),
     payState: payStateOf(c),
     missedCount: missedOf(c),
+    // 1.53.0 (FR-CUS-024)
+    ...returnedMarkerOf(c),
   }));
   if ((q.zoom ?? 15) >= 13 && pins.length <= 2000) return { pins, clusters: [] };
   // Grid clustering: cell ≈ 1/8 of a tile at this zoom.
@@ -1843,6 +1932,9 @@ export async function searchCustomers(user: AuthUser, term: string, limit = 10) 
     subtitle: `${c.code} · ${c.phone}`,
     // 1.52.0: `list` already applied the caller's scope, so only in-scope customers carry a tag here.
     tag: tagSummaryOf(c.tag),
+    // 1.53.0 (FR-CUS-024): an invoice-number search may find a customer by a returned invoice; the hit says so.
+    returnedInvoiceCount: c.returnedInvoiceCount,
+    onlyReturned: c.onlyReturned,
   }));
 }
 

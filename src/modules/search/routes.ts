@@ -26,7 +26,8 @@ export const searchRoutes = defineRoutes((r) => {
     const user = requireUser(req);
     const { q, types } = parse(query, req.query);
     // 1.52.0: customer items also carry `tag` (state, severity, reasonCode) so lists can draw the bad-tag border.
-    const out: { type: string; id: string; title: string; subtitle: string; tag?: TagSummary }[] = [];
+    // 1.53.0: customer items also carry returnedInvoiceCount / onlyReturned (FR-CUS-024).
+    const out: { type: string; id: string; title: string; subtitle: string; tag?: TagSummary; returnedInvoiceCount?: number; onlyReturned?: boolean }[] = [];
     if (types.includes('customer') && (await hasPermission(req, 'customer.view')) && (await isEnabledForUser('module.customers', user))) out.push(...(await searchCustomers(user, q, 8)));
     if (types.includes('user') && (await hasPermission(req, 'user.view'))) out.push(...(await searchUsers(user, q, 5)));
     if (types.includes('receipt') && (await hasPermission(req, 'collection.view')) && (await isEnabledForUser('module.collections', user))) out.push(...(await searchReceipts(user, q, 5)));

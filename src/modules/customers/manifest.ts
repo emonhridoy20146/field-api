@@ -5,7 +5,7 @@ import { indexMigration } from '../../core/db/migrations.js';
 import { raiseResyncFloor } from '../../core/changefeed/index.js';
 import type { ErpCustomer } from '../erp-gateway/index.js';
 import { customerRoutes } from './routes.js';
-import { branchProposalsSnapshot, markMissing, recomputeAllDerived, proposalSyncLoad, refeedBranches, refeedTaggedCustomers, setAsideReturnedPlans, syncLoad, syncSnapshot, upsertFromErp } from './service.js';
+import { branchProposalsSnapshot, markMissing, recomputeAllDerived, proposalSyncLoad, refeedBranches, refeedTaggedCustomers, setAsideReturnedPlans, showReturnedPlans, syncLoad, syncSnapshot, upsertFromErp } from './service.js';
 import { listBranches } from '../branches/index.js';
 
 export const manifest: ModuleManifest = {
@@ -85,6 +85,9 @@ export const manifest: ModuleManifest = {
     // 1.52.0 follow-up (FR-TAG-010, ADR-070): phones on staff-app schema 20 receive tag.reasonCode for every tagged
     // customer once, as ordinary deltas (customers only, no CURSOR_EXPIRED, outbox untouched).
     { id: '20261126-0002-refeed-tagged-customers', up: async () => void (await refeedTaggedCustomers()) },
+    // 1.53.0 (FR-CUS-024, ADR-071): returned invoices are shown again (never counted). Flag their cached payments and
+    // send each customer with a returned invoice through the change feed once (returnedPlans, marker fields).
+    { id: '20261126-0003-show-returned-plans', up: async () => void (await showReturnedPlans()) },
   ],
   async init() {
     // ADR-038: phones that took their snapshot when staff saw only assigned customers reload once.
