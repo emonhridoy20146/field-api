@@ -430,6 +430,13 @@ GET  /api/v1/devices?userId=6734a1…   → [ { "id": "6742b0…", "deviceId": "
 POST /api/v1/devices/6742b0…/approve  → 200 { "id": "6742b0…", "status": "active" }   (old active phone unbound, its sessions end)
 POST /api/v1/devices/6742b0…/approve  → 200 { "id": "6742b0…", "status": "active" }   (again: nothing changes)
 ```
+Who is bound (1.51.0, ADR-068): on `client: app`, every role **except** the roles in setting `devices.multiDeviceRoles` (default `["super_admin"]`); a role added later is bound without editing the setting. `client: web` is never bound. `devices.bindRoles` is deprecated (still listed by `GET /settings`, no longer read).
+```
+PATCH /api/v1/settings { "changes": { "devices.multiDeviceRoles": ["super_admin"] }, "reason": "…" }   (array of role names; unknown role → 400)
+POST  /api/v1/auth/login  (branch manager, 2nd phone)  → 403 { "code": "DEVICE_NOT_APPROVED", "details": { "pendingDeviceId": "…", "status": "pending_approval", "maxActiveDevices": 1 } }
+POST  /api/v1/auth/logout (super admin, phone 1)       → 204   (phone 1's session and tracking token end; phone 2 keeps both)
+```
+A user who already had more active devices than `devices.maxPerUser` (rows made by the push-token registration while their role was not bound) keeps the phone they log in with; the others are unbound, their sessions end, and their next login is a pending device (audit `device.unbound`, reason `device_limit`).
 - `likelyReinstall` is false unless the setting `devices.reinstallHintIdleDays` is above 0: then it is true for a pending device with the same model and Android version as the user's only active device, when that device was not seen for that many days. Only a hint; the admin still approves.
 
 ### 3.9k Area manager (1.48.0, FR-USER-003, ADR-065)
@@ -442,7 +449,7 @@ PUT  /api/v1/rbac/overrides/user/<areaManagerId> { "changes": [ { "key": "user.m
 → 422 { "code": "BUSINESS_RULE", "details": { "rule": "PERMISSION_NOT_GRANTABLE", "key": "user.manage", "role": "area_manager" } }
 GET  /api/v1/rbac/permissions → [ { "key": "settings.manage", "defaults": { "super_admin": true }, "neverFor": ["area_manager"], … }, … ]
 ```
-- Scope is every branch (like the super admin); `branchIds[0]` is only the home branch. Permissions: the AM column of 02-requirements §3.1. Not device-bound (`devices.bindRoles` stays `["field_staff"]`).
+- Scope is every branch (like the super admin); `branchIds[0]` is only the home branch. Permissions: the AM column of 02-requirements §3.1. Device-bound in the staff app since 1.51.0 (ADR-068: every role except `devices.multiDeviceRoles`, default `["super_admin"]`); web logins are not bound.
 
 ### 3.9l Requests / tickets (1.48.0, FR-REQ-001..006, ADR-066)
 ```

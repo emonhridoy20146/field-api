@@ -3,6 +3,17 @@
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
 ## [Unreleased]
+### Changed — contract 1.51.0 (owner request 2026-11-26: only the super admin may use the staff app on several phones; FR-AUTH-007, ADR-068)
+- **Who is device-bound:** on `client: app` every role is bound except the roles in the new setting **`devices.multiDeviceRoles`** (json array of role names, validated, default `["super_admin"]`). Area managers, branch managers and viewers are now bound like field staff (`devices.maxPerUser` 1; approval with `device.manage`); a role added later is bound without a settings edit. Web logins stay unbound. Applies on deploy (new key, so the default is used; no migration, no settings edit).
+- **`devices.bindRoles` deprecated:** still defined and returned by `GET /settings`, no longer read.
+- **Users who already use two phones:** the phone they log in with after deploy keeps its place; their other active device rows beyond `devices.maxPerUser` (created by push-token registration while the role was not bound) are unbound, their sessions and tracking tokens end (audit `device.unbound`, reason `device_limit`), and the next login there is 403 `DEVICE_NOT_APPROVED` (pending).
+- **Logout** revokes only the tracking tokens of this session and this device (was: all of the user's). A super admin's other phones keep their sessions and tracking tokens. Rotation was already per device.
+- Contract: descriptions of `POST /auth/login`, `POST /auth/logout`, `POST /location/tracking-token`; no schema change. 1.50.0 is used by another change.
+### Tests
+- `test/integration/device-bind-roles.test.ts`: default setting, super admin on three phones, area manager / branch manager / viewer / field staff second phone pending, web never bound, manager phone approved with `device.manage`, a listed role is unbound, unknown role 400, a branch manager with two pre-deploy active phones, super admin per-phone tracking-token rotation and logout on one phone. `area-manager.test.ts` updated to the new rule; unit `devices/__tests__/bound.test.ts`.
+### Notes for the clients
+- staff-app: no change needed (the 403 `DEVICE_NOT_APPROVED` screen now also shows for managers and viewers). admin-web: if the settings screen lists keys explicitly, add `devices.multiDeviceRoles` (multi-select of roles) and hide or label `devices.bindRoles` as deprecated.
+
 ### Fixed — contract 1.49.0 (owner report 2026-11-26: live location not shown when the staff app is closed; FR-LOC-013, ADR-067)
 - **Cause:** the staff app's native foreground service keeps posting `/location/points` after the app is closed, with the access token the Dart side stored. Access tokens live 15 minutes and nothing refreshes them while the app is closed, so uploads were 401 after ~15 minutes, points stayed on the phone and the admin map froze. The native side must not refresh (refresh rotation + reuse detection would log the user out).
 - **Added `POST /location/tracking-token`** → `200 { token, expiresAt }`: staff app session with a device id (else 403 `FORBIDDEN` `details.reason: APP_ONLY`) and `attendance.record` (else 403). Opaque `trk_…` token, sha256 stored (`tracking_tokens`), bound to user + device + session, valid `location.trackingTokenTtlHours` (new setting, default **24**, 1–168). Each call rotates: the previous token of the device stops working at once. Audited `auth.tracking_token_issued`.

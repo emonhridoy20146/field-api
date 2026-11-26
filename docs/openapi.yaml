@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.49.0
+  version: 1.51.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
@@ -69,6 +69,9 @@ paths:
         IP lock. 423 bodies carry `details` = `AccountLockedDetails` and a `Retry-After` header (1.47.0).
         A field staff on a new device gets 403 `DEVICE_NOT_APPROVED` with `details` = `DeviceNotApprovedDetails`
         (1.47.0; FR-AUTH-007); show "waiting for manager approval" and the request id.
+        Since 1.51.0 (ADR-068) every role is device-bound on `client: app` except the roles in setting
+        `devices.multiDeviceRoles` (default `["super_admin"]`), so area managers, branch managers and viewers can get
+        this 403 too. `client: web` logins are never device-bound. `devices.bindRoles` is deprecated and no longer read.
       requestBody:
         required: true
         content:
@@ -124,6 +127,10 @@ paths:
     post:
       tags: [auth]
       operationId: logout
+      description: |
+        Ends the caller's session. Since 1.51.0 (ADR-068) it also revokes the tracking tokens of this session and of
+        this user on this device only; the user's sessions and tracking tokens on other phones (a super admin on
+        several phones) keep working.
       responses:
         '204': { description: Logged out }
   /auth/password/change:
@@ -2196,8 +2203,8 @@ paths:
         post points (`attendance.record`). Returns an opaque token for `Authorization: Tracking <token>` on
         POST /location/points, and nowhere else. The token is bound to the caller's user, device and session and lives
         `location.trackingTokenTtlHours` (default 24) hours. Every call rotates: the previous token of this user and
-        device stops working at once. Logout, password change / reset, deactivation, device unbind and ending the
-        session revoke it. Needs a normal access token (a tracking token is refused here). No body.
+        device stops working at once; tokens of the user's other devices are not touched. Logout (of this session or
+        device, 1.51.0), password change / reset, deactivation, device unbind and ending the session revoke it. Needs a normal access token (a tracking token is refused here). No body.
       responses:
         '200':
           description: Token issued; the previous one of this device is revoked

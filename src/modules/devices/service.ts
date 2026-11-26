@@ -50,22 +50,30 @@ const view = (d: Row) => ({
 const asSubject = (u: UserView) => ({ id: u.id, role: u.role, branchIds: u.branchIds }) as unknown as AuthUser;
 
 /**
- * FR-AUTH-007 login guard: a field staff account has at most N active devices (default 1).
+ * 1.51.0 (ADR-068): in the staff app every role is device-bound except the roles listed in
+ * `devices.multiDeviceRoles` (default super_admin). A role added later is bound without editing the setting.
+ */
+export function isDeviceBound(role: string, multiDeviceRoles: readonly string[]): boolean {
+  return !multiDeviceRoles.includes(role);
+}
+
+/**
+ * FR-AUTH-007 login guard: a bound app user has at most N active devices (default 1).
  * First device binds automatically; a new device needs manager approval.
  */
 export async function loginGuard(p: { user: UserView; client: 'app' | 'web'; deviceId: string | null; deviceInfo: DeviceInfo }): Promise<void> {
   if (p.client !== 'app') return;
   if (!(await isEnabledForUser('module.devices', asSubject(p.user)))) return;
-  const bindRoles = await getSetting<string[]>('devices.bindRoles');
-  if (!bindRoles.includes(p.user.role)) return;
+  if (!isDeviceBound(p.user.role, await getSetting<string[]>('devices.multiDeviceRoles'))) return;
   if (!p.deviceId) throw new AppError('VALIDATION_FAILED', { fields: [{ path: 'X-Device-Id', message: 'Device id header required' }] });
   const now = ctx().clock.now();
   const existing = await DeviceModel.findOne({ deviceId: p.deviceId }).lean();
+  const max = await getSetting<number>('devices.maxPerUser');
   if (existing && existing.userId === p.user.id && existing.status === 'active') {
     await DeviceModel.updateOne({ _id: existing._id }, { $set: { lastSeenAt: now, appVersion: p.deviceInfo.appVersion ?? existing.appVersion } });
+    await unbindOverLimit(p.user, existing._id, max);
     return;
   }
-  const max = await getSetting<number>('devices.maxPerUser');
   const active = await DeviceModel.countDocuments({ userId: p.user.id, status: 'active' });
   const fields = { userId: p.user.id, branchId: p.user.branchIds[0] ?? null, ...p.deviceInfo, lastSeenAt: now };
   if (active < max && (!existing || existing.status !== 'active')) {
@@ -84,6 +92,26 @@ export async function loginGuard(p: { user: UserView; client: 'app' | 'web'; dev
     await ctx().bus.emit('device.approval_requested', { userId: p.user.id, deviceId: p.deviceId, branchId: fields.branchId });
   // 1.47.0: `pendingDeviceId` is the id an admin approves (POST /devices/{id}/approve); the app can show it.
   throw new AppError('DEVICE_NOT_APPROVED', { pendingDeviceId: pending!._id.toHexString(), deviceId: p.deviceId, status: 'pending_approval', maxActiveDevices: max });
+}
+
+/**
+ * 1.51.0 (ADR-068): a user whose role was not bound before (area / branch manager, viewer) may already have several
+ * "active" rows, made by the push-token registration of each phone. The phone they log in with keeps its place;
+ * the others beyond devices.maxPerUser (least recently seen first) are unbound and their sessions end, so their next
+ * login needs approval like a field staff's new phone. Also settles a lowered devices.maxPerUser.
+ */
+async function unbindOverLimit(user: UserView, keepId: unknown, maxSetting: number): Promise<void> {
+  const max = Math.max(1, maxSetting);
+  const others = await DeviceModel.find({ userId: user.id, status: 'active', _id: { $ne: keepId } }).sort({ lastSeenAt: 1 }).lean();
+  const extra = others.slice(0, Math.max(0, others.length - max + 1));
+  if (!extra.length) return;
+  const now = ctx().clock.now();
+  for (const old of extra) {
+    await DeviceModel.updateOne({ _id: old._id, status: 'active' }, { $set: { status: 'unbound', unboundAt: now, fcmToken: null } });
+    await revokeForDevice(old.deviceId, 'device_limit');
+    await audit.record({ actor: null, action: 'device.unbound', entity: 'device', entityId: old.deviceId, branchId: old.branchId ?? null, before: { status: 'active' }, after: { status: 'unbound', keptOnLoginOfUser: user.id }, reason: 'device_limit' });
+    await ctx().bus.emit('device.unbound', { userId: user.id, deviceId: old.deviceId });
+  }
 }
 
 const norm = (v: unknown) => (typeof v === 'string' ? v.trim().toLowerCase() : '');

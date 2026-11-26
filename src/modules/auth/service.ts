@@ -173,9 +173,10 @@ export async function refresh(token: string | undefined, meta: RequestMeta) {
 }
 
 export async function logout(user: AuthUser, meta: RequestMeta) {
-  await revoke(user.sessionId, 'logout');
-  // ADR-067: logging out stops the native location service too (all of the user's tracking tokens).
-  await revokeTrackingTokens({ userId: user.id }, 'logout', user, meta);
+  // ADR-067 / ADR-068 (1.51.0): logging out stops the native location service of this session and this device only.
+  // A super admin's other phones keep their sessions and tracking tokens.
+  await revoke(user.sessionId, 'logout', user, meta);
+  if (user.deviceId) await revokeTrackingTokens({ userId: user.id, deviceId: user.deviceId }, 'logout', user, meta);
   await audit.record({ actor: user, action: 'auth.logout', entity: 'session', entityId: user.sessionId, meta });
 }
 

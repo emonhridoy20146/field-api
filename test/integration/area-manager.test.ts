@@ -174,12 +174,19 @@ describe('what an area manager does', () => {
     expect(dash.status).toBe(200);
   });
 
-  it('is not device-bound: logs in from the web and from any phone', async () => {
+  it('1.51.0 (ADR-068): web is never bound; in the app the first phone binds and a second phone waits for approval', async () => {
+    expect((await login(t.app, AM, { client: 'web' })).accessToken).toBeTruthy();
     expect((await login(t.app, AM, { client: 'web' })).accessToken).toBeTruthy();
     expect((await login(t.app, AM, { client: 'app', deviceId: 'am-phone-1' })).accessToken).toBeTruthy();
-    expect((await login(t.app, AM, { client: 'app', deviceId: 'am-phone-2' })).accessToken).toBeTruthy();
+    const second = await t.app.inject({ method: 'POST', url: '/api/v1/auth/login', headers: { 'x-device-id': 'am-phone-2' }, payload: { phone: AM, password: PASSWORD, client: 'app' } });
+    expect(second.statusCode).toBe(403);
+    expect(second.json()).toMatchObject({ code: 'DEVICE_NOT_APPROVED', details: { deviceId: 'am-phone-2', status: 'pending_approval' } });
     const devices = await (await as(t, SA)).get(`/devices?userId=${amId}`);
     expect(devices.status).toBe(200);
-    expect((devices.body.items ?? devices.body).filter((d: { userId: string }) => d.userId === amId)).toEqual([]);
+    const mine = (devices.body.items ?? devices.body).filter((d: { userId: string }) => d.userId === amId);
+    expect(mine.map((d: { deviceId: string; status: string }) => [d.deviceId, d.status]).sort()).toEqual([
+      ['am-phone-1', 'active'],
+      ['am-phone-2', 'pending_approval'],
+    ]);
   });
 });
