@@ -25,6 +25,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 |---|---|---|
 | ERP read sync (customers/plans/schedule/payments), status derivation, freshness | FR-ERP-001..005, FR-CUS-001..007, FR-CUS-010 | ✅ API |
 | Customer list/detail/map (both clients) | FR-CUS-* | ✅ API |
+| Returned invoices hidden everywhere, customer kept (`returnedPlans`, `returnedPlanIds`; owner request 2026-11-26, contract 1.50.0) | FR-CUS-023 | ✅ API (ADR-068); staff-app: delete plans named in `returnedPlanIds`; admin-web: nothing required |
 | Assignments, areas, bulk assign | FR-ASG-* | ✅ API |
 | Handovers incl. temporary cover | FR-HO-001..006 | ✅ API |
 | Collections offline + idempotency + receipt blocks + ERP posting + conflicts | FR-COL-001..011, 013 | ✅ API |

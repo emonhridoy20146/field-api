@@ -25,6 +25,8 @@ const customerSchema = new Schema(
     locationStatus: { type: String, enum: ['ok', 'missing', 'invalid', 'suspect_swapped', 'overridden'], default: 'missing' },
     locationSource: { type: String, enum: ['erp', 'overlay'], default: 'erp' },
     plans: { type: Schema.Types.Mixed, default: [] },
+    // 1.50.0 (FR-CUS-023, ADR-068): invoices returned in the ERP, kept out of `plans` so no client sees them.
+    returnedPlans: { type: Schema.Types.Mixed, default: [] },
     recentPayments: { type: Schema.Types.Mixed, default: [] },
     derived: {
       totalOutstandingPoisha: { type: Number, default: 0 },

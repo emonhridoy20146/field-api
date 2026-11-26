@@ -316,6 +316,9 @@ function mapGuarantor(g: LvGuarantor | null | undefined): ErpGuarantor | null {
   return { name: g.name!.trim(), phone: phones[0] ?? '', phones, address: g.address ?? null };
 }
 
+/** ERP invoice status `returned` (FR-CUS-023): the goods came back; FOS hides the invoice everywhere. */
+const isReturned = (inv: LvInvoice) => inv.status.trim().toLowerCase() === 'returned';
+
 function planStatus(inv: LvInvoice, duePoisha: number): ErpPlanStatus {
   const s = inv.status.toLowerCase();
   if (s === 'cancelled') return 'cancelled';
@@ -447,6 +450,8 @@ export function mapInvoice(inv: LvInvoice): ErpPlan {
     paymentStatus: inv.payment_status ?? null,
     creditDueDate: kind === 'credit' ? (inv.credit_due_date ?? '').slice(0, 10) || null : null,
     ...(plan ? { penaltyEnabled: !!plan.penalty_enabled, penaltyRate: plan.penalty_rate ?? null } : {}),
+    // 1.50.0 (ADR-068): status stays `closed` for a return; this flag is what tells it apart from a paid-off plan.
+    ...(isReturned(inv) ? { returned: true as const } : {}),
   };
 }
 
