@@ -3,6 +3,15 @@
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
 ## [Unreleased]
+### Added — contract 1.52.0 (owner request 2026-11-26: bad-tag red border with a colour per reason in every list; FR-TAG-009)
+- **`MapPin.tag`** (`GET /customers/map` pins): `TagSummary` `{ state, severity, reasonCode }`; `severity`/`reasonCode` only when `state` is `tagged`. `MapPin.tagged` is unchanged. Clusters unchanged.
+- **Global search** (`GET /search`): customer items now carry `tag` (same `TagSummary`). The result item schema is now named `SearchResult` (same fields as before plus `tag`). User and receipt items have no `tag`.
+- New schema **`TagSummary`** (the list-relevant part of `Tag`; no reason text, author or time).
+- Scope unchanged: both come from the already scoped customer queries, so out-of-scope customers (and their tags) are never returned. No new permission, no data change, no migration.
+### Tests
+- `test/integration/tag-summary.test.ts`: pins and search hits carry severity/reasonCode for tagged, `pending` without them in approval mode, `none` when untagged, out-of-scope customer of another branch absent for a branch manager, 401 without a token, 400 bad query; OpenAPI conformance of both responses.
+### Notes for the clients
+- admin-web and staff-app: draw the red border from `tag.state === 'tagged' && tag.severity !== 'watch'`, colour by `tag.reasonCode`, on map pins and search results too. Older servers omit `tag` on these: fall back to `tagged` (pins) or no border (search).
 ### Changed — contract 1.51.0 (owner request 2026-11-26: only the super admin may use the staff app on several phones; FR-AUTH-007, ADR-069)
 - **Who is device-bound:** on `client: app` every role is bound except the roles in the new setting **`devices.multiDeviceRoles`** (json array of role names, validated, default `["super_admin"]`). Area managers, branch managers and viewers are now bound like field staff (`devices.maxPerUser` 1; approval with `device.manage`); a role added later is bound without a settings edit. Web logins stay unbound. Applies on deploy (new key, so the default is used; no migration, no settings edit).
 - **`devices.bindRoles` deprecated:** still defined and returned by `GET /settings`, no longer read.

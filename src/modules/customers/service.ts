@@ -494,6 +494,23 @@ function tagView(c: Doc) {
   return out;
 }
 
+/**
+ * 1.52.0 slim tag for map pins and global search: only what a list needs to draw the red border and pick the colour
+ * per reason (owner request 2026-11-26). Same rule as tagView, without reason text, setBy or setAt.
+ */
+export interface TagSummary {
+  state: 'none' | 'pending' | 'tagged';
+  severity?: string;
+  reasonCode?: string;
+}
+
+function tagSummaryOf(v: Record<string, unknown>): TagSummary {
+  const out: TagSummary = { state: v.state as TagSummary['state'] };
+  if (typeof v.severity === 'string') out.severity = v.severity;
+  if (typeof v.reasonCode === 'string') out.reasonCode = v.reasonCode;
+  return out;
+}
+
 function statusBadges(c: Doc, date: string): CustomerStatus[] {
   return badges(
     {
@@ -1175,6 +1192,7 @@ export async function map(
     name: c.name?.bn || c.name?.en || '',
     outstandingPoisha: c.derived?.totalOutstandingPoisha ?? 0,
     tagged: c.fos?.tag?.state === 'tagged',
+    tag: tagSummaryOf(tagView(c)),
     payState: payStateOf(c),
     missedCount: missedOf(c),
   }));
@@ -1800,6 +1818,8 @@ export async function searchCustomers(user: AuthUser, term: string, limit = 10) 
     id: c.id,
     title: c.name.bn || c.name.en,
     subtitle: `${c.code} · ${c.phone}`,
+    // 1.52.0: `list` already applied the caller's scope, so only in-scope customers carry a tag here.
+    tag: tagSummaryOf(c.tag),
   }));
 }
 

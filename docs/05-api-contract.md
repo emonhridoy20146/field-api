@@ -495,12 +495,25 @@ Content-Encoding: gzip
 - Rotated, revoked (logout, password reset, deactivation, device unbind, session ended), session or user gone, device not approved → `401 … "reason": "TRACKING_TOKEN_INVALID"`; past `expiresAt` → `"TRACKING_TOKEN_EXPIRED"`. The native service does **not** refresh: it keeps the points buffered and retries with whatever token is stored at the next cycle.
 - A web session or an app session without a device → `403 FORBIDDEN { "reason": "APP_ONLY" }`; no `attendance.record` → `403 FORBIDDEN { "permission": "attendance.record" }`.
 
+### 3.9o Bad-tag border in every list: tag on map pins and global search (1.52.0, FR-TAG-009)
+Every customer list draws a red border for a customer tagged `bad` or `legal` (not `watch`), with a colour per `reasonCode`. List rows already carry `tag`; since 1.52.0 map pins and customer hits of global search carry the same three fields as a `TagSummary`:
+```http
+GET /api/v1/customers/map?bbox=90.30,22.65,90.42,22.75&zoom=15
+```
+→ `{ "pins": [ { "id": "6731…", "lat": 22.71, "lng": 90.37, "status": "overdue", "name": "…", "outstandingPoisha": 850000, "tagged": true, "tag": { "state": "tagged", "severity": "bad", "reasonCode": "plan_ended_unpaid" }, "payState": "bad", "missedCount": 3 } ], "clusters": [] }`
+```http
+GET /api/v1/search?q=100245&types=customer
+```
+→ `[ { "type": "customer", "id": "6731…", "title": "…", "subtitle": "BRL01-100245 · 01711…", "tag": { "state": "tagged", "severity": "legal", "reasonCode": "other" } } ]`
+
+Untagged → `"tag": { "state": "none" }`; waiting for approval → `{ "state": "pending" }` (no severity/reasonCode). `tagged` on the pin is unchanged. User and receipt hits have no `tag`. Scope is unchanged: a customer out of the caller's scope is not in the result at all, so neither is its tag. Reason text and author stay on `GET /customers/{id}`.
+
 ### 3.10a Pin colours and invoice viewer (1.14.0)
 Yellow and orange pins of credit customers in view:
 ```http
 GET /api/v1/customers/map?bbox=90.30,22.10,90.45,22.20&zoom=15&payState=missed_one,missed_many&invoiceKind=credit
 ```
-→ `{ "pins": [ { "id": "6731…", "lat": 22.16, "lng": 90.42, "status": "overdue", "payState": "missed_one", "missedCount": 1, "name": "…", "outstandingPoisha": 600000, "tagged": false } ], "clusters": [] }`. Zoomed out, each cluster has `worstPayState` and `payStates` (`{ "bad": 3, "on_track": 12 }`).
+→ `{ "pins": [ { "id": "6731…", "lat": 22.16, "lng": 90.42, "status": "overdue", "payState": "missed_one", "missedCount": 1, "name": "…", "outstandingPoisha": 600000, "tagged": false, "tag": { "state": "none" } } ], "clusters": [] }`. Zoomed out, each cluster has `worstPayState` and `payStates` (`{ "bad": 3, "on_track": 12 }`).
 
 One installment line in `GET /customers/{id}` → `plans[].schedule[]`:
 ```json

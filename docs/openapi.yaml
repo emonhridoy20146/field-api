@@ -1,11 +1,14 @@
 openapi: 3.1.0
 info:
   title: Howlader Field Operations API
-  version: 1.51.0
+  version: 1.52.0
   description: |
     Contract owned by field-api. Consumers (admin-web, staff-app) generate types from this file.
     Conventions (auth, pagination, idempotency, errors) are described in docs/05-api-contract.md.
     Money is integer poisha. Times are UTC ISO-8601; business dates are YYYY-MM-DD in Asia/Dhaka.
+    1.52.0 (additive): `MapPin.tag` and the `tag` of customer items in GET /search results, both a `TagSummary`
+    `{ state, severity, reasonCode }`, so every list can draw the bad-tag red border with a colour per reason
+    (FR-TAG-009, owner request 2026-11-26). `MapPin.tagged` is unchanged. Scope is applied as before.
     1.51.0 (descriptions only): in the staff app every role is device-bound except `devices.multiDeviceRoles`
     (default super_admin), so managers and viewers can get 403 DEVICE_NOT_APPROVED on login; web is never bound.
     Logout ends only this session's and this device's tracking tokens (FR-AUTH-007, ADR-069).
@@ -2457,7 +2460,7 @@ paths:
       operationId: globalSearch
       parameters: [ { name: q, in: query, required: true, schema: { type: string, minLength: 2 } }, { name: types, in: query, schema: { type: string, example: 'customer,user,receipt' } } ]
       responses:
-        '200': { description: OK, content: { application/json: { schema: { type: array, items: { type: object, properties: { type: { type: string }, id: { type: string }, title: { type: string }, subtitle: { type: string } } } } } } }
+        '200': { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/SearchResult' } } } } }
   /reports/staff-performance:
     get:
       tags: [reports]
@@ -2847,6 +2850,18 @@ components:
     Tag:
       type: object
       properties: { state: { type: string, enum: [none, pending, tagged] }, severity: { type: string, enum: [watch, bad, legal] }, reasonCode: { type: string }, reason: { type: string }, setBy: { type: string }, setAt: { type: string, format: date-time } }
+    TagSummary:
+      type: object
+      description: |
+        Added in 1.52.0 (FR-TAG-009). The part of `Tag` a list needs to draw the bad-tag border: `severity` and
+        `reasonCode` are present only when `state` is `tagged`. Red when tagged with severity `bad` or `legal`
+        (not `watch`); the colour per reason comes from `reasonCode`. Reason text and author are not included
+        (open the customer for those).
+      required: [state]
+      properties:
+        state: { type: string, enum: [none, pending, tagged] }
+        severity: { type: string, enum: [watch, bad, legal] }
+        reasonCode: { type: string }
     TagEvent:
       type: object
       properties:
@@ -3126,8 +3141,18 @@ components:
         name: { type: string }
         outstandingPoisha: { type: integer }
         tagged: { type: boolean }
+        tag: { $ref: '#/components/schemas/TagSummary' }
         payState: { $ref: '#/components/schemas/PayState' }
         missedCount: { type: integer, description: 'Added in 1.14.0' }
+    SearchResult:
+      type: object
+      description: One GET /search hit (schema named in 1.52.0; the fields before `tag` are unchanged).
+      properties:
+        type: { type: string, description: 'customer, user or receipt' }
+        id: { type: string }
+        title: { type: string }
+        subtitle: { type: string }
+        tag: { $ref: '#/components/schemas/TagSummary', description: 'Added in 1.52.0. Customer items only (`type: customer`); absent on user and receipt items and from older servers' }
     TimelineItem:
       type: object
       properties:
