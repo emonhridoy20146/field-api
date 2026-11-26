@@ -579,7 +579,7 @@ paths:
         - { name: assignedTo, in: query, schema: { type: string, description: "'me' or a userId" } }
         - $ref: '#/components/parameters/BranchId'
         - { name: areaId, in: query, schema: { type: string } }
-        - { name: q, in: query, schema: { type: string } }
+        - { name: q, in: query, schema: { type: string }, description: 'Name (bn/en), customer code, ERP id, mobile number (last digits, 4 or more) or invoice number (separators ignored, e.g. S24052 finds S-24052). Bangla digits are accepted (2026-11-26).' }
         - { name: near, in: query, schema: { type: string, example: '22.7101,90.3705' } }
         - { name: radiusM, in: query, schema: { type: integer, default: 5000 } }
         - { name: sort, in: query, schema: { type: string, enum: [distance, -daysOverdue, name, -totalOutstanding, nextDueDate] } }

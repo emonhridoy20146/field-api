@@ -666,6 +666,9 @@ function invoiceKindFilter(kind: 'installment' | 'credit'): Record<string, unkno
   };
 }
 
+const escapeRegex = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const asciiDigits = (v: string) => v.replace(/[\u09E6-\u09EF]/g, (d) => String(d.charCodeAt(0) - 0x09e6));
+
 async function buildFilter(user: AuthUser, q: ListQuery): Promise<Record<string, unknown>> {
   const and: Record<string, unknown>[] = [await scopeFilter(user)];
   if (q.branchId) and.push(branchQuery(user, q.branchId));
@@ -681,15 +684,20 @@ async function buildFilter(user: AuthUser, q: ListQuery): Promise<Record<string,
   if (q.assignedTo) and.push({ 'fos.assigneeId': q.assignedTo === 'me' ? user.id : q.assignedTo });
   if (q.areaId) and.push({ 'fos.areaId': q.areaId });
   if (q.q) {
-    const term = q.q.trim();
-    const rx = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    // Bangla digits (০-৯) are typed on phones; search with ASCII digits everywhere (owner request 2026-11-26).
+    const term = asciiDigits(q.q.trim());
+    const rx = new RegExp(escapeRegex(term), 'i');
     const digits = term.replace(/\D/g, '');
+    // Invoice numbers are matched without separators too: "S24052", "s-24052" and "24052" all find "S-24052".
+    const compact = term.replace(/[\s\-_/.]/g, '');
+    const invoiceRx = compact.length >= 3 ? new RegExp(compact.split('').map(escapeRegex).join('[\\s\\-_/.]*'), 'i') : rx;
     and.push({
       $or: [
         { 'name.en': rx },
         { 'name.bn': rx },
         { code: rx },
         { erpCustomerId: term },
+        { 'plans.invoiceNo': invoiceRx },
         ...(digits.length >= 4 ? [{ phones: { $regex: digits.slice(-10) } }, { 'fos.extraPhones.number': { $regex: digits.slice(-10) } }] : []),
       ],
     });

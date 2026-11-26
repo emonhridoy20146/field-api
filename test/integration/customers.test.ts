@@ -89,6 +89,18 @@ describe('customer list & scope (FR-CUS-001/002)', () => {
     expect((await c.get('/customers?q=000111')).body.items[0].erpCustomerId).toBe('100246');
   });
 
+  it('search by invoice number and by mobile number, Bangla digits and spaces too (owner request 2026-11-26)', async () => {
+    const c = await as(t, '01700000002');
+    const ids = async (q: string) => (await c.get(`/customers?q=${encodeURIComponent(q)}`)).body.items.map((x: { erpCustomerId: string }) => x.erpCustomerId).sort();
+    expect(await ids('INV-55021')).toEqual(['100245']);
+    expect(await ids('inv55021')).toEqual(['100245']); // separators and case ignored
+    expect(await ids('55300')).toEqual(['100248']); // a customer's second invoice
+    expect(await ids('০১৭১২০০০১১১')).toEqual(['100246']); // mobile in Bangla digits
+    expect(await ids('01712 000111')).toEqual(['100246']); // mobile with a space
+    expect(await ids('+8801611000222')).toEqual(['100247']);
+    expect(await ids('INV-99999')).toEqual([]);
+  });
+
   it('paginates with an opaque cursor', async () => {
     const c = await as(t, '01700000002');
     const p1 = await c.get('/customers?limit=3&sort=name');
