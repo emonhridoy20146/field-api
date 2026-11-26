@@ -223,6 +223,8 @@ POST /api/v1/sync/push
 ```
 Returned invoices (1.50.0, FR-CUS-023): a `customer` item's `plans` is the complete list FOS shows and never holds an invoice returned in the ERP; `returnedPlanIds` names those invoices so a device that stored one earlier deletes it (with its schedule and any local invoice view), e.g. `"plans": [{ "erpPlanId": "40012", "status": "completed", … }, { "erpPlanId": "40013", "status": "active", … }], "returnedPlanIds": ["40011"]`. The customer itself is never deleted for this. `GET /customers/{id}` carries the same field.
 
+Tag reason on phones (FR-TAG-010, ADR-070; no contract change): after the deploy of migration `customers/20261126-0002-refeed-tagged-customers` every tagged customer in a device's scope arrives once more as an ordinary `customer` upsert on `GET /sync/pull` (same payload as always, incl. `tag.reasonCode`). No `410`, no bootstrap, the outbox is not involved.
+
 `410 CURSOR_EXPIRED` → client calls `GET /sync/bootstrap` (full scope snapshot, paged). Sent for a cursor ahead of the feed, older than the 30-day window, or below a resync floor: the server raises one when it widens what devices may hold (1.20.1: branch-wide customers, ADR-038), so devices that took their snapshot under the old rule reload once.
 
 ### 3.6 Resolve a conflict (manager)
