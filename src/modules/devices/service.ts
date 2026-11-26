@@ -195,3 +195,13 @@ export async function touch(deviceId: string, appVersion?: string | null): Promi
   await DeviceModel.updateOne({ deviceId }, { $set: { lastSeenAt: ctx().clock.now(), ...(appVersion ? { appVersion } : {}) } });
 }
 
+
+/**
+ * 1.49.0 (ADR-067): may this device still send data for this user? False when the device is known and is not an
+ * active device of this user (pending, unbound, or someone else's). Unknown devices pass: users outside device binding
+ * (module off, role not bound) have no row, and binding is enforced at login.
+ */
+export async function deviceAllowed(userId: string, deviceId: string): Promise<boolean> {
+  const d = await DeviceModel.findOne({ deviceId }, { userId: 1, status: 1 }).lean();
+  return !d || (d.userId === userId && d.status === 'active');
+}

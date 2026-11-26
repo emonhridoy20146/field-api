@@ -22,6 +22,8 @@ export interface AuthUser {
   client: 'app' | 'web';
   mustChangePassword: boolean;
   locale: 'bn' | 'en';
+  /** 1.49.0 (ADR-067): `tracking` = authenticated by a tracking token, which only routes that opt in accept. */
+  via?: 'access' | 'tracking';
 }
 
 export const isSuperAdmin = (u: { role: Role }) => u.role === 'super_admin';

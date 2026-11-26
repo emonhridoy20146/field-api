@@ -32,6 +32,14 @@ export const manifest: ModuleManifest = {
       { collection: 'login_attempts', key: { key: 1, at: -1 } },
       { collection: 'login_attempts', key: { at: 1 }, options: { expireAfterSeconds: 86400 } },
     ]),
+    // 1.49.0 (ADR-067). Expired rows stay a week so the service can still answer TRACKING_TOKEN_EXPIRED.
+    indexMigration('20261126-0001-tracking-tokens', [
+      { collection: 'tracking_tokens', key: { tokenHash: 1 }, options: { unique: true } },
+      { collection: 'tracking_tokens', key: { userId: 1, deviceId: 1, revokedAt: 1 } },
+      { collection: 'tracking_tokens', key: { sessionId: 1 } },
+      { collection: 'tracking_tokens', key: { deviceId: 1 } },
+      { collection: 'tracking_tokens', key: { expiresAt: 1 }, options: { expireAfterSeconds: 7 * 86400 } },
+    ]),
   ],
   init() {
     ctx().ports.loadAuthUser = resolveAuthUser;

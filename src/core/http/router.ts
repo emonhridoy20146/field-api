@@ -13,6 +13,7 @@ declare module 'fastify' {
   interface FastifyContextConfig {
     access?: Access;
     permission?: string;
+    trackingAuth?: TrackingAuth;
   }
 }
 
@@ -23,8 +24,16 @@ declare module 'fastify' {
  */
 export type Access = 'public' | 'self' | { permission: string } | { anyOf: string[] };
 
+/** Resolves an `Authorization: Tracking <token>` value to the user, or throws an AppError (ADR-067). */
+export type TrackingAuth = (token: string) => Promise<AuthUser>;
+
 export interface RouteOpts {
   access: Access;
+  /**
+   * 1.49.0 (ADR-067): this route also accepts a tracking token, resolved by this function. Routes without it refuse
+   * one with 401 TRACKING_TOKEN_NOT_ALLOWED. Only POST /location/points sets it.
+   */
+  trackingAuth?: TrackingAuth;
   /** Allowed while user must still change password (auth endpoints). */
   allowPasswordChangeRequired?: boolean;
   bodyLimit?: number;
@@ -60,6 +69,8 @@ async function guard(req: FastifyRequest, opts: RouteOpts, featureFlag: string |
     return;
   }
   const user = requireUser(req);
+  // Second line of defence behind the auth hook: a tracking-token user only reaches routes that opted in.
+  if (user.via === 'tracking' && !opts.trackingAuth) throw new AppError('UNAUTHENTICATED', { reason: 'TRACKING_TOKEN_NOT_ALLOWED' });
   if (user.mustChangePassword && !opts.allowPasswordChangeRequired) throw new AppError('PASSWORD_CHANGE_REQUIRED');
   if (featureFlag && !(await ctx().ports.flagEnabled?.(featureFlag, user))) throw new AppError('FEATURE_DISABLED', { flag: featureFlag });
   if (opts.access === 'self') return;
@@ -83,6 +94,7 @@ export function defineRoutes(define: (r: Router) => void): FastifyPluginAsync<Ro
         config: {
           access: opts.access,
           ...(typeof opts.access === 'object' && 'permission' in opts.access ? { permission: opts.access.permission } : {}),
+          ...(opts.trackingAuth ? { trackingAuth: opts.trackingAuth } : {}),
         },
         preHandler: async (req) => guard(req, opts, pluginOpts.featureFlag),
         handler: async (req, reply) => {

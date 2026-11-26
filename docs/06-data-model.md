@@ -27,6 +27,10 @@ Indexes: `{ phone: 1 } unique`, `{ username: 1 } unique sparse`, `{ employeeCode
 `{ _id, userId, familyId, refreshTokenHash (sha256), deviceId, client: 'app'|'web', userAgent, ip, createdAt, lastUsedAt, expiresAt, revokedAt, revokedReason }`
 Indexes: `{ refreshTokenHash: 1 } unique`, `{ userId: 1, revokedAt: 1 }`, TTL `{ expiresAt: 1 } expireAfterSeconds: 0`.
 
+### tracking_tokens [ADDED 2026-11-26]
+`{ _id, userId, deviceId, sessionId, tokenHash (sha256), expiresAt, lastUsedAt, revokedAt, revokedReason: 'rotated'|'logout'|'password_changed'|'password_reset'|'user_deactivated'|'device_unbound'|'replaced_by_new_device'|'self_revoked'|'admin_revoked', createdAt }` (1.49.0, FR-LOC-013, ADR-067). The token itself is never stored. Valid only while not revoked, not expired, and its `sessions` row is live and on the same device.
+Indexes: `{ tokenHash: 1 } unique`, `{ userId: 1, deviceId: 1, revokedAt: 1 }`, `{ sessionId: 1 }`, `{ deviceId: 1 }`, TTL `{ expiresAt: 1 } expireAfterSeconds: 604800` (kept a week after expiry so the API can still answer TRACKING_TOKEN_EXPIRED). Migration `auth/20261126-0001-tracking-tokens` (indexes only, idempotent).
+
 ### login_attempts
 `{ key: 'acct:+8801…'|'ip:1.2.3.4', at, success }` · TTL 1 day on `at`. Account lock: 5 failures / 15 min; IP lock: setting `auth.ipLockFailures` (default 50) / 15 min, passed by a device or browser that has a `sessions` row of the user (1.47.0, ADR-064). The IP is the client IP (`X-Forwarded-For` when `TRUST_PROXY`, default on Vercel).
 

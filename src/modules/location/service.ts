@@ -13,6 +13,9 @@ import { can } from '../rbac/index.js';
 import { visitCountsOfDay, visitsOfUserDay } from '../visits/index.js';
 import { collectedOfDay, collectionsOfUserDay } from '../collections/index.js';
 import { formatBdt } from '../../core/money/index.js';
+import type { RequestMeta } from '../../core/http/router.js';
+import { issueTrackingToken as issueToken, resolveTrackingToken } from '../auth/index.js';
+import { deviceAllowed } from '../devices/index.js';
 import { filterPoints, type RawPoint } from './domain/filter.js';
 import { detectStops, freshness, segments, summarize, type TrackPoint } from './domain/track.js';
 import { DailySummaryModel, HeartbeatModel, LocationLatestModel, LocationPointModel, StopModel } from './models/location.model.js';
@@ -119,6 +122,25 @@ export async function ingest(user: AuthUser, input: z.infer<typeof ingestSchema>
     for (const d of mockDays) await ctx().bus.emit('location.mock_detected', { userId: user.id, branchId, businessDate: d });
   }
   return { accepted: r.accepted.length, rejected: r.rejected, nextSampling: sampling };
+}
+
+// ---------------- tracking token (FR-LOC-013, ADR-067) ----------------
+
+/**
+ * The staff app's native service uploads points after the app is closed, when nobody refreshes the access token. It
+ * gets this token instead of the refresh token, so the two sides never race on refresh rotation (ADR-067).
+ * The route's permission (attendance.record) is the same one that lets the user post points.
+ */
+export async function issueTrackingToken(user: AuthUser, meta: RequestMeta) {
+  const hours = Math.min(168, Math.max(1, (await getSetting<number>('location.trackingTokenTtlHours', user.branchIds[0] ?? null)) ?? 24));
+  return issueToken(user, hours, meta);
+}
+
+/** `trackingAuth` of POST /location/points: token, session and user (auth), then the device must still be approved. */
+export async function trackingUser(token: string): Promise<AuthUser> {
+  const user = await resolveTrackingToken(token);
+  if (!user.deviceId || !(await deviceAllowed(user.id, user.deviceId))) throw new AppError('UNAUTHENTICATED', { reason: 'TRACKING_TOKEN_INVALID' });
+  return user;
 }
 
 export const heartbeatSchema = z.object({

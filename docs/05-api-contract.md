@@ -8,7 +8,7 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 |---|---|
 | Base URL | `https://api.<domain>/api/v1` |
 | Versioning | URL major version. Additive changes (new optional fields, new endpoints, new enum values announced in CHANGELOG) allowed in v1. Removing/renaming fields or changing meaning → `/api/v2`. Clients must ignore unknown fields. |
-| Auth | `Authorization: Bearer <accessToken>`. Admin refresh token in `HttpOnly; Secure; SameSite=Strict` cookie `fos_rt` (path `/api/v1/auth`); app refresh token in body. |
+| Auth | `Authorization: Bearer <accessToken>`; the staff app's native location service uses `Authorization: Tracking <token>` on `POST /location/points` only (1.49.0, §3.9n). Admin refresh token in `HttpOnly; Secure; SameSite=Strict` cookie `fos_rt` (path `/api/v1/auth`); app refresh token in body. |
 | Client headers | `X-Client: staff-app/1.4.2 (android 10; Redmi 9A)` or `admin-web/1.2.0`; `X-Device-Id` (app); `Accept-Language: bn|en`; `X-Request-Id` optional (echoed). |
 | Version gate | App below `minAppVersion` → `426 UPGRADE_REQUIRED` on every call except `/meta/*`. |
 | Content | JSON UTF-8; request bodies > 1 KB may be gzip (`Content-Encoding: gzip`), required for `/location/points`. |
@@ -97,7 +97,8 @@ The machine-readable contract is **`docs/openapi.yaml`** (OpenAPI 3.1). This fil
 | `POST /attendance/events` · `GET /attendance/me/today` | `attendance.record` | FR-ATT-001 |
 | `GET /attendance/days` · `GET /attendance/summary` · `POST /attendance/corrections` | `attendance.view` / `attendance.manage` | FR-ATT-004/006 |
 | `POST /leave-requests` · `GET /leave-requests` · `POST /leave-requests/{id}/decision` · `POST /leave-requests/{id}/cancel` (own pending, 1.12.0) | `leave.request` / `attendance.manage` | FR-ATT-008 |
-| `POST /location/points` · `POST /location/heartbeat` | auth (staff on duty) | FR-LOC-001..004/010 |
+| `POST /location/points` · `POST /location/heartbeat` | auth (staff on duty); points also with `Authorization: Tracking <token>` (1.49.0) | FR-LOC-001..004/010, FR-LOC-013 |
+| `POST /location/tracking-token` (staff app session with a device; 1.49.0, ADR-067) | `attendance.record` | FR-LOC-013 |
 | `GET /location/latest` | `location.view` | FR-LOC-006 |
 | `GET /location/history` · `GET /location/stops` | `location.history.view` | FR-LOC-007/008 |
 | `GET /sync/pull` · `POST /sync/push` · `GET /sync/bootstrap` | auth (scope) | FR-SYNC-* |
@@ -470,6 +471,21 @@ GET /api/v1/audit?from=2026-11-24&to=2026-11-24&action=request.*&branchId=6731�
 ```
 - A date is inclusive Asia/Dhaka: `from` = 00:00 Dhaka (18:00 UTC the day before), `to` = the end of that Dhaka day. A date-time is still an exact instant. `from` after `to`, or anything else → 400.
 
+### 3.9n Tracking token for the native location service (1.49.0, FR-LOC-013, ADR-067)
+```http
+POST /api/v1/location/tracking-token          (Bearer access token of the app session, X-Device-Id)
+→ 200 { "token": "trk_3q2X…", "expiresAt": "2026-11-27T04:00:00.000Z" }
+
+POST /api/v1/location/points                  (from LocationTrackingService, app closed, access token long expired)
+Authorization: Tracking trk_3q2X…
+Content-Encoding: gzip
+{ "deviceId": "<same device>", "points": [ … ] }
+→ 200 { "accepted": 1, "rejected": [], "nextSampling": { … } }
+```
+- Any other route with that header → `401 { "code": "UNAUTHENTICATED", "details": { "reason": "TRACKING_TOKEN_NOT_ALLOWED" } }`.
+- Rotated, revoked (logout, password reset, deactivation, device unbind, session ended), session or user gone, device not approved → `401 … "reason": "TRACKING_TOKEN_INVALID"`; past `expiresAt` → `"TRACKING_TOKEN_EXPIRED"`. The native service does **not** refresh: it keeps the points buffered and retries with whatever token is stored at the next cycle.
+- A web session or an app session without a device → `403 FORBIDDEN { "reason": "APP_ONLY" }`; no `attendance.record` → `403 FORBIDDEN { "permission": "attendance.record" }`.
+
 ### 3.10a Pin colours and invoice viewer (1.14.0)
 Yellow and orange pins of credit customers in view:
 ```http
@@ -526,7 +542,7 @@ A call to the guarantor is logged like any contact attempt with `"target": "guar
 | HTTP | code | Meaning / client behaviour |
 |---|---|---|
 | 400 | `VALIDATION_FAILED` | `details.fields[]` per field; show inline. |
-| 401 | `UNAUTHENTICATED` / `TOKEN_EXPIRED` | Refresh then retry once. |
+| 401 | `UNAUTHENTICATED` / `TOKEN_EXPIRED` | Refresh then retry once. With a tracking token (1.49.0): `details.reason` `TRACKING_TOKEN_INVALID` / `TRACKING_TOKEN_EXPIRED` / `TRACKING_TOKEN_NOT_ALLOWED`; never refresh from the native service, keep points buffered. |
 | 401 | `INVALID_CREDENTIALS` | Show generic message. |
 | 401 | `REFRESH_REUSED` | Session family revoked → force login. |
 | 403 | `FORBIDDEN` | Missing permission (`details.permission`). |
