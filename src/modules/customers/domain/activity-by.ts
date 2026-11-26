@@ -33,6 +33,8 @@ export interface MonthPaymentRef {
   idempotencyKey?: unknown;
   collectorName?: unknown;
   referenceName?: unknown;
+  /** 1.53.0 (FR-CUS-024): paid to a returned invoice; never counted. */
+  returned?: unknown;
 }
 
 /**
@@ -57,7 +59,7 @@ const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 
 /**
  * Payments of the Dhaka month `month` (YYYY-MM) grouped by who took them, newest first. ERP payments dated in the
- * month (removed ones left out) and field collections of the month still waiting for the ERP; the two never merge.
+ * month (removed ones and, since 1.53.0, payments to a returned invoice left out) and field collections of the month still waiting for the ERP; the two never merge.
  */
 export function paidByOfMonth(month: string, payments: MonthPaymentRef[], collections: MonthCollectionRef[]): PaidByEntry[] {
   const byKey = new Map(collections.map((c) => [c.idempotencyKey, c]));
@@ -71,7 +73,7 @@ export function paidByOfMonth(month: string, payments: MonthPaymentRef[], collec
     } else out.set(k, { ...e, amountPoisha: amount, lastDate: date });
   };
   for (const p of payments) {
-    if (p.reversed || typeof p.date !== 'string' || !p.date.startsWith(month)) continue;
+    if (p.reversed || p.returned === true || typeof p.date !== 'string' || !p.date.startsWith(month)) continue;
     const amount = typeof p.amountPoisha === 'number' ? p.amountPoisha : 0;
     const staff = typeof p.idempotencyKey === 'string' ? byKey.get(p.idempotencyKey) : undefined;
     if (staff) add({ name: staff.name, source: 'staff', userId: staff.userId, pending: false }, amount, p.date);

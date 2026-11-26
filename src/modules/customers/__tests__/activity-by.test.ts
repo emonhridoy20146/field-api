@@ -58,4 +58,16 @@ describe('paidByOfMonth (FR-CUS-021)', () => {
   it('nothing this month → empty', () => {
     expect(paidByOfMonth('2026-11', [], [])).toEqual([]);
   });
+
+  it('1.53.0 (FR-CUS-024): a payment to a returned invoice is never a payer of the month', () => {
+    const out = paidByOfMonth(
+      '2026-11',
+      [
+        { date: '2026-11-10', amountPoisha: 1000, collectorName: 'Office Clerk', returned: true },
+        { date: '2026-11-11', amountPoisha: 2000, collectorName: 'Office Clerk' },
+      ],
+      [],
+    );
+    expect(out).toEqual([{ name: 'Office Clerk', source: 'erp_referrer', amountPoisha: 2000, lastDate: '2026-11-11', pending: false }]);
+  });
 });

@@ -3,6 +3,21 @@
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
 ## [Unreleased]
+### Changed — contract 1.53.0 (owner request 2026-11-26: returned invoices shown again, never counted; FR-CUS-024, ADR-071 amends ADR-068)
+- **Added `CustomerDetail.returnedPlans`** (also on the sync `customer` item, bootstrap and pull): the customer's invoices returned in the ERP, `Plan` shape with `returned: true`, `collectable: false`, status `closed`, empty `schedule` and `payments` (ERP payments posted against the invoice, each `returned: true`). `plans` still never holds a returned invoice; `returnedPlanIds` is kept unchanged for 1.50–1.52 clients.
+- **Never counted:** storage is unchanged (`erp_customers.returnedPlans`), so outstanding / due / overdue totals, `invoiceCount`, `openInvoices`, `invoiceTotals`, pay state, KPIs / dashboards and collectable plans keep leaving returned invoices out.
+- **Payments of a returned invoice** (tied by `erpPlanId` = ERP `sales_invoice_id`): shown in `payments` with new `Payment.returned: true`, on the returned invoice and in the timeline (`data.returned: true`, summary "returned invoice" / "ফেরত চালান"); left out of `activity.paidPoisha`, `lastPaidDate`, `paidBy` / `lastPaidByName`, the `paidThisMonth` filter (list and map) and promise evaluation (`erpPaidBetween`). A payment without an invoice cannot be tied and counts as before. Stored payments carry the FOS flag `returned: true`, recomputed on every ERP read.
+- **Added `returnedInvoiceCount` (int) and `onlyReturned` (bool)** on `CustomerListItem` (so also `CustomerDetail` and the sync item), `MapPin` and customer items of `GET /search`. `onlyReturned` = has invoices and all were returned. Those customers stay listed; `GET /customers/{id}` keeps working.
+- **Invoice-number search** (`q` on `GET /customers`, map and `/search`) also matches returned invoice numbers.
+- No ERP change; the ERP is only read.
+### Migrations
+- `customers/20261126-0003-show-returned-plans` (forward-only, idempotent): flags the cached payments of customers with a returned invoice and writes one change-feed entry per such customer, so phones get `returnedPlans` and the marker on their next `/sync/pull` (no resync floor, no 410).
+### Tests
+- `src/modules/customers/__tests__/returned.test.ts` (payment tied by invoice, untied payment counted, flag recomputed, `onlyReturned`, customer totals exclude a returned invoice), `paid-month.test.ts` (filter leaves out flagged payments), `activity-by.test.ts` (paidBy skips them); `test/integration/returned-invoices.test.ts` (detail `returnedPlans` + payments, list marker and paid-this-month amount / paidBy / filter, promise sum, timeline mark, map pins, `/search`, returned invoice-number search, sync bootstrap, migration + pull + second run, 401 / out-of-scope 404, OpenAPI conformance).
+### Notes for the clients
+- staff-app: on every `customer` upsert replace the stored counted plans with `plans` and the stored returned plans with `returnedPlans` (flag them returned); never add a returned plan or a `returned` payment to any total, badge or "paid" mark. Show the "returned product customer" marker when `returnedInvoiceCount > 0` and do not open rows / pins / search hits with `onlyReturned: true`. Missing fields from older servers: `[]`, 0, false.
+- admin-web: show `returnedPlans` on the customer page marked "Returned" (with their payments), `Payment.returned` marked in the payment list, the marker in the customer list, map and global search; `onlyReturned` rows are not clickable. Do not sum returned plans or payments anywhere.
+
 ### Added — tag reasons reach phones that already hold the customer (owner request 2026-11-26, staff-app schema 20; FR-TAG-010, ADR-070)
 - **Migration `customers/20261126-0002-refeed-tagged-customers`** (forward-only, idempotent, runs once on deploy): one change-feed entry per tagged customer, same audience as a tag change. Phones get those customers once more as ordinary `customer` upserts on `GET /sync/pull`, now with `tag.reasonCode` stored. No resync floor, no `410 CURSOR_EXPIRED`, no bootstrap, outbox untouched; customers only.
 - Contract unchanged (1.52.0): no schema or description change.

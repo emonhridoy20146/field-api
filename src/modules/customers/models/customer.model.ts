@@ -25,7 +25,8 @@ const customerSchema = new Schema(
     locationStatus: { type: String, enum: ['ok', 'missing', 'invalid', 'suspect_swapped', 'overridden'], default: 'missing' },
     locationSource: { type: String, enum: ['erp', 'overlay'], default: 'erp' },
     plans: { type: Schema.Types.Mixed, default: [] },
-    // 1.50.0 (FR-CUS-023, ADR-068): invoices returned in the ERP, kept out of `plans` so no client sees them.
+    // 1.50.0 (FR-CUS-023, ADR-068): invoices returned in the ERP, kept out of `plans` so no customer total counts them.
+    // 1.53.0 (FR-CUS-024, ADR-071): shown again as `CustomerDetail.returnedPlans`, never counted.
     returnedPlans: { type: Schema.Types.Mixed, default: [] },
     recentPayments: { type: Schema.Types.Mixed, default: [] },
     derived: {
