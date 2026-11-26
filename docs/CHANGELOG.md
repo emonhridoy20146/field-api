@@ -3,6 +3,20 @@
 All notable changes. Format: Keep a Changelog; contract version = `docs/openapi.yaml` `info.version`.
 
 ## [Unreleased]
+### Fixed — contract 1.49.0 (owner report 2026-11-26: live location not shown when the staff app is closed; FR-LOC-013, ADR-067)
+- **Cause:** the staff app's native foreground service keeps posting `/location/points` after the app is closed, with the access token the Dart side stored. Access tokens live 15 minutes and nothing refreshes them while the app is closed, so uploads were 401 after ~15 minutes, points stayed on the phone and the admin map froze. The native side must not refresh (refresh rotation + reuse detection would log the user out).
+- **Added `POST /location/tracking-token`** → `200 { token, expiresAt }`: staff app session with a device id (else 403 `FORBIDDEN` `details.reason: APP_ONLY`) and `attendance.record` (else 403). Opaque `trk_…` token, sha256 stored (`tracking_tokens`), bound to user + device + session, valid `location.trackingTokenTtlHours` (new setting, default **24**, 1–168). Each call rotates: the previous token of the device stops working at once. Audited `auth.tracking_token_issued`.
+- **`POST /location/points` also accepts `Authorization: Tracking <token>`** (security scheme `trackingToken`). The token must be live, its session live on the same device, the user active and the device approved; else 401 `UNAUTHENTICATED` with `details.reason` `TRACKING_TOKEN_INVALID` or `TRACKING_TOKEN_EXPIRED`. Permission, feature flag, body `deviceId` match and the duty-hours rule are unchanged (off-duty points are still refused per point). Rate limit unchanged and per user.
+- **Every other route refuses a tracking token**: 401 `UNAUTHENTICATED` `details.reason: TRACKING_TOKEN_NOT_ALLOWED` (route-level opt-in `trackingAuth` in `core/http/router`, resolved in the core auth hook; the guard checks again).
+- Tracking tokens are revoked (and audited `auth.tracking_token_revoked` with the reason) on logout (all of the user's), password change (other sessions), admin password reset, deactivation, device unbind or replacement, and when a session is ended; refresh-token reuse ends them through their session.
+- 401 and 403 now documented on `POST /location/points`.
+### Migrations
+- `auth/20261126-0001-tracking-tokens` (indexes only, idempotent).
+### Tests
+- `test/integration/tracking-token.test.ts`: issue (hash only, audit, TTL), 401/403/APP_ONLY, points accepted with a tracking token 16 minutes later while the access token is refused, off-duty still rejected, body device mismatch 400, refused on other routes, unknown / malformed / sent-as-Bearer, rotation, expiry, permission denied 403, per-user rate limit, revoked by logout, password reset, device unbind and deactivation.
+### Notes for the clients
+- staff-app: see the PR for contract 1.49.0 — get a token after login and on every app start (and when `expiresAt` is less than 12 h away), store it where `LocationTrackingService` reads it, send `Authorization: Tracking <token>` from the native service on `/location/points` only, re-read it before each upload, never refresh from native, keep points buffered on 401. Clear it on logout.
+
 ### Changed (owner request 2026-11-26: find a customer by invoice number or mobile number)
 - `GET /customers?q=` (and the global search that uses it) also matches **invoice numbers** (`plans.invoiceNo`). Separators and case are ignored, so `S24052`, `s-24052` and `24052` all find `S-24052`.
 - **Bangla digits** (০–৯) in `q` are read as ASCII digits, so a mobile number typed in Bangla matches. Spaces in a mobile number were already ignored (last 10 digits). Contract: description of `q` only, no new fields.

@@ -25,3 +25,23 @@ const attemptSchema = new Schema(
   { collection: 'login_attempts', versionKey: false },
 );
 export const LoginAttemptModel = model('LoginAttempt', attemptSchema);
+
+/**
+ * 1.49.0 (FR-LOC-013, ADR-067): a long-lived credential for the staff app's native location service, valid only on
+ * POST /location/points. Only the sha256 of the token is stored. Bound to user + device + session: ending the session
+ * ends the token too.
+ */
+const trackingTokenSchema = new Schema(
+  {
+    userId: { type: String, required: true },
+    deviceId: { type: String, required: true },
+    sessionId: { type: String, required: true },
+    tokenHash: { type: String, required: true },
+    expiresAt: { type: Date, required: true },
+    lastUsedAt: { type: Date, default: null },
+    revokedAt: { type: Date, default: null },
+    revokedReason: { type: String, default: null },
+  },
+  { collection: 'tracking_tokens', versionKey: false, timestamps: { createdAt: true, updatedAt: false } },
+);
+export const TrackingTokenModel = model('TrackingToken', trackingTokenSchema);

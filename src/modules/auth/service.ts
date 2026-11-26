@@ -12,7 +12,7 @@ import { attendanceRequired } from '../attendance/index.js';
 import { effectivePermissions } from '../rbac/index.js';
 import { flagsFor } from '../flags/index.js';
 import { getSetting } from '../settings/index.js';
-import { LoginAttemptModel, SessionModel } from './models/session.model.js';
+import { LoginAttemptModel, SessionModel, TrackingTokenModel } from './models/session.model.js';
 
 export type LoginGuard = (ctx: { user: UserView; client: 'app' | 'web'; deviceId: string | null; deviceInfo: DeviceInfo }) => Promise<void>;
 export interface DeviceInfo {
@@ -174,11 +174,14 @@ export async function refresh(token: string | undefined, meta: RequestMeta) {
 
 export async function logout(user: AuthUser, meta: RequestMeta) {
   await revoke(user.sessionId, 'logout');
+  // ADR-067: logging out stops the native location service too (all of the user's tracking tokens).
+  await revokeTrackingTokens({ userId: user.id }, 'logout', user, meta);
   await audit.record({ actor: user, action: 'auth.logout', entity: 'session', entityId: user.sessionId, meta });
 }
 
-async function revoke(sessionId: string, reason: string) {
+async function revoke(sessionId: string, reason: string, actor?: AuthUser, meta?: RequestMeta) {
   await SessionModel.updateOne({ _id: sessionId, revokedAt: null }, { $set: { revokedAt: ctx().clock.now(), revokedReason: reason } });
+  await revokeTrackingTokens({ sessionId }, reason, actor, meta);
 }
 
 export async function revokeAllForUser(userId: string, reason: string, exceptSessionId?: string): Promise<number> {
@@ -186,12 +189,66 @@ export async function revokeAllForUser(userId: string, reason: string, exceptSes
     { userId, revokedAt: null, ...(exceptSessionId ? { _id: { $ne: exceptSessionId } } : {}) },
     { $set: { revokedAt: ctx().clock.now(), revokedReason: reason } },
   );
+  await revokeTrackingTokens({ userId, ...(exceptSessionId ? { sessionId: { $ne: exceptSessionId } } : {}) }, reason);
   if (r.modifiedCount) await ctx().bus.emit('auth.session_revoked', { userId, reason });
   return r.modifiedCount;
 }
 
 export async function revokeForDevice(deviceId: string, reason: string): Promise<void> {
   await SessionModel.updateMany({ deviceId, revokedAt: null }, { $set: { revokedAt: ctx().clock.now(), revokedReason: reason } });
+  await revokeTrackingTokens({ deviceId }, reason);
+}
+
+// ---------------- tracking tokens (1.49.0, FR-LOC-013, ADR-067) ----------------
+
+/** `details.reason` of the 401 a tracking token gets; the native service never refreshes, it keeps points buffered. */
+export type TrackingTokenProblem = 'TRACKING_TOKEN_INVALID' | 'TRACKING_TOKEN_EXPIRED' | 'TRACKING_TOKEN_NOT_ALLOWED';
+const trackingError = (reason: TrackingTokenProblem) => new AppError('UNAUTHENTICATED', { reason });
+const TRACKING_TOKEN_RE = /^trk_[A-Za-z0-9_-]{40,60}$/;
+
+/** Revokes the live tracking tokens matching `filter` and audits it once per affected user. */
+async function revokeTrackingTokens(filter: Record<string, unknown>, reason: string, actor?: AuthUser, meta?: RequestMeta): Promise<number> {
+  const rows = await TrackingTokenModel.find({ ...filter, revokedAt: null }, { userId: 1 }).lean();
+  if (!rows.length) return 0;
+  await TrackingTokenModel.updateMany({ _id: { $in: rows.map((r) => r._id) }, revokedAt: null }, { $set: { revokedAt: ctx().clock.now(), revokedReason: reason } });
+  const perUser = new Map<string, number>();
+  for (const r of rows) perUser.set(r.userId, (perUser.get(r.userId) ?? 0) + 1);
+  for (const [userId, count] of perUser)
+    await audit.record({ actor: actor ?? null, action: 'auth.tracking_token_revoked', entity: 'user', entityId: userId, after: { reason, count }, ...(meta ? { meta } : {}) });
+  return rows.length;
+}
+
+/**
+ * Issues a new tracking token for the caller's app session and revokes the previous one of this user and device
+ * (rotation). The caller (location) decides who may have one and for how long.
+ */
+export async function issueTrackingToken(user: AuthUser, ttlHours: number, meta: RequestMeta): Promise<{ token: string; expiresAt: string }> {
+  if (user.client !== 'app' || !user.deviceId || user.via === 'tracking') throw new AppError('FORBIDDEN', { reason: 'APP_ONLY' });
+  const now = ctx().clock.now();
+  const token = `trk_${randomToken(32)}`;
+  const expiresAt = new Date(now.getTime() + ttlHours * 3600_000);
+  const replaced = await TrackingTokenModel.updateMany({ userId: user.id, deviceId: user.deviceId, revokedAt: null }, { $set: { revokedAt: now, revokedReason: 'rotated' } });
+  await TrackingTokenModel.create({ userId: user.id, deviceId: user.deviceId, sessionId: user.sessionId, tokenHash: sha256(token), expiresAt });
+  await audit.record({ actor: user, action: 'auth.tracking_token_issued', entity: 'user', entityId: user.id, branchId: user.branchIds[0] ?? null, after: { deviceId: user.deviceId, expiresAt: expiresAt.toISOString(), replaced: replaced.modifiedCount }, meta });
+  return { token, expiresAt: expiresAt.toISOString() };
+}
+
+/**
+ * Resolves `Authorization: Tracking <token>` to the user, or throws 401 with `details.reason`. The token must be
+ * live, its session live and on the same device, and the user active. The device check is the caller's (location).
+ */
+export async function resolveTrackingToken(token: string): Promise<AuthUser> {
+  if (!TRACKING_TOKEN_RE.test(token)) throw trackingError('TRACKING_TOKEN_INVALID');
+  const now = ctx().clock.now();
+  const t = await TrackingTokenModel.findOne({ tokenHash: sha256(token) }).lean();
+  if (!t || t.revokedAt) throw trackingError('TRACKING_TOKEN_INVALID');
+  if (t.expiresAt <= now) throw trackingError('TRACKING_TOKEN_EXPIRED');
+  const s = isOid(t.sessionId) ? await SessionModel.findById(t.sessionId).lean() : null;
+  if (!s || s.revokedAt || s.expiresAt <= now || s.userId !== t.userId || s.deviceId !== t.deviceId) throw trackingError('TRACKING_TOKEN_INVALID');
+  const user = await loadAuthUser(t.userId, t.sessionId, 'app', t.deviceId);
+  if (!user) throw trackingError('TRACKING_TOKEN_INVALID');
+  await TrackingTokenModel.updateOne({ _id: t._id }, { $set: { lastUsedAt: now } });
+  return { ...user, via: 'tracking' };
 }
 
 export async function changePassword(user: AuthUser, current: string, next: string, meta: RequestMeta) {
@@ -235,7 +292,7 @@ export async function revokeSession(actor: AuthUser, sessionId: string, canManag
     const inScope = target && sharesBranch(actor, target);
     if (!canManageOthers || !inScope) throw notFound('session');
   }
-  await revoke(sessionId, s.userId === actor.id ? 'self_revoked' : 'admin_revoked');
+  await revoke(sessionId, s.userId === actor.id ? 'self_revoked' : 'admin_revoked', actor, meta);
   await audit.record({ actor, action: 'auth.session_revoked', entity: 'session', entityId: sessionId, after: { userId: s.userId }, meta });
 }
 

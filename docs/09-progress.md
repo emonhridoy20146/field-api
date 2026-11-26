@@ -74,6 +74,7 @@ Estimates assume one AI-assisted developer per repo; they are planning aids, not
 |---|---|---|
 | Spike: background location engine on 4 OEMs (Xiaomi, Samsung, Oppo/Realme, Vivo) | ADR-009 | ☐ |
 | Duty-only adaptive tracking, filters, offline queue, heartbeat | FR-LOC-001..004, 010, 011 | ◐ server ✅ (ingest, duty check, filters, sampling config, heartbeat, tracking-stopped watchdog); app side in staff-app |
+| Live location while the app is closed: tracking token for the native service (`POST /location/tracking-token`, `Authorization: Tracking` on `/location/points`; owner report 2026-11-26, contract 1.49.0) | FR-LOC-013 | ✅ API (ADR-067); staff-app: issue/store/rotate the token, native service sends it |
 | Mock-location detection | FR-LOC-005 | ◐ server ✅ (flag stored, inbox once per staff and day); detection itself in staff-app |
 | Latest-location map, route history, stops | FR-LOC-006..008 | ✅ API (with visit/collection overlay, stop ↔ visit link, today's totals on the marker); screens in admin-web |
 | Visit suggestion from dwell | FR-VIS-005 | ☐ |

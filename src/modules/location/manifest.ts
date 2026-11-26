@@ -16,9 +16,9 @@ const createPoints: Migration = {
 export const manifest: ModuleManifest = {
   name: 'location',
   version: '1.0.0',
-  description: 'Duty-hours location: ingest with filters, heartbeat, latest map, route history, stops, daily summary (FR-LOC-001..012)',
+  description: 'Duty-hours location: ingest with filters, tracking token, heartbeat, latest map, route history, stops, daily summary (FR-LOC-001..013)',
   featureFlag: { key: 'module.location', default: false, description: 'Duty-hours location tracking', owner: 'field-api' },
-  dependsOn: ['settings', 'users', 'rbac', 'attendance', 'customers', 'visits', 'collections'],
+  dependsOn: ['settings', 'users', 'rbac', 'attendance', 'customers', 'visits', 'collections', 'auth', 'devices'],
   permissions: [
     { key: 'location.view', description: { en: 'Latest location map', bn: 'সর্বশেষ অবস্থানের ম্যাপ' }, defaults: { super_admin: true, area_manager: true, branch_manager: true } },
     { key: 'location.history.view', description: { en: 'Route history and stops', bn: 'রুটের ইতিহাস ও বিরতি' }, defaults: { super_admin: true, area_manager: true, branch_manager: true } },
@@ -32,6 +32,7 @@ export const manifest: ModuleManifest = {
     { key: 'location.maxSpeedKmh', type: 'int', default: 120, description: 'FR-LOC-003 discard points implying more than this speed' },
     { key: 'location.retentionDays', type: 'int', default: 90, description: 'FR-LOC-009 raw point retention (7–730 days)' },
     { key: 'location.gapMin', type: 'int', default: 10, description: 'No point for longer than this is shown as a gap' },
+    { key: 'location.trackingTokenTtlHours', type: 'int', default: 24, description: 'FR-LOC-013 (1.49.0, ADR-067) lifetime of the tracking token of the native location service, 1–168 hours' },
     { key: 'location.lostAfterMin', type: 'int', default: 30, description: 'FR-LOC-010 no point and no heartbeat for this long while on duty raises "tracking stopped"' },
     { key: 'stops.radiusM', type: 'int', default: 60, branchOverridable: true, exposeToApp: true, description: 'FR-LOC-008 stop radius' },
     { key: 'stops.minDwellMin', type: 'int', default: 5, branchOverridable: true, exposeToApp: true, description: 'FR-LOC-008 minimum dwell' },

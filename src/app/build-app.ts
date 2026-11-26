@@ -130,6 +130,17 @@ export async function buildApp(opts: BuildOptions): Promise<Built> {
       } catch (e) {
         req.authError = e instanceof AppError ? e : new AppError('UNAUTHENTICATED');
       }
+    } else if (h?.startsWith('Tracking ')) {
+      // 1.49.0 (ADR-067): only a route that opted in (POST /location/points) resolves a tracking token; every other
+      // route answers 401. Resolved here, before the rate limiter, so the limit is per user as for access tokens.
+      const resolveTracking = req.routeOptions.config?.trackingAuth;
+      if (!resolveTracking) req.authError = new AppError('UNAUTHENTICATED', { reason: 'TRACKING_TOKEN_NOT_ALLOWED' });
+      else
+        try {
+          req.user = await resolveTracking(h.slice(9).trim());
+        } catch (e) {
+          req.authError = e instanceof AppError ? e : new AppError('UNAUTHENTICATED');
+        }
     }
     // FR-AUTH-009 version gate for the staff app.
     const client = parseClientHeader(req.headers['x-client'] as string | undefined);
